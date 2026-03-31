@@ -12,17 +12,23 @@ Workerが正常に結果を返すか確認する。SWIMには接続しない。
   python scripts/test_worker_redis.py meku
 """
 import json
+import os
 import sys
 import time
 import uuid
 
 import redis
 
-# --- 設定（.envから読むか、ここを直接書き換え） ---
-REDIS_HOST = "REDACTED_IP"  # パブリックIP or Tailscale IP
-REDIS_PORT = 6380
-REDIS_PASSWORD = ""  # ここにパスワードを入れる
-REDIS_CA_CERT = "./ca.crt"
+# --- 設定（.envから読む） ---
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+REDIS_HOST = os.environ.get("REDIS_HOST", "")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6380"))
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
 
 
 def main():
@@ -32,9 +38,18 @@ def main():
 
     worker_name = sys.argv[1]
 
+    if not REDIS_HOST or not REDIS_PASSWORD:
+        print("エラー: REDIS_HOST, REDIS_PASSWORD を .env に設定してください")
+        sys.exit(1)
+
+    # 埋め込みCA証明書を使用
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from swim_worker.certs import get_ca_cert_path
+    ca_cert = get_ca_cert_path()
+
     r = redis.Redis(
         host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD,
-        ssl=True, ssl_ca_certs=REDIS_CA_CERT, decode_responses=True,
+        ssl=True, ssl_ca_certs=ca_cert, decode_responses=True,
     )
 
     # 1. Redis接続テスト
