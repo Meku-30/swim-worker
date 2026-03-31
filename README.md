@@ -20,31 +20,63 @@ SWIMポータルのアカウントがあれば誰でも参加可能です。
 |-----------|------|
 | SWIMアカウント | [SWIMポータル](https://www.swim.mlit.go.jp/) のログインID・パスワード |
 
-> `ca.crt`（セキュリティ証明書）はリポジトリとReleasesページに同梱済みです。別途入手する必要はありません。
+---
+
+## Windows の場合（GUI版）
+
+### ステップ 1: ダウンロード
+
+[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下の **2つ** をダウンロードして、同じフォルダに入れてください。
+
+- `swim-worker-windows.exe`
+- `ca.crt`
+
+### ステップ 2: 起動して設定
+
+`swim-worker-windows.exe` をダブルクリックすると設定画面が開きます。
+
+各欄を記入してください：
+
+| 欄 | 入力する内容 |
+|----|------------|
+| Redis ホスト | 管理者から教えてもらったアドレス |
+| Redis パスワード | 管理者から教えてもらったパスワード |
+| SWIM ID | あなたのSWIMログインID |
+| SWIM パスワード | あなたのSWIMパスワード |
+| Worker 名 | あなたの名前（ローマ字、例: tanaka） |
+
+記入したら **「▶ 起動」** をクリック。
+
+### ステップ 3: 承認を待つ
+
+画面に以下が表示されれば接続成功です：
+
+```
+21:50:00 Redis接続成功
+21:50:00 Worker 'tanaka' を登録しました (pending)
+21:50:00 Worker 'tanaka' 起動
+```
+
+**管理者に「起動しました」と連絡**してください。承認されると自動的にタスクの受信が始まります。
+
+### 自動起動
+
+画面下部の **「Windows起動時に自動起動」** にチェックを入れると、PC起動時に自動で立ち上がります。
 
 ---
 
-## セットアップ（3ステップ）
+## Mac / Linux の場合（CLI版）
 
-### ステップ 1: ファイルをダウンロード
+### ステップ 1: ダウンロード
 
-[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から、自分のOSに合ったセットをダウンロードしてください。
+[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下をダウンロードして同じフォルダに入れてください。
 
-| OS | ダウンロードするファイル |
-|----|----------------------|
-| Windows | `swim-worker-windows.exe`, `start.bat`, `ca.crt`, `.env.example` |
-| Mac | `swim-worker-macos`, `start.sh`, `ca.crt`, `.env.example` |
-| Linux | `swim-worker-linux`, `start.sh`, `ca.crt`, `.env.example` |
-
-全部ダウンロードして、同じフォルダに入れてください（例: デスクトップに `swim-worker` フォルダを作る）。
+- Mac: `swim-worker-macos` + `ca.crt` + `.env.example`
+- Linux: `swim-worker-linux` + `ca.crt` + `.env.example`
 
 ### ステップ 2: 設定ファイルを作る
 
-ダウンロードした `.env.example` を `.env` にリネーム（名前変更）して、中身を書き換えます。
-
-#### `.env` ファイル
-
-テキストエディタ（メモ帳でOK）で新しいファイルを作り、以下の内容を書いて `.env` という名前で保存してください。
+`.env.example` を `.env` にリネームして、中身を書き換えます。
 
 ```
 REDIS_HOST=管理者から教えてもらったアドレス
@@ -56,72 +88,33 @@ SWIM_PASSWORD=あなたのSWIMパスワード
 WORKER_NAME=あなたの名前（ローマ字、例: tanaka）
 ```
 
-> **Windowsの注意**: メモ帳で保存するとき、ファイル名を `.env` にして「ファイルの種類」を「すべてのファイル」にしてください。`.env.txt` になってしまうと動きません。
-
-保存後、フォルダの中身はこうなっているはずです：
-
-```
-swim-worker/
-  swim-worker-windows.exe  (または swim-worker-linux, swim-worker-macos)
-  .env
-  ca.crt
-```
-
 ### ステップ 3: 起動
 
-#### Windows
-
-`start.bat` をダブルクリック。または `swim-worker-windows.exe` を直接ダブルクリック。
-
-#### Mac / Linux
-
-ターミナルで：
 ```bash
-chmod +x ./swim-worker-linux   # (Macなら swim-worker-macos)
-./start.sh
-```
-
-#### 起動したら
-
-以下のようなメッセージが表示されれば成功です：
-
-```
-INFO  Redis接続成功
-INFO  Worker 'tanaka' を登録しました (pending)
-INFO  Worker 'tanaka' 起動
+chmod +x ./swim-worker-linux   # Macなら: chmod +x ./swim-worker-macos
+./swim-worker-linux             # Macなら: ./swim-worker-macos
 ```
 
 起動後、**管理者に「起動しました」と連絡**してください。
-管理者が承認すると、自動的にタスクの受信が始まります。
 
----
-
-## 停止方法
-
-- **Windows**: ウィンドウを閉じる、または `Ctrl+C`
-- **Mac / Linux**: `Ctrl+C`
-
-再度起動したいときは、もう一度実行ファイルを起動するだけです。
+停止は `Ctrl+C` です。
 
 ---
 
 ## うまくいかないとき
 
-| 表示されるメッセージ | 原因 | やること |
-|-------------------|------|---------|
-| `Redis接続失敗` | サーバーに繋がらない | `.env` の REDIS_HOST, REDIS_PASSWORD を確認。管理者に連絡 |
-| `TLS connection error` | 証明書が見つからない | `ca.crt` が `.env` と同じフォルダにあるか確認 |
-| `ログインAPI失敗` | SWIMのIDかパスワードが違う | `.env` の SWIM_USERNAME, SWIM_PASSWORD を確認 |
-| タスクが来ない | まだ承認されていない | 管理者に連絡して承認してもらう |
-| `.env` が認識されない (Windows) | ファイル名が `.env.txt` になっている | ファイル拡張子を表示して `.txt` を削除 |
+| 症状 | やること |
+|------|---------|
+| `Redis接続失敗` | Redisホスト・パスワードを確認。管理者に連絡 |
+| `TLS connection error` | `ca.crt` が実行ファイルと同じフォルダにあるか確認 |
+| `ログインAPI失敗` | SWIM ID・パスワードを確認 |
+| タスクが来ない | 管理者に承認してもらう |
 
 それでも解決しない場合は、管理者に画面のスクリーンショットを送ってください。
 
 ---
 
 ## Docker で動かす場合（上級者向け）
-
-Docker を使える方は以下の方法でも起動できます。
 
 ```bash
 git clone https://github.com/Meku-30/swim-worker.git
@@ -130,22 +123,7 @@ cp .env.example .env   # 設定を記入
 docker compose up -d
 ```
 
-停止: `docker compose down`
-ログ: `docker compose logs -f`
-
----
-
-## Python で動かす場合（上級者向け）
-
-Python 3.12 以上がインストールされている場合：
-
-```bash
-git clone https://github.com/Meku-30/swim-worker.git
-cd swim-worker
-cp .env.example .env   # 設定を記入
-pip install -r requirements.txt
-python -m swim_worker
-```
+停止: `docker compose down` / ログ: `docker compose logs -f`
 
 ---
 
