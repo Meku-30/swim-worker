@@ -57,9 +57,10 @@ jobs:
 
       - name: Rename artifacts
         run: |
-          mv swim-worker-linux/swim-worker swim-worker-linux/swim-worker-linux
-          mv swim-worker-macos/swim-worker swim-worker-macos/swim-worker-macos
-          mv swim-worker-windows/swim-worker-gui.exe swim-worker-windows/swim-worker-windows.exe
+          mv swim-worker-linux/swim-worker swim-worker-linux/swim-worker-linux || true
+          mv swim-worker-macos/swim-worker swim-worker-macos/swim-worker-macos || true
+          mv swim-worker-windows/swim-worker-gui.exe swim-worker-windows/swim-worker-windows.exe || true
+          ls -la swim-worker-*/ || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
