@@ -174,6 +174,15 @@ class WorkerGUI:
         # 設定保存してから起動
         self._save_env()
 
+        # UIスレッドで値をコピー（別スレッドからのアクセスを避ける）
+        self._worker_settings = {
+            "redis_host": self._entries["redis_host"].get().strip(),
+            "redis_password": self._entries["redis_password"].get().strip(),
+            "swim_username": self._entries["swim_username"].get().strip(),
+            "swim_password": self._entries["swim_password"].get().strip(),
+            "worker_name": self._entries["worker_name"].get().strip(),
+        }
+
         self._start_btn.configure(state="disabled")
         self._stop_btn.configure(state="normal")
         for entry in self._entries.values():
@@ -206,14 +215,15 @@ class WorkerGUI:
 
         async def _main():
             try:
-                # 環境変数を.envから再読み込み
-                os.environ["REDIS_HOST"] = self._entries["redis_host"].get()
+                # UIスレッドでコピー済みの値を使用
+                ws = self._worker_settings
+                os.environ["REDIS_HOST"] = ws["redis_host"]
                 os.environ["REDIS_PORT"] = "6380"
-                os.environ["REDIS_PASSWORD"] = self._entries["redis_password"].get()
+                os.environ["REDIS_PASSWORD"] = ws["redis_password"]
                 os.environ["REDIS_CA_CERT"] = ""
-                os.environ["SWIM_USERNAME"] = self._entries["swim_username"].get()
-                os.environ["SWIM_PASSWORD"] = self._entries["swim_password"].get()
-                os.environ["WORKER_NAME"] = self._entries["worker_name"].get()
+                os.environ["SWIM_USERNAME"] = ws["swim_username"]
+                os.environ["SWIM_PASSWORD"] = ws["swim_password"]
+                os.environ["WORKER_NAME"] = ws["worker_name"]
 
                 settings = Settings()
 
