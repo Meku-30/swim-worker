@@ -22,6 +22,13 @@ common_args = [
 
 if platform.system() == "Windows":
     # Windows: GUI版のみ
+    gui_args = [
+        "--hidden-import", "pystray",
+        "--hidden-import", "pystray._win32",
+        "--hidden-import", "PIL",
+        "--hidden-import", "PIL.Image",
+        "--hidden-import", "PIL.ImageDraw",
+    ]
     print("Building swim-worker-gui (Windows GUI)...")
     PyInstaller.__main__.run([
         "swim_worker/gui_main.py",
@@ -29,6 +36,7 @@ if platform.system() == "Windows":
         "--name", "swim-worker-gui",
         "--windowed",
         *common_args,
+        *gui_args,
     ])
 else:
     # Mac/Linux: CLI版
