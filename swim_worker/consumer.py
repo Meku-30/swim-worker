@@ -23,6 +23,7 @@ class TaskConsumer:
         self._worker_name = worker_name
         self._heartbeat_interval = heartbeat_interval
         self._running = False
+        self._tasks: list[asyncio.Task] = []
 
     async def register(self) -> None:
         """Worker を pending リストに登録"""
@@ -91,14 +92,16 @@ class TaskConsumer:
         logger.info("Worker '%s' 起動", self._worker_name)
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         consume_task = asyncio.create_task(self._consume_loop())
+        self._tasks = [heartbeat_task, consume_task]
         try:
             await asyncio.gather(heartbeat_task, consume_task)
         except asyncio.CancelledError:
             pass
         finally:
             self._running = False
-            heartbeat_task.cancel()
-            consume_task.cancel()
+            logger.info("Worker '%s' 停止", self._worker_name)
 
     def stop(self) -> None:
         self._running = False
+        for task in self._tasks:
+            task.cancel()
