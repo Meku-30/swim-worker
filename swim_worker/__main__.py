@@ -6,6 +6,7 @@ import sys
 
 import redis.asyncio as aioredis
 
+from swim_worker.certs import get_ca_cert_path
 from swim_worker.config import Settings
 from swim_worker.auth import SwimClient
 from swim_worker.consumer import TaskConsumer
@@ -17,13 +18,14 @@ logger = logging.getLogger(__name__)
 async def main() -> None:
     settings = Settings()
 
-    # Redis接続
+    # Redis接続（埋め込みCA証明書を使用）
+    ca_cert = settings.redis_ca_cert if settings.redis_ca_cert else get_ca_cert_path()
     redis_client = aioredis.Redis(
         host=settings.redis_host,
         port=settings.redis_port,
         password=settings.redis_password,
-        ssl=bool(settings.redis_ca_cert),
-        ssl_ca_certs=settings.redis_ca_cert if settings.redis_ca_cert else None,
+        ssl=True,
+        ssl_ca_certs=ca_cert,
         decode_responses=True,
     )
 
