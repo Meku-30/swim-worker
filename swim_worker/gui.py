@@ -159,7 +159,6 @@ class WorkerGUI:
 
         # 固定値
         lines.append("REDIS_PORT=6380")
-        lines.append("REDIS_CA_CERT=./ca.crt")
 
         ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
         logging.info("設定を保存しました")
@@ -171,10 +170,6 @@ class WorkerGUI:
             if not entry.get().strip():
                 messagebox.showerror("エラー", f"{key} が空です。設定を記入してください。")
                 return
-
-        if not CA_CERT_PATH.exists():
-            messagebox.showerror("エラー", "ca.crt が見つかりません。\n実行ファイルと同じフォルダに配置してください。")
-            return
 
         # 設定保存してから起動
         self._save_env()
@@ -204,6 +199,7 @@ class WorkerGUI:
     def _run_worker(self):
         """ワーカーを別スレッドで実行"""
         import redis.asyncio as aioredis
+        from swim_worker.certs import get_ca_cert_path
         from swim_worker.config import Settings
         from swim_worker.auth import SwimClient
         from swim_worker.consumer import TaskConsumer
@@ -214,19 +210,20 @@ class WorkerGUI:
                 os.environ["REDIS_HOST"] = self._entries["redis_host"].get()
                 os.environ["REDIS_PORT"] = "6380"
                 os.environ["REDIS_PASSWORD"] = self._entries["redis_password"].get()
-                os.environ["REDIS_CA_CERT"] = str(CA_CERT_PATH)
+                os.environ["REDIS_CA_CERT"] = ""
                 os.environ["SWIM_USERNAME"] = self._entries["swim_username"].get()
                 os.environ["SWIM_PASSWORD"] = self._entries["swim_password"].get()
                 os.environ["WORKER_NAME"] = self._entries["worker_name"].get()
 
                 settings = Settings()
 
+                ca_cert = get_ca_cert_path()
                 redis_client = aioredis.Redis(
                     host=settings.redis_host,
                     port=settings.redis_port,
                     password=settings.redis_password,
-                    ssl=bool(settings.redis_ca_cert),
-                    ssl_ca_certs=settings.redis_ca_cert if settings.redis_ca_cert else None,
+                    ssl=True,
+                    ssl_ca_certs=ca_cert,
                     decode_responses=True,
                 )
 
