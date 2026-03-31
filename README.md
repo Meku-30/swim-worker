@@ -26,14 +26,11 @@ SWIMポータルのアカウントがあれば誰でも参加可能です。
 
 ### ステップ 1: ダウンロード
 
-[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下の **2つ** をダウンロードして、同じフォルダに入れてください。
-
-- `swim-worker-windows.exe`
-- `ca.crt`
+[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から `swim-worker-windows.exe` をダウンロードしてください。**これ1つだけ**でOKです。
 
 ### ステップ 2: 起動して設定
 
-`swim-worker-windows.exe` をダブルクリックすると設定画面が開きます。
+ダウンロードした `swim-worker-windows.exe` をダブルクリックすると設定画面が開きます。
 
 各欄を記入してください：
 
@@ -71,8 +68,8 @@ SWIMポータルのアカウントがあれば誰でも参加可能です。
 
 [Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下をダウンロードして同じフォルダに入れてください。
 
-- Mac: `swim-worker-macos` + `ca.crt` + `.env.example`
-- Linux: `swim-worker-linux` + `ca.crt` + `.env.example`
+- Mac: `swim-worker-macos` + `.env.example`
+- Linux: `swim-worker-linux` + `.env.example`
 
 ### ステップ 2: 設定ファイルを作る
 
@@ -82,7 +79,6 @@ SWIMポータルのアカウントがあれば誰でも参加可能です。
 REDIS_HOST=管理者から教えてもらったアドレス
 REDIS_PORT=6380
 REDIS_PASSWORD=管理者から教えてもらったパスワード
-REDIS_CA_CERT=./ca.crt
 SWIM_USERNAME=あなたのSWIMログインID
 SWIM_PASSWORD=あなたのSWIMパスワード
 WORKER_NAME=あなたの名前（ローマ字、例: tanaka）
@@ -106,7 +102,7 @@ chmod +x ./swim-worker-linux   # Macなら: chmod +x ./swim-worker-macos
 | 症状 | やること |
 |------|---------|
 | `Redis接続失敗` | Redisホスト・パスワードを確認。管理者に連絡 |
-| `TLS connection error` | `ca.crt` が実行ファイルと同じフォルダにあるか確認 |
+| `TLS connection error` | 証明書エラー。管理者に連絡 |
 | `ログインAPI失敗` | SWIM ID・パスワードを確認 |
 | タスクが来ない | 管理者に承認してもらう |
 
