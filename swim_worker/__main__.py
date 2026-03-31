@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import signal
-import ssl
 import sys
 
 import redis.asyncio as aioredis
@@ -19,15 +18,11 @@ async def main() -> None:
     settings = Settings()
 
     # Redis接続
-    ssl_ctx = None
-    if settings.redis_ca_cert:
-        ssl_ctx = ssl.create_default_context(cafile=settings.redis_ca_cert)
-
     redis_client = aioredis.Redis(
-        host=settings.redis_url.split("://")[-1].split(":")[0],
-        port=int(settings.redis_url.split(":")[-1]),
+        host=settings.redis_host,
+        port=settings.redis_port,
         password=settings.redis_password,
-        ssl=ssl_ctx is not None,
+        ssl=bool(settings.redis_ca_cert),
         ssl_ca_certs=settings.redis_ca_cert if settings.redis_ca_cert else None,
         decode_responses=True,
     )

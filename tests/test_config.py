@@ -4,7 +4,8 @@ import pytest
 
 class TestSettings:
     def test_loads_from_env(self, monkeypatch):
-        monkeypatch.setenv("REDIS_URL", "rediss://localhost:6380")
+        monkeypatch.setenv("REDIS_HOST", "localhost")
+        monkeypatch.setenv("REDIS_PORT", "6380")
         monkeypatch.setenv("REDIS_PASSWORD", "testpass")
         monkeypatch.setenv("SWIM_USERNAME", "user1")
         monkeypatch.setenv("SWIM_PASSWORD", "pass1")
@@ -12,13 +13,14 @@ class TestSettings:
 
         from swim_worker.config import Settings
         s = Settings()
-        assert s.redis_url == "rediss://localhost:6380"
+        assert s.redis_host == "localhost"
+        assert s.redis_port == 6380
         assert s.redis_password == "testpass"
         assert s.swim_username == "user1"
         assert s.worker_name == "test-worker"
 
     def test_defaults(self, monkeypatch):
-        monkeypatch.setenv("REDIS_URL", "rediss://localhost:6380")
+        monkeypatch.setenv("REDIS_HOST", "localhost")
         monkeypatch.setenv("REDIS_PASSWORD", "p")
         monkeypatch.setenv("SWIM_USERNAME", "u")
         monkeypatch.setenv("SWIM_PASSWORD", "p")
