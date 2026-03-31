@@ -6,8 +6,8 @@
   python scripts/build_exe.py
 
 出力:
-  全OS: dist/swim-worker (CLI版)
-  Windowsのみ: dist/swim-worker-gui.exe (GUI版)
+  Windows: dist/swim-worker-gui.exe (GUI版のみ)
+  Mac/Linux: dist/swim-worker (CLI版)
 """
 import platform
 import PyInstaller.__main__
@@ -20,23 +20,23 @@ common_args = [
     "--hidden-import", "dotenv",
 ]
 
-# CLI版（全OS）
-print("Building swim-worker (CLI)...")
-PyInstaller.__main__.run([
-    "swim_worker/__main__.py",
-    "--onefile",
-    "--name", "swim-worker",
-    *common_args,
-])
-
-# GUI版（Windowsのみ）
 if platform.system() == "Windows":
+    # Windows: GUI版のみ
     print("Building swim-worker-gui (Windows GUI)...")
     PyInstaller.__main__.run([
         "swim_worker/gui_main.py",
         "--onefile",
         "--name", "swim-worker-gui",
         "--windowed",
+        *common_args,
+    ])
+else:
+    # Mac/Linux: CLI版
+    print("Building swim-worker (CLI)...")
+    PyInstaller.__main__.run([
+        "swim_worker/__main__.py",
+        "--onefile",
+        "--name", "swim-worker",
         *common_args,
     ])
 

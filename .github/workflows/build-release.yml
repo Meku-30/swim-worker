@@ -53,12 +53,13 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
+      - uses: actions/checkout@v4
+
       - name: Rename artifacts
         run: |
           mv swim-worker-linux/swim-worker swim-worker-linux/swim-worker-linux
           mv swim-worker-macos/swim-worker swim-worker-macos/swim-worker-macos
-          mv swim-worker-windows/swim-worker.exe swim-worker-windows/swim-worker-windows.exe
-          mv swim-worker-windows/swim-worker-gui.exe swim-worker-windows/swim-worker-gui-windows.exe || true
+          mv swim-worker-windows/swim-worker-gui.exe swim-worker-windows/swim-worker-windows.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -67,5 +68,8 @@ jobs:
             swim-worker-linux/swim-worker-linux
             swim-worker-macos/swim-worker-macos
             swim-worker-windows/swim-worker-windows.exe
-            swim-worker-windows/swim-worker-gui-windows.exe
+            ca.crt
+            .env.example
+            start.bat
+            start.sh
           generate_release_notes: true
