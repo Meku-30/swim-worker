@@ -29,6 +29,19 @@ SWIM（航空情報共有基盤）分散収集システムのWorkerノード。
   - Docker + Docker Compose
   - Python 3.12 以上
 
+## クイックスタート (実行ファイル)
+
+Python や Docker をインストールしたくない場合、ビルド済みの実行ファイルを利用できます。
+
+1. [Releases ページ](https://github.com/Meku-30/swim-worker/releases) から OS に合ったファイルをダウンロード
+   - Windows: `swim-worker-windows.exe`
+   - Mac: `swim-worker-macos`
+   - Linux: `swim-worker-linux`
+2. 同じフォルダに `.env` ファイルと `ca.crt` を配置（下記「設定ファイルを作成」参照）
+3. 実行
+   - Windows: `swim-worker-windows.exe` をダブルクリック
+   - Mac/Linux: `chmod +x swim-worker-* && ./swim-worker-linux` (or macos)
+
 ## セットアップ
 
 ### 1. リポジトリを取得
