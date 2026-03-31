@@ -61,10 +61,18 @@ class TaskConsumer:
 
         await self._redis.setex(f"results:{task_id}", RESULT_TTL, json.dumps(result))
 
+    async def _ensure_registered(self) -> None:
+        """approved にも pending にもいなければ再登録する"""
+        is_approved = await self._redis.sismember("workers:approved", self._worker_name)
+        is_pending = await self._redis.sismember("workers:pending", self._worker_name)
+        if not is_approved and not is_pending:
+            await self.register()
+
     async def _heartbeat_loop(self) -> None:
         while self._running:
             try:
                 await self.send_heartbeat()
+                await self._ensure_registered()
             except Exception as e:
                 logger.warning("ハートビート送信失敗: %s", e)
             await asyncio.sleep(self._heartbeat_interval)
