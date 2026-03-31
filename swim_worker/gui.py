@@ -8,6 +8,16 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
+# System tray support (Windows only)
+_HAS_TRAY = False
+if sys.platform == "win32":
+    try:
+        import pystray
+        from PIL import Image, ImageDraw
+        _HAS_TRAY = True
+    except ImportError:
+        pass
+
 
 # .env のデフォルトパス（exeと同じフォルダ）
 def _get_base_dir() -> Path:
@@ -52,6 +62,7 @@ class WorkerGUI:
         self._worker_running = False
         self._consumer = None
 
+        self._tray_icon = None
         self._build_ui()
         self._load_env()
 
@@ -122,6 +133,57 @@ class WorkerGUI:
         logging.root.addHandler(handler)
         logging.root.setLevel(logging.INFO)
 
+        self._setup_tray()
+
+    # --- System tray ---
+    def _create_tray_icon(self, color="green"):
+        """Create a simple colored circle icon for the system tray"""
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        colors = {"green": (0, 180, 0), "gray": (128, 128, 128), "red": (200, 0, 0)}
+        draw.ellipse([8, 8, 56, 56], fill=colors.get(color, (128, 128, 128)))
+        return img
+
+    def _setup_tray(self):
+        """Setup system tray icon"""
+        if not _HAS_TRAY:
+            return
+
+        menu = pystray.Menu(
+            pystray.MenuItem("表示", self._tray_show),
+            pystray.MenuItem("終了", self._tray_quit),
+        )
+        self._tray_icon = pystray.Icon(
+            "swim-worker",
+            self._create_tray_icon("gray"),
+            "SWIM Worker",
+            menu,
+        )
+
+    def _tray_show(self, icon=None, item=None):
+        """Show the main window from tray"""
+        self._root.after(0, self._root.deiconify)
+
+    def _tray_quit(self, icon=None, item=None):
+        """Quit from tray"""
+        if self._tray_icon:
+            self._tray_icon.stop()
+        self._root.after(0, self._force_quit)
+
+    def _force_quit(self):
+        """Force quit the application"""
+        if self._worker_running:
+            self._on_stop()
+        self._root.destroy()
+
+    def _minimize_to_tray(self):
+        """Minimize window to system tray"""
+        if not _HAS_TRAY or not self._tray_icon:
+            return
+        self._root.withdraw()
+        if not self._tray_icon.visible:
+            threading.Thread(target=self._tray_icon.run, daemon=True).start()
+
     def _load_env(self):
         """既存の.envから設定を読み込む"""
         env_map = {
@@ -190,6 +252,8 @@ class WorkerGUI:
         self._status_var.set("● 起動中...")
 
         self._worker_running = True
+        if _HAS_TRAY and self._tray_icon:
+            self._tray_icon.icon = self._create_tray_icon("green")
         self._worker_thread = threading.Thread(target=self._run_worker, daemon=True)
         self._worker_thread.start()
 
@@ -198,6 +262,8 @@ class WorkerGUI:
         self._worker_running = False
         if self._consumer:
             self._consumer.stop()
+        if _HAS_TRAY and self._tray_icon:
+            self._tray_icon.icon = self._create_tray_icon("gray")
         self._status_var.set("停止中")
         self._start_btn.configure(state="normal")
         self._stop_btn.configure(state="disabled")
@@ -306,9 +372,10 @@ class WorkerGUI:
 
     def _on_close(self):
         """ウィンドウ閉じる時"""
-        if self._worker_running:
-            self._on_stop()
-        self._root.destroy()
+        if self._worker_running and _HAS_TRAY:
+            self._minimize_to_tray()  # トレイに最小化してバックグラウンド動作を継続
+        else:
+            self._force_quit()
 
 
 def main():
