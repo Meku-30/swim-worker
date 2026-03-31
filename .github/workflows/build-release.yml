@@ -69,8 +69,5 @@ jobs:
             swim-worker-linux/swim-worker-linux
             swim-worker-macos/swim-worker-macos
             swim-worker-windows/swim-worker-windows.exe
-            ca.crt
             .env.example
-            start.bat
-            start.sh
           generate_release_notes: true
