@@ -127,6 +127,22 @@ docker compose up -d
 
 ---
 
+## Python で動かす場合（上級者向け）
+
+Python 3.12 以上がインストールされている場合：
+
+```bash
+git clone https://github.com/Meku-30/swim-worker.git
+cd swim-worker
+cp .env.example .env   # 設定を記入
+pip install -r requirements.txt
+python -m swim_worker
+```
+
+停止: `Ctrl+C`
+
+---
+
 ## 仕組み（参考）
 
 ```
