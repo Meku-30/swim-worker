@@ -1,0 +1,7 @@
+services:
+  swim-worker:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - ./ca.crt:/app/ca.crt:ro
