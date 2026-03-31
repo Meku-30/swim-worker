@@ -1,152 +1,168 @@
 # swim-worker
 
-SWIM（航空情報共有基盤）分散収集システムのWorkerノード。
+SWIM（航空情報共有基盤）の分散データ収集に参加するためのプログラムです。
 
-中央のCoordinator からRedis経由でタスクを受け取り、SWIMポータルのAPIを実行して結果を返します。
+あなたのPCで動かすだけで、航空データの収集に貢献できます。
+SWIMポータルのアカウントがあれば誰でも参加可能です。
 
-## 仕組み
+## はじめに必要なもの
+
+管理者 (meku) から以下を受け取ってください：
+
+| もらうもの | 説明 |
+|-----------|------|
+| `ca.crt` | セキュリティ証明書ファイル |
+| Redis パスワード | サーバーへの接続パスワード |
+| Redis ホスト | サーバーの接続先アドレス |
+
+あなた自身で用意するもの：
+
+| 必要なもの | 説明 |
+|-----------|------|
+| SWIMアカウント | [SWIMポータル](https://www.swim.mlit.go.jp/) のログインID・パスワード |
+
+---
+
+## セットアップ（3ステップ）
+
+### ステップ 1: ファイルをダウンロード
+
+[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から、自分のOSに合ったセットをダウンロードしてください。
+
+| OS | ダウンロードするファイル |
+|----|----------------------|
+| Windows | `swim-worker-windows.exe` |
+| Mac | `swim-worker-macos` |
+| Linux | `swim-worker-linux` |
+
+ダウンロードしたら、好きなフォルダに入れてください（例: デスクトップに `swim-worker` フォルダを作る）。
+
+### ステップ 2: 設定ファイルを作る
+
+ダウンロードしたファイルと**同じフォルダ**に、以下の2つのファイルを配置します。
+
+#### (1) `ca.crt`
+
+管理者から受け取った `ca.crt` ファイルをそのまま同じフォルダに置いてください。
+
+#### (2) `.env` ファイル
+
+テキストエディタ（メモ帳でOK）で新しいファイルを作り、以下の内容を書いて `.env` という名前で保存してください。
 
 ```
-[Coordinator] --タスク--> [Redis] --タスク--> [このWorker]
-                                                  ↓
-                                           SWIMにログイン
-                                           API実行
-                                                  ↓
-[Coordinator] <--結果--- [Redis] <--結果--- [このWorker]
+REDIS_HOST=管理者から教えてもらったアドレス
+REDIS_PORT=6380
+REDIS_PASSWORD=管理者から教えてもらったパスワード
+REDIS_CA_CERT=./ca.crt
+SWIM_USERNAME=あなたのSWIMログインID
+SWIM_PASSWORD=あなたのSWIMパスワード
+WORKER_NAME=あなたの名前（ローマ字、例: tanaka）
 ```
 
-- Worker は自分専用のキュー (`tasks:{worker_name}`) を監視します
-- タスクを受け取ると SWIM API を実行し、結果をそのまま Redis に返します
-- 30秒ごとにハートビートを送信し、Coordinator に生存を通知します
-- SWIM の認証情報は Worker 内のみに保持され、中央には送信されません
+> **Windowsの注意**: メモ帳で保存するとき、ファイル名を `.env` にして「ファイルの種類」を「すべてのファイル」にしてください。`.env.txt` になってしまうと動きません。
 
-## 必要なもの
+保存後、フォルダの中身はこうなっているはずです：
 
-- **SWIMポータルのアカウント** (ID + パスワード)
-- **Redis接続情報** (管理者から提供)
-- **CA証明書** (`ca.crt`、リポジトリに同梱)
-- 以下のいずれかの実行環境:
-  - Docker + Docker Compose
-  - Python 3.12 以上
+```
+swim-worker/
+  swim-worker-windows.exe  (または swim-worker-linux, swim-worker-macos)
+  .env
+  ca.crt
+```
 
-## クイックスタート (実行ファイル)
+### ステップ 3: 起動
 
-Python や Docker をインストールしたくない場合、ビルド済みの実行ファイルを利用できます。
+#### Windows
 
-1. [Releases ページ](https://github.com/Meku-30/swim-worker/releases) から OS に合ったファイルをダウンロード
-   - Windows: `swim-worker-windows.exe`
-   - Mac: `swim-worker-macos`
-   - Linux: `swim-worker-linux`
-2. 同じフォルダに `.env` ファイルと `ca.crt` を配置（下記「設定ファイルを作成」参照）
-3. 実行
-   - Windows: `swim-worker-windows.exe` をダブルクリック
-   - Mac/Linux: `chmod +x swim-worker-* && ./swim-worker-linux` (or macos)
+`start.bat` をダブルクリック。または `swim-worker-windows.exe` を直接ダブルクリック。
 
-## セットアップ
+#### Mac / Linux
 
-### 1. リポジトリを取得
+ターミナルで：
+```bash
+chmod +x ./swim-worker-linux   # (Macなら swim-worker-macos)
+./start.sh
+```
+
+#### 起動したら
+
+以下のようなメッセージが表示されれば成功です：
+
+```
+INFO  Redis接続成功
+INFO  Worker 'tanaka' を登録しました (pending)
+INFO  Worker 'tanaka' 起動
+```
+
+起動後、**管理者に「起動しました」と連絡**してください。
+管理者が承認すると、自動的にタスクの受信が始まります。
+
+---
+
+## 停止方法
+
+- **Windows**: ウィンドウを閉じる、または `Ctrl+C`
+- **Mac / Linux**: `Ctrl+C`
+
+再度起動したいときは、もう一度実行ファイルを起動するだけです。
+
+---
+
+## うまくいかないとき
+
+| 表示されるメッセージ | 原因 | やること |
+|-------------------|------|---------|
+| `Redis接続失敗` | サーバーに繋がらない | `.env` の REDIS_HOST, REDIS_PASSWORD を確認。管理者に連絡 |
+| `TLS connection error` | 証明書が見つからない | `ca.crt` が `.env` と同じフォルダにあるか確認 |
+| `ログインAPI失敗` | SWIMのIDかパスワードが違う | `.env` の SWIM_USERNAME, SWIM_PASSWORD を確認 |
+| タスクが来ない | まだ承認されていない | 管理者に連絡して承認してもらう |
+| `.env` が認識されない (Windows) | ファイル名が `.env.txt` になっている | ファイル拡張子を表示して `.txt` を削除 |
+
+それでも解決しない場合は、管理者に画面のスクリーンショットを送ってください。
+
+---
+
+## Docker で動かす場合（上級者向け）
+
+Docker を使える方は以下の方法でも起動できます。
 
 ```bash
 git clone https://github.com/Meku-30/swim-worker.git
 cd swim-worker
-```
-
-### 2. 設定ファイルを作成
-
-`.env.example` をコピーして `.env` を作成し、各項目を記入してください。
-
-```bash
-cp .env.example .env
-```
-
-```env
-REDIS_HOST=<管理者から提供されるIP>
-REDIS_PORT=6380
-REDIS_PASSWORD=<管理者から提供されるパスワード>
-REDIS_CA_CERT=./ca.crt
-SWIM_USERNAME=<あなたのSWIM ID>
-SWIM_PASSWORD=<あなたのSWIMパスワード>
-WORKER_NAME=<一意な名前（例: tanaka）>
-```
-
-| 項目 | 説明 |
-|------|------|
-| `REDIS_HOST` | Redis サーバーの IP アドレス（管理者から提供） |
-| `REDIS_PORT` | Redis ポート（通常 `6380`） |
-| `REDIS_PASSWORD` | Redis パスワード（管理者から提供） |
-| `REDIS_CA_CERT` | TLS CA 証明書のパス（同梱の `ca.crt` をそのまま使用） |
-| `SWIM_USERNAME` | SWIM ポータルのログインID |
-| `SWIM_PASSWORD` | SWIM ポータルのパスワード |
-| `WORKER_NAME` | この Worker の名前（他と重複しない任意の名前） |
-
-### 3. 起動
-
-#### Docker（推奨）
-
-```bash
+cp .env.example .env   # 設定を記入
 docker compose up -d
 ```
 
-停止:
-```bash
-docker compose down
-```
+停止: `docker compose down`
+ログ: `docker compose logs -f`
 
-#### Python 直接実行
+---
+
+## Python で動かす場合（上級者向け）
+
+Python 3.12 以上がインストールされている場合：
 
 ```bash
+git clone https://github.com/Meku-30/swim-worker.git
+cd swim-worker
+cp .env.example .env   # 設定を記入
 pip install -r requirements.txt
 python -m swim_worker
 ```
 
-停止: `Ctrl+C`
+---
 
-### 4. 管理者に承認を依頼
-
-初回起動時、Worker は「承認待ち (pending)」状態で登録されます。
-管理者に承認してもらうと、タスクの配布が開始されます。
-
-## 動作確認
-
-Worker が正しく動作しているか確認するには、ログを確認してください。
-
-#### Docker
-
-```bash
-docker compose logs -f
-```
-
-正常な場合、以下のようなログが表示されます:
+## 仕組み（参考）
 
 ```
-INFO  swim_worker.consumer: Worker 'tanaka' を登録しました (pending)
-INFO  swim_worker.consumer: Worker 'tanaka' 起動
+[中央サーバー] --タスク--> [Redis] --タスク--> [あなたのWorker]
+                                                    ↓
+                                             SWIMにログイン
+                                             データ取得
+                                                    ↓
+[中央サーバー] <--結果--- [Redis] <--結果--- [あなたのWorker]
 ```
 
-タスクを受信・実行すると:
-
-```
-INFO  swim_worker.consumer: タスク実行開始: abc12345 (type=collect_pireps)
-INFO  swim_worker.consumer: タスク成功: abc12345
-```
-
-## トラブルシューティング
-
-| 症状 | 原因 | 対処 |
-|------|------|------|
-| `Redis接続失敗` | Redis接続情報が間違っている | `.env` の REDIS_HOST, REDIS_PORT, REDIS_PASSWORD を確認 |
-| `TLS connection error` | CA証明書が見つからない | `ca.crt` が同じディレクトリにあるか確認 |
-| タスクが来ない | 管理者が承認していない or Coordinator が停止中 | 管理者に確認 |
-| `ログインAPI失敗` | SWIM認証情報が間違っている | `.env` の SWIM_USERNAME, SWIM_PASSWORD を確認 |
-
-## 技術仕様
-
-| 項目 | 値 |
-|------|-----|
-| 言語 | Python 3.12 |
-| Redis通信 | TLS (ポート6380) + パスワード認証 |
-| SWIM認証 | httpx + Cookie認証 (domain: mlit.go.jp) |
-| ハートビート | 30秒間隔、TTL 90秒 |
-| タスクキュー | Redis List (BLPOP、5秒タイムアウト) |
-| 結果TTL | 1時間 |
-| シグナル | SIGINT/SIGTERM でグレースフル停止 |
+- あなたのSWIM ID・パスワードはあなたのPC内だけで使われ、中央サーバーには送信されません
+- 30秒ごとに「動いてるよ」という信号を送り、中央サーバーが監視します
+- PCの電源を切ったりWorkerを止めても、他のWorkerがカバーするので問題ありません
