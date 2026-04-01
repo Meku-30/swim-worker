@@ -62,14 +62,38 @@ SWIMポータルのアカウントがあれば誰でも参加可能です。
 
 ---
 
-## Mac / Linux の場合（CLI版）
+## Mac の場合（GUI版）
 
 ### ステップ 1: ダウンロード
 
-[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下をダウンロードして同じフォルダに入れてください。
+[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から `swim-worker-macos` をダウンロードしてください。
 
-- Mac: `swim-worker-macos` + `.env.example`
-- Linux: `swim-worker-linux` + `.env.example`
+### ステップ 2: 起動して設定
+
+```bash
+chmod +x ./swim-worker-macos
+./swim-worker-macos
+```
+
+初回起動時に「開発元が未確認」と表示された場合は、ファイルを右クリック →「開く」で起動できます。
+
+Windows版と同じ設定画面が開くので、各欄を記入して **「▶ 起動」** をクリックしてください。
+
+### ステップ 3: 承認を待つ
+
+Windows版と同様です。**管理者に「起動しました」と連絡**してください。
+
+### 自動起動
+
+画面下部の **「ログイン時に自動起動」** にチェックを入れると、Macログイン時に自動で立ち上がります。
+
+---
+
+## Linux の場合（CLI版）
+
+### ステップ 1: ダウンロード
+
+[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から `swim-worker-linux` と `.env.example` をダウンロードして同じフォルダに入れてください。
 
 ### ステップ 2: 設定ファイルを作る
 
@@ -87,8 +111,8 @@ WORKER_NAME=あなたの名前（ローマ字、例: tanaka）
 ### ステップ 3: 起動
 
 ```bash
-chmod +x ./swim-worker-linux   # Macなら: chmod +x ./swim-worker-macos
-./swim-worker-linux             # Macなら: ./swim-worker-macos
+chmod +x ./swim-worker-linux
+./swim-worker-linux
 ```
 
 起動後、**管理者に「起動しました」と連絡**してください。
