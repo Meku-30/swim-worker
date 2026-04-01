@@ -4,6 +4,7 @@
 タスクを取得してSWIM APIを実行、結果をRedisに返す。
 """
 import asyncio
+import gzip
 import json
 import logging
 from datetime import datetime, timezone
@@ -61,7 +62,8 @@ class TaskConsumer:
             }
             logger.error("タスク失敗: %s — %s", task_id, e)
 
-        await self._redis.setex(f"results:{task_id}", RESULT_TTL, json.dumps(result))
+        compressed = gzip.compress(json.dumps(result).encode())
+        await self._redis.setex(f"results:{task_id}", RESULT_TTL, compressed)
 
     async def _ensure_registered(self) -> None:
         """approved にも pending にもいなければ再登録する"""
