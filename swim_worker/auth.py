@@ -234,6 +234,14 @@ class SwimClient:
 
         extra_headers = {"Referer": _get_referer(url)}
 
+        # f2dnrq (NOTAM) はSec-Fetch-*ヘッダーを受け付けない
+        if "/f2dnrq/" in url:
+            extra_headers.update({
+                "Sec-Fetch-Dest": None,
+                "Sec-Fetch-Mode": None,
+                "Sec-Fetch-Site": None,
+            })
+
         start = time.monotonic()
         try:
             resp = await self._session.post(url, json=body, headers=extra_headers)
