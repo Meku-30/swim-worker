@@ -177,9 +177,11 @@ class SwimClient:
                     raise SwimAuthError("ログイン後にCookieを取得できませんでした")
 
                 # 3. web.swim への遷移を再現（ログイン後のSPAリダイレクト）
+                # Sec-Fetch-User は除外（JS起動の遷移では Chrome が付与しない）
                 await asyncio.sleep(random.uniform(0.5, 1.5))
                 await tmp.get(f"{SWIM_PORTAL_URL}/", headers={
-                    **_NAV_HEADERS,
+                    k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
+                } | {
                     "Referer": f"{SWIM_TOP_URL}/",
                     "Sec-Fetch-Site": "same-site",
                 })
