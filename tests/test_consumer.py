@@ -1,4 +1,5 @@
 """Consumer テスト"""
+import gzip
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -28,7 +29,7 @@ class TestTaskConsumer:
         await consumer.execute_task(task)
         result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:task-001"]
         assert len(result_calls) == 1
-        result_data = json.loads(result_calls[0][0][2])
+        result_data = json.loads(gzip.decompress(result_calls[0][0][2]))
         assert result_data["status"] == "success"
         assert result_data["data"] == {"data": "metar-result"}
 
@@ -41,6 +42,6 @@ class TestTaskConsumer:
         await consumer.execute_task(task)
         result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:task-002"]
         assert len(result_calls) == 1
-        result_data = json.loads(result_calls[0][0][2])
+        result_data = json.loads(gzip.decompress(result_calls[0][0][2]))
         assert result_data["status"] == "error"
         assert "API down" in result_data["error"]
