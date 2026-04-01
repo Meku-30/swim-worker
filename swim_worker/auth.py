@@ -132,6 +132,15 @@ class SwimClient:
             )
             for name, value in saved.items():
                 self._session.cookies.set(name, value, domain="mlit.go.jp")
+            # web.swim へのナビゲーションを再現（ブラウザ再開を模倣）
+            try:
+                await self._session.get(f"{SWIM_PORTAL_URL}/", headers={
+                    **_NAV_HEADERS,
+                    "Sec-Fetch-Site": "none",
+                })
+                await asyncio.sleep(random.uniform(0.5, 1.0))
+            except Exception:
+                pass
             # セッション有効性チェック
             try:
                 check = await self._session.get(SWIM_SESSION_CHECK_URL)
