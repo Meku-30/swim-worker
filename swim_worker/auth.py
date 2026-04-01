@@ -41,30 +41,20 @@ def _get_referer(url: str) -> str:
     return f"{SWIM_PORTAL_URL}/"
 
 
-def _random_chrome_ua() -> str:
-    """Chrome 136のマイナーバージョンを微小ランダム化"""
-    build = random.randint(7100, 7200)
-    patch = random.randint(50, 150)
-    return f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.{build}.{patch} Safari/537.36"
-
-
-# Chrome風ヘッダー（User-Agentは動的生成）
-def _chrome_headers() -> dict:
-    return {
-        "User-Agent": _random_chrome_ua(),
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Origin": SWIM_PORTAL_URL,
-        "X-Requested-With": "XMLHttpRequest",
-        "Sec-Ch-Ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-    }
+# XHR固有のヘッダーのみオーバーライド
+# User-Agent, Sec-Ch-Ua, Sec-Ch-Ua-Platform はcurl_cffiのchrome136デフォルトに任せる
+# （TLSフィンガープリントとの一貫性を維持するため）
+_XHR_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Origin": SWIM_PORTAL_URL,
+    "X-Requested-With": "XMLHttpRequest",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+}
 
 
 _BROWSER_TYPE = BrowserType.chrome136
@@ -126,7 +116,7 @@ class SwimClient:
                 await self._session.close()
             self._session = AsyncSession(
                 impersonate=_BROWSER_TYPE,
-                headers=_chrome_headers(),
+                headers=_XHR_HEADERS,
                 timeout=30.0,
             )
             for name, value in saved.items():
@@ -144,15 +134,11 @@ class SwimClient:
 
         logger.info("SWIMポータルにログイン開始")
         try:
-            async with AsyncSession(impersonate=_BROWSER_TYPE) as tmp:
+            async with AsyncSession(impersonate=_BROWSER_TYPE, headers=_XHR_HEADERS) as tmp:
                 resp = await tmp.post(
                     SWIM_LOGIN_URL,
                     json={"id": self._username, "password": self._password},
                     headers={
-                        "User-Agent": _random_chrome_ua(),
-                        "Accept": "application/json, text/plain, */*",
-                        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-                        "Content-Type": "application/json",
                         "Origin": "https://top.swim.mlit.go.jp",
                         "Referer": "https://top.swim.mlit.go.jp/",
                     },
@@ -179,7 +165,7 @@ class SwimClient:
 
         self._session = AsyncSession(
             impersonate=_BROWSER_TYPE,
-            headers=_chrome_headers(),
+            headers=_XHR_HEADERS,
             timeout=30.0,
         )
         for name, value in resp.cookies.items():
