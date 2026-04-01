@@ -48,8 +48,6 @@ def _get_referer(url: str) -> str:
 _XHR_HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
     "Origin": SWIM_PORTAL_URL,
     "X-Requested-With": "XMLHttpRequest",
     "Sec-Fetch-Dest": "empty",
@@ -62,8 +60,6 @@ _XHR_HEADERS = {
 _NAV_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
@@ -148,12 +144,14 @@ class SwimClient:
             logger.info("保存済みCookie失効、再ログイン")
 
         logger.info("SWIMポータルにログイン開始")
+        all_cookies: dict[str, str] = {}
         try:
             async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=30.0) as tmp:
-                # ポータルページ読み込み（ブラウザの初回アクセスを再現）
+                # 1. ポータルページ読み込み（URL直接入力を再現）
                 await tmp.get(f"{SWIM_TOP_URL}/", headers=_NAV_HEADERS)
                 await asyncio.sleep(random.uniform(1.0, 3.0))
 
+                # 2. ログインPOST（SPA内のXHR）
                 resp = await tmp.post(
                     SWIM_LOGIN_URL,
                     json={"id": self._username, "password": self._password},
@@ -163,22 +161,38 @@ class SwimClient:
                         "Referer": f"{SWIM_TOP_URL}/",
                     },
                 )
+
+                if resp.status_code != 200:
+                    raise SwimAuthError(f"ログインAPI失敗 (status={resp.status_code})")
+
+                try:
+                    data = resp.json()
+                    error_code = data.get("error_info", {}).get("error_code", -1)
+                    if error_code != 0:
+                        raise SwimAuthError(f"ログインAPIエラー (error_code={error_code})")
+                except (ValueError, KeyError):
+                    pass
+
+                if not resp.cookies:
+                    raise SwimAuthError("ログイン後にCookieを取得できませんでした")
+
+                # 3. web.swim への遷移を再現（ログイン後のSPAリダイレクト）
+                await asyncio.sleep(random.uniform(0.5, 1.5))
+                await tmp.get(f"{SWIM_PORTAL_URL}/", headers={
+                    **_NAV_HEADERS,
+                    "Referer": f"{SWIM_TOP_URL}/",
+                    "Sec-Fetch-Site": "same-site",
+                })
+                await asyncio.sleep(random.uniform(0.5, 1.5))
+
+                # tmpセッションの全Cookie（ページGET + ログイン + web.swim遷移）を移す
+                for name, value in tmp.cookies.items():
+                    all_cookies[name] = value
+
+        except SwimAuthError:
+            raise
         except Exception as e:
             raise SwimAuthError(f"ログインAPI呼び出しエラー: {e}") from e
-
-        if resp.status_code != 200:
-            raise SwimAuthError(f"ログインAPI失敗 (status={resp.status_code})")
-
-        try:
-            data = resp.json()
-            error_code = data.get("error_info", {}).get("error_code", -1)
-            if error_code != 0:
-                raise SwimAuthError(f"ログインAPIエラー (error_code={error_code})")
-        except (ValueError, KeyError):
-            pass
-
-        if not resp.cookies:
-            raise SwimAuthError("ログイン後にCookieを取得できませんでした")
 
         if self._session is not None:
             await self._session.close()
@@ -188,7 +202,8 @@ class SwimClient:
             headers=_XHR_HEADERS,
             timeout=30.0,
         )
-        for name, value in resp.cookies.items():
+        # Cookie domain は mlit.go.jp（実測で確認済み、省略すると403）
+        for name, value in all_cookies.items():
             self._session.cookies.set(name, value, domain="mlit.go.jp")
 
         self._is_ready = True

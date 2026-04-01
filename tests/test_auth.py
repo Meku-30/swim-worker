@@ -13,11 +13,19 @@ class TestSwimClient:
         mock_response.cookies = {"MSMSI": "val1", "MSMAI": "val2"}
 
         with patch("swim_worker.auth.AsyncSession") as MockSession:
-            instance = AsyncMock()
-            instance.post.return_value = mock_response
-            instance.__aenter__ = AsyncMock(return_value=instance)
-            instance.__aexit__ = AsyncMock(return_value=False)
-            MockSession.return_value = instance
+            # tmpセッション（ログインフロー用、context manager）
+            tmp_session = AsyncMock()
+            tmp_session.post.return_value = mock_response
+            tmp_session.get.return_value = MagicMock(status_code=200)
+            tmp_session.cookies = {"MSMSI": "val1", "MSMAI": "val2"}
+            tmp_session.__aenter__ = AsyncMock(return_value=tmp_session)
+            tmp_session.__aexit__ = AsyncMock(return_value=False)
+
+            # 永続セッション（API呼び出し用）
+            persistent_session = AsyncMock()
+            persistent_session.cookies = MagicMock()
+
+            MockSession.side_effect = [tmp_session, persistent_session]
 
             client = SwimClient(username="user", password="pass")
             await client.login()
@@ -30,6 +38,7 @@ class TestSwimClient:
         with patch("swim_worker.auth.AsyncSession") as MockSession:
             instance = AsyncMock()
             instance.post.return_value = mock_response
+            instance.get.return_value = MagicMock(status_code=200)
             instance.__aenter__ = AsyncMock(return_value=instance)
             instance.__aexit__ = AsyncMock(return_value=False)
             MockSession.return_value = instance
