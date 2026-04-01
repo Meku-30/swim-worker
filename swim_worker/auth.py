@@ -4,8 +4,11 @@ curl_cffi を使用してChrome TLSフィンガープリントを再現し、
 リアルなブラウザヘッダーを送信する。
 """
 import asyncio
+import json
 import logging
+import os
 import random
+import time
 
 from curl_cffi.requests import AsyncSession, BrowserType
 
@@ -15,20 +18,54 @@ SWIM_LOGIN_URL = "https://top.swim.mlit.go.jp/swim/webapi/login"
 SWIM_SESSION_CHECK_URL = "https://web.swim.mlit.go.jp/service/api/accounts/summary"
 SWIM_PORTAL_URL = "https://web.swim.mlit.go.jp"
 
-# Chrome風ヘッダー
-_CHROME_HEADERS = {
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "X-Requested-With": "XMLHttpRequest",
-    "Sec-Ch-Ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin",
+COOKIE_FILE = "/app/data/.swim_cookies.json"
+
+# API種別ごとのReferer（ポータルの画面遷移を再現）
+_REFERER_MAP = {
+    "/f2dnrq/": f"{SWIM_PORTAL_URL}/f2dnrq/",      # NOTAM/空港一覧
+    "/f2aspr/web/FLV904/": f"{SWIM_PORTAL_URL}/f2aspr/web/airportWeather",  # PKG気象
+    "/f2aspr/web/FLV803/": f"{SWIM_PORTAL_URL}/f2aspr/web/flightInformation",  # 便一覧
+    "/f2aspr/web/FLV911/": f"{SWIM_PORTAL_URL}/f2aspr/web/flightDetails",  # 便詳細
+    "/f2aspr/web/FLV806/": f"{SWIM_PORTAL_URL}/f2aspr/web/airportProfile",  # 空港プロファイル
+    "/f2aspr/web/FLV920/": f"{SWIM_PORTAL_URL}/f2aspr/web/pirep",  # PIREP
+    "/f2aspr/web/FLV914/": f"{SWIM_PORTAL_URL}/f2aspr/web/airspaceCondition",  # 空域気象
+    "/f2aspr/web/FLV918/": f"{SWIM_PORTAL_URL}/f2aspr/web/sigmet",  # SIGMET
 }
+
+
+def _get_referer(url: str) -> str:
+    """URLに応じたRefererを返す"""
+    for prefix, referer in _REFERER_MAP.items():
+        if prefix in url:
+            return referer
+    return f"{SWIM_PORTAL_URL}/"
+
+
+def _random_chrome_ua() -> str:
+    """Chrome 136のマイナーバージョンを微小ランダム化"""
+    build = random.randint(7100, 7200)
+    patch = random.randint(50, 150)
+    return f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.{build}.{patch} Safari/537.36"
+
+
+# Chrome風ヘッダー（User-Agentは動的生成）
+def _chrome_headers() -> dict:
+    return {
+        "User-Agent": _random_chrome_ua(),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Origin": SWIM_PORTAL_URL,
+        "X-Requested-With": "XMLHttpRequest",
+        "Sec-Ch-Ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+    }
+
 
 _BROWSER_TYPE = BrowserType.chrome136
 
@@ -46,9 +83,65 @@ class SwimClient:
         self._session: AsyncSession | None = None
         self._is_ready = False
         self._relogin_lock = asyncio.Lock()
+        # 応答速度ベーススロットリング
+        self._last_response_time: float = 0.0
+        self._slow_threshold: float = 10.0  # 10秒以上で「遅い」判定
+        self._extra_delay: float = 0.0  # 追加遅延（秒）
+
+    def _save_cookies(self) -> None:
+        """セッションCookieをファイルに保存"""
+        if self._session is None:
+            return
+        try:
+            cookies = {}
+            for name, value in self._session.cookies.items():
+                cookies[name] = value
+            os.makedirs(os.path.dirname(COOKIE_FILE), exist_ok=True)
+            with open(COOKIE_FILE, "w") as f:
+                json.dump(cookies, f)
+            logger.debug("Cookie保存: %d個", len(cookies))
+        except Exception as e:
+            logger.debug("Cookie保存失敗: %s", e)
+
+    def _load_cookies(self) -> dict | None:
+        """保存済みCookieを読み込む"""
+        try:
+            if not os.path.exists(COOKIE_FILE):
+                return None
+            with open(COOKIE_FILE) as f:
+                cookies = json.load(f)
+            if cookies:
+                logger.info("保存済みCookie読み込み: %d個", len(cookies))
+                return cookies
+        except Exception as e:
+            logger.debug("Cookie読み込み失敗: %s", e)
+        return None
 
     async def login(self) -> None:
         """SWIMにログインしてセッションCookieを取得する"""
+        # まず保存済みCookieを試す
+        saved = self._load_cookies()
+        if saved:
+            if self._session is not None:
+                await self._session.close()
+            self._session = AsyncSession(
+                impersonate=_BROWSER_TYPE,
+                headers=_chrome_headers(),
+                timeout=30.0,
+            )
+            for name, value in saved.items():
+                self._session.cookies.set(name, value, domain="mlit.go.jp")
+            # セッション有効性チェック
+            try:
+                check = await self._session.get(SWIM_SESSION_CHECK_URL)
+                if check.status_code == 200:
+                    self._is_ready = True
+                    logger.info("保存済みCookieでセッション復元成功")
+                    return
+            except Exception:
+                pass
+            logger.info("保存済みCookie失効、再ログイン")
+
         logger.info("SWIMポータルにログイン開始")
         try:
             async with AsyncSession(impersonate=_BROWSER_TYPE) as tmp:
@@ -56,6 +149,7 @@ class SwimClient:
                     SWIM_LOGIN_URL,
                     json={"id": self._username, "password": self._password},
                     headers={
+                        "User-Agent": _random_chrome_ua(),
                         "Accept": "application/json, text/plain, */*",
                         "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
                         "Content-Type": "application/json",
@@ -85,14 +179,14 @@ class SwimClient:
 
         self._session = AsyncSession(
             impersonate=_BROWSER_TYPE,
-            headers=_CHROME_HEADERS,
+            headers=_chrome_headers(),
             timeout=30.0,
         )
-        # ログインCookieを転写（domain=mlit.go.jp指定）
         for name, value in resp.cookies.items():
             self._session.cookies.set(name, value, domain="mlit.go.jp")
 
         self._is_ready = True
+        self._save_cookies()
         logger.info("SWIMポータルにログイン成功")
 
     async def execute_api(self, url: str, body: dict, *, _retried: bool = False) -> dict:
@@ -101,10 +195,14 @@ class SwimClient:
             await self.login()
         assert self._session is not None
 
-        # Refererをリクエスト先に合わせて動的設定
-        referer = SWIM_PORTAL_URL + "/"
-        extra_headers = {"Referer": referer}
+        # 応答速度ベースの追加遅延
+        if self._extra_delay > 0:
+            logger.debug("応答速度ベース追加遅延: %.1f秒", self._extra_delay)
+            await asyncio.sleep(self._extra_delay)
 
+        extra_headers = {"Referer": _get_referer(url)}
+
+        start = time.monotonic()
         try:
             resp = await self._session.post(url, json=body, headers=extra_headers)
         except Exception as e:
@@ -115,6 +213,15 @@ class SwimClient:
                 await self._relogin()
                 return await self.execute_api(url, body, _retried=True)
             raise SwimAuthError(f"APIエラー: {e}") from e
+        elapsed = time.monotonic() - start
+        self._last_response_time = elapsed
+
+        # 応答が遅い場合、追加遅延を増やす（サーバー負荷軽減）
+        if elapsed > self._slow_threshold:
+            self._extra_delay = min(self._extra_delay + 2.0, 15.0)
+            logger.info("SWIM応答遅延検知 (%.1f秒)、追加遅延→%.1f秒", elapsed, self._extra_delay)
+        elif self._extra_delay > 0:
+            self._extra_delay = max(self._extra_delay - 0.5, 0.0)
 
         if resp.status_code == 403:
             if not _retried:
@@ -146,6 +253,7 @@ class SwimClient:
     async def close(self) -> None:
         """リソース解放"""
         if self._session is not None:
+            self._save_cookies()
             try:
                 await self._session.close()
             except Exception:
