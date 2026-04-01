@@ -86,7 +86,7 @@ class SwimClient:
         self._session = AsyncSession(
             impersonate=_BROWSER_TYPE,
             headers=_CHROME_HEADERS,
-            timeout=60.0,
+            timeout=30.0,
         )
         # ログインCookieを転写（domain=mlit.go.jp指定）
         for name, value in resp.cookies.items():
@@ -109,14 +109,18 @@ class SwimClient:
             resp = await self._session.post(url, json=body, headers=extra_headers)
         except Exception as e:
             if not _retried:
-                logger.warning("API HTTPエラー、再ログインしてリトライ: %s", e)
+                delay = random.uniform(5, 15)
+                logger.warning("API HTTPエラー、%.0f秒待機後にリトライ: %s", delay, e)
+                await asyncio.sleep(delay)
                 await self._relogin()
                 return await self.execute_api(url, body, _retried=True)
             raise SwimAuthError(f"APIエラー: {e}") from e
 
         if resp.status_code == 403:
             if not _retried:
-                logger.warning("API 403エラー、再ログインしてリトライ")
+                delay = random.uniform(5, 15)
+                logger.warning("API 403エラー、%.0f秒待機後にリトライ", delay)
+                await asyncio.sleep(delay)
                 await self._relogin()
                 return await self.execute_api(url, body, _retried=True)
             raise SwimAuthError(f"API 403エラー (body={resp.text[:500]})")
