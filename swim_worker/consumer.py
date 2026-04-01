@@ -8,6 +8,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
+import redis.exceptions
+
 from swim_worker.auth import SwimClient
 
 logger = logging.getLogger(__name__)
@@ -73,6 +75,10 @@ class TaskConsumer:
             try:
                 await self.send_heartbeat()
                 await self._ensure_registered()
+            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
+                logger.warning("Redis接続エラー（ハートビート）、5秒後にリトライ: %s", e)
+                await asyncio.sleep(5)
+                continue
             except Exception as e:
                 logger.warning("ハートビート送信失敗: %s", e)
             await asyncio.sleep(self._heartbeat_interval)
@@ -89,6 +95,9 @@ class TaskConsumer:
                 await self.execute_task(task)
             except asyncio.CancelledError:
                 break
+            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
+                logger.warning("Redis接続エラー（コンシューマー）、5秒後にリトライ: %s", e)
+                await asyncio.sleep(5)
             except Exception as e:
                 logger.error("コンシューマーエラー: %s", e)
                 await asyncio.sleep(1)
