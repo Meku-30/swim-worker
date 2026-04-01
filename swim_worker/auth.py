@@ -20,16 +20,16 @@ SWIM_PORTAL_URL = "https://web.swim.mlit.go.jp"
 
 COOKIE_FILE = "/app/data/.swim_cookies.json"
 
-# API種別ごとのReferer（ポータルの画面遷移を再現）
+# API種別ごとのReferer（ポータルの実際の画面URLを再現）
 _REFERER_MAP = {
-    "/f2dnrq/": f"{SWIM_PORTAL_URL}/f2dnrq/",      # NOTAM/空港一覧
-    "/f2aspr/web/FLV904/": f"{SWIM_PORTAL_URL}/f2aspr/web/airportWeather",  # PKG気象
-    "/f2aspr/web/FLV803/": f"{SWIM_PORTAL_URL}/f2aspr/web/flightInformation",  # 便一覧
-    "/f2aspr/web/FLV911/": f"{SWIM_PORTAL_URL}/f2aspr/web/flightDetails",  # 便詳細
-    "/f2aspr/web/FLV806/": f"{SWIM_PORTAL_URL}/f2aspr/web/airportProfile",  # 空港プロファイル
-    "/f2aspr/web/FLV920/": f"{SWIM_PORTAL_URL}/f2aspr/web/pirep",  # PIREP
-    "/f2aspr/web/FLV914/": f"{SWIM_PORTAL_URL}/f2aspr/web/airspaceCondition",  # 空域気象
-    "/f2aspr/web/FLV918/": f"{SWIM_PORTAL_URL}/f2aspr/web/sigmet",  # SIGMET
+    "/f2dnrq/": f"{SWIM_PORTAL_URL}/f2dnrq/browse/FUV201",       # NOTAM/空港一覧
+    "/f2aspr/web/FLV904/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv904s001",  # PKG気象
+    "/f2aspr/web/FLV803/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv800s001",  # 便一覧
+    "/f2aspr/web/FLV911/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv800s001",  # 便詳細（同じ画面）
+    "/f2aspr/web/FLV806/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv904s001",  # 空港プロファイル
+    "/f2aspr/web/FLV920/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv850s001",  # PIREP
+    "/f2aspr/web/FLV914/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv850s001",  # 空域気象
+    "/f2aspr/web/FLV918/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv850s001",  # SIGMET
 }
 
 
