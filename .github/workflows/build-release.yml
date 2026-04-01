@@ -50,24 +50,25 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
       - uses: actions/checkout@v4
 
-      - name: Rename artifacts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
         run: |
-          mv swim-worker-linux/swim-worker swim-worker-linux/swim-worker-linux || true
-          mv swim-worker-macos/swim-worker swim-worker-macos/swim-worker-macos || true
-          mv swim-worker-windows/swim-worker-gui.exe swim-worker-windows/swim-worker-windows.exe || true
-          ls -la swim-worker-*/ || true
+          mkdir -p release
+          cp artifacts/swim-worker-linux/swim-worker release/swim-worker-linux || true
+          cp artifacts/swim-worker-macos/swim-worker release/swim-worker-macos || true
+          cp artifacts/swim-worker-windows/swim-worker-gui.exe release/swim-worker-windows.exe || true
+          cp .env.example release/
+          ls -la release/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            swim-worker-linux/swim-worker-linux
-            swim-worker-macos/swim-worker-macos
-            swim-worker-windows/swim-worker-windows.exe
-            .env.example
+            release/*
           generate_release_notes: true
