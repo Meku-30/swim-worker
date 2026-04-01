@@ -8,9 +8,9 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
-# System tray support (Windows only)
+# System tray support (Windows + macOS)
 _HAS_TRAY = False
-if sys.platform == "win32":
+if sys.platform in ("win32", "darwin"):
     try:
         import pystray
         from PIL import Image, ImageDraw
@@ -111,11 +111,12 @@ class WorkerGUI:
         self._save_btn = ttk.Button(btn_frame, text="設定保存", command=self._save_env)
         self._save_btn.pack(side="left")
 
-        # --- 自動起動 (Windows only) ---
-        if sys.platform == "win32":
+        # --- 自動起動 (Windows / macOS) ---
+        if sys.platform in ("win32", "darwin"):
             self._autostart_var = tk.BooleanVar(value=self._check_autostart())
+            label = "ログイン時に自動起動" if sys.platform == "darwin" else "Windows起動時に自動起動"
             autostart_cb = ttk.Checkbutton(
-                btn_frame, text="Windows起動時に自動起動",
+                btn_frame, text=label,
                 variable=self._autostart_var, command=self._toggle_autostart,
             )
             autostart_cb.pack(side="right")
@@ -344,31 +345,53 @@ class WorkerGUI:
         finally:
             loop.close()
 
-    # --- Windows 自動起動 ---
-    def _get_startup_shortcut_path(self) -> Path:
-        """Windowsスタートアップフォルダのショートカットパス"""
+    # --- 自動起動 (Windows / macOS) ---
+    def _get_startup_path(self) -> Path:
+        """プラットフォーム別の自動起動ファイルパス"""
+        if sys.platform == "darwin":
+            return Path.home() / "Library" / "LaunchAgents" / "org.swim-worker.plist"
         startup = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
         return startup / "SWIM Worker.bat"
 
     def _check_autostart(self) -> bool:
-        if sys.platform != "win32":
+        if sys.platform not in ("win32", "darwin"):
             return False
-        return self._get_startup_shortcut_path().exists()
+        return self._get_startup_path().exists()
 
     def _toggle_autostart(self):
-        shortcut = self._get_startup_shortcut_path()
+        path = self._get_startup_path()
         if self._autostart_var.get():
-            # スタートアップにbatを作成
             if getattr(sys, 'frozen', False):
                 exe_path = sys.executable
             else:
                 exe_path = f'python -m swim_worker'
-            bat_content = f'@echo off\ncd /d "{_get_base_dir()}"\nstart "" "{exe_path}"\n'
-            shortcut.write_text(bat_content, encoding="utf-8")
+
+            if sys.platform == "darwin":
+                plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.swim-worker</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{exe_path}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>WorkingDirectory</key>
+    <string>{_get_base_dir()}</string>
+</dict>
+</plist>
+"""
+                path.write_text(plist_content, encoding="utf-8")
+            else:
+                bat_content = f'@echo off\ncd /d "{_get_base_dir()}"\nstart "" "{exe_path}"\n'
+                path.write_text(bat_content, encoding="utf-8")
             logging.info("自動起動を有効にしました")
         else:
-            if shortcut.exists():
-                shortcut.unlink()
+            if path.exists():
+                path.unlink()
             logging.info("自動起動を無効にしました")
 
     def run(self):
