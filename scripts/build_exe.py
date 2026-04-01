@@ -6,8 +6,9 @@
   python scripts/build_exe.py
 
 出力:
-  Windows: dist/swim-worker-gui.exe (GUI版のみ)
-  Mac/Linux: dist/swim-worker (CLI版)
+  Windows: dist/swim-worker-gui.exe (GUI版)
+  Mac:     dist/swim-worker (GUI版)
+  Linux:   dist/swim-worker (CLI版)
 """
 import platform
 import PyInstaller.__main__
@@ -20,26 +21,30 @@ common_args = [
     "--hidden-import", "dotenv",
 ]
 
-if platform.system() == "Windows":
-    # Windows: GUI版のみ
+system = platform.system()
+
+if system in ("Windows", "Darwin"):
+    # Windows / macOS: GUI版
+    pystray_backend = "pystray._win32" if system == "Windows" else "pystray._darwin"
     gui_args = [
         "--hidden-import", "pystray",
-        "--hidden-import", "pystray._win32",
+        "--hidden-import", pystray_backend,
         "--hidden-import", "PIL",
         "--hidden-import", "PIL.Image",
         "--hidden-import", "PIL.ImageDraw",
     ]
-    print("Building swim-worker-gui (Windows GUI)...")
+    name = "swim-worker-gui" if system == "Windows" else "swim-worker"
+    print(f"Building {name} ({system} GUI)...")
     PyInstaller.__main__.run([
         "swim_worker/gui_main.py",
         "--onefile",
-        "--name", "swim-worker-gui",
+        "--name", name,
         "--windowed",
         *common_args,
         *gui_args,
     ])
 else:
-    # Mac/Linux: CLI版
+    # Linux: CLI版
     print("Building swim-worker (CLI)...")
     PyInstaller.__main__.run([
         "swim_worker/__main__.py",
