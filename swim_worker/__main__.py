@@ -37,7 +37,13 @@ async def main() -> None:
         sys.exit(1)
 
     swim_client = SwimClient(username=settings.swim_username, password=settings.swim_password)
-    consumer = TaskConsumer(redis_client=redis_client, swim_client=swim_client, worker_name=settings.worker_name, heartbeat_interval=settings.heartbeat_interval)
+    consumer = TaskConsumer(
+        redis_client=redis_client, swim_client=swim_client,
+        worker_name=settings.worker_name,
+        heartbeat_interval=settings.heartbeat_interval,
+        request_delay_min=settings.request_delay_min,
+        request_delay_max=settings.request_delay_max,
+    )
 
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):

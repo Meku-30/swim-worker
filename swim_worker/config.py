@@ -16,5 +16,7 @@ class Settings(BaseSettings):
     # Worker
     worker_name: str
     heartbeat_interval: int = 30  # 秒
+    request_delay_min: float = 2.0  # SWIM APIリクエスト前の最小遅延（秒）
+    request_delay_max: float = 8.0  # SWIM APIリクエスト前の最大遅延（秒）
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
