@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 import sys
 import time
 
@@ -40,7 +41,20 @@ _BASIC_BODY = {
     "ctrlHeader": {},
 }
 
+_PIREP_LAYERS = [
+    "PIREP_SMTH", "PIREP_LGTM", "PIREP_LGT", "PIREP_LGTP",
+    "PIREP_MOD", "PIREP_MODP", "PIREP_SEV", "PIREP_EXT",
+    "PIREP_ARS", "Volcanic_Ash", "WS", "CLOUD", "ICE", "TS",
+]
+
 results: dict[str, str] = {}
+
+
+def unwrap_ret(data: dict) -> dict:
+    """SWIM APIレスポンスの ret ラッパーを剥がす"""
+    if isinstance(data, dict) and "ret" in data and isinstance(data["ret"], dict):
+        return data["ret"]
+    return data
 
 
 def find_key(d, target, path=""):
@@ -123,13 +137,21 @@ async def test_login(client: SwimClient):
 
 async def test_pkg(client: SwimClient):
     """PKG気象テスト — 構造を詳細ダンプ"""
+    now = datetime.now(timezone(timedelta(hours=0)))
+    start = now - timedelta(hours=1)
+    end = now + timedelta(hours=1)
     data = await call_api(client, "3. PKG気象 (LGV312, RJTT)", URL_PKG, {
-        "msgHeader": {"msgSendDateTime": "", "transactionId": ""},
-        "airportWeatherSearchConditionsDTO": {"targetAirportList": ["RJTT"]},
+        **_BASIC_BODY,
+        "condition": {
+            "startDate": start.strftime("%Y%m%d%H%M"),
+            "endDate": end.strftime("%Y%m%d%H%M"),
+            "airportCodeList": ["RJTT"],
+        },
     })
     if not data:
         return
 
+    data = unwrap_ret(data)
     # weatherDTO の位置を特定
     r = find_key(data, "weatherDTO")
     if r:
@@ -163,12 +185,12 @@ async def test_pkg(client: SwimClient):
 async def test_pirep(client: SwimClient):
     """PIREPテスト"""
     data = await call_api(client, "4. PIREP (LGV358)", URL_PIREP, {
-        "msgHeader": {"msgSendDateTime": "", "transactionId": ""},
-        "airepRequest": {},
+        **_BASIC_BODY, "layerNameList": _PIREP_LAYERS,
     })
     if not data:
         return
 
+    data = unwrap_ret(data)
     # airepDTO の位置を特定
     r = find_key(data, "airepDTO")
     if r:
@@ -199,16 +221,20 @@ async def test_pirep(client: SwimClient):
 async def test_notam(client: SwimClient):
     """NOTAMテスト (RJJJ)"""
     data = await call_api(client, "5. NOTAM (USV001, RJJJ)", URL_NOTAM, {
-        "searchFlg": 0, "numberOfDisplay": 0, "scope": "", "type": "",
-        "notamCode": "", "fromDate": "", "toDate": "", "freeText": "",
-        "location": "RJJJ", "scopeAerodrome": True, "scopeEnroute": True, "scopeWarning": True,
-        "lower": "", "upper": "", "keyword": "", "keywordAndOr": "",
-        "displayValidAll": True, "validDatetimeFromDate": "", "validDatetimeFromTime": "",
+        **_BASIC_BODY,
+        "nof": "", "fir": "", "location": "RJJJ",
+        "notamCode": "", "series": "", "notamNr": "", "uuid": "",
+        "scopeAerodrome": "0", "scopeEnroute": "0", "scopeWarning": "0",
+        "lower": "", "upper": "", "keyword": "", "keywordAndOr": "0",
+        "displayValidAll": 0,
+        "validDatetimeFromDate": "", "validDatetimeFromTime": "",
         "validDatetimeToDate": "", "validDatetimeToTime": "",
+        "numberOfDisplay": 0, "searchFlg": 0,
     })
     if not data:
         return
 
+    data = unwrap_ret(data)
     # notamList を探す
     for candidate in ["notamList", "notamInfoList", "notam_list"]:
         r = find_key(data, candidate)
@@ -234,10 +260,11 @@ async def test_notam(client: SwimClient):
 
 async def test_airports(client: SwimClient):
     """空港一覧テスト"""
-    data = await call_api(client, "6. 空港一覧 (USV005)", URL_AIRPORTS, {})
+    data = await call_api(client, "6. 空港一覧 (USV005)", URL_AIRPORTS, {**_BASIC_BODY})
     if not data:
         return
 
+    data = unwrap_ret(data)
     for candidate in ["aerodromeList", "aerodrome_list", "airports"]:
         r = find_key(data, candidate)
         if r:
@@ -267,6 +294,7 @@ async def test_flight(client: SwimClient):
     if not data:
         return
 
+    data = unwrap_ret(data)
     r = find_key(data, "flightInformationSearchResultsDTO")
     if not r:
         print(f"  flightInformationSearchResultsDTO が見つかりません")
@@ -304,6 +332,7 @@ async def test_flight(client: SwimClient):
     if not data:
         return
 
+    data = unwrap_ret(data)
     r = find_key(data, "flightDetailsSearchResultsDTO")
     if not r:
         print(f"  flightDetailsSearchResultsDTO が見つかりません")
@@ -332,7 +361,6 @@ async def main():
         print("使い方: python3 scripts/test_swim_apis.py --user 'ID' --password 'PASS'")
         sys.exit(1)
 
-    from datetime import datetime, timezone, timedelta
     jst = datetime.now(timezone(timedelta(hours=9)))
     print(f"SWIM全APIテスト — {jst.strftime('%Y-%m-%d %H:%M JST')}")
 
