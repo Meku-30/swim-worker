@@ -14,11 +14,19 @@ class TestTaskConsumer:
         await consumer.send_heartbeat()
         mock_redis.setex.assert_called_once_with("heartbeat:test-worker", 90, "alive")
 
-    async def test_register_worker(self):
+    async def test_register_worker_new(self):
         mock_redis = AsyncMock()
+        mock_redis.sismember.return_value = False  # 未承認
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(), worker_name="test-worker", heartbeat_interval=30)
         await consumer.register()
         mock_redis.sadd.assert_called_once_with("workers:pending", "test-worker")
+
+    async def test_register_worker_already_approved(self):
+        mock_redis = AsyncMock()
+        mock_redis.sismember.return_value = True  # 承認済み
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(), worker_name="test-worker", heartbeat_interval=30)
+        await consumer.register()
+        mock_redis.sadd.assert_not_called()  # pendingに追加しない
 
     async def test_execute_task_success(self):
         mock_swim = AsyncMock()
