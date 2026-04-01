@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 SWIM_LOGIN_URL = "https://top.swim.mlit.go.jp/swim/webapi/login"
 SWIM_SESSION_CHECK_URL = "https://web.swim.mlit.go.jp/service/api/accounts/summary"
 SWIM_PORTAL_URL = "https://web.swim.mlit.go.jp"
+SWIM_TOP_URL = "https://top.swim.mlit.go.jp"
 
 COOKIE_FILE = "/app/data/.swim_cookies.json"
 
@@ -54,6 +55,20 @@ _XHR_HEADERS = {
     "Sec-Fetch-Dest": "empty",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Site": "same-origin",
+}
+
+
+# ページナビゲーション用ヘッダー（ログインページの初回読み込み）
+_NAV_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 
@@ -134,13 +149,18 @@ class SwimClient:
 
         logger.info("SWIMポータルにログイン開始")
         try:
-            async with AsyncSession(impersonate=_BROWSER_TYPE, headers=_XHR_HEADERS) as tmp:
+            async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=30.0) as tmp:
+                # ポータルページ読み込み（ブラウザの初回アクセスを再現）
+                await tmp.get(f"{SWIM_TOP_URL}/", headers=_NAV_HEADERS)
+                await asyncio.sleep(random.uniform(1.0, 3.0))
+
                 resp = await tmp.post(
                     SWIM_LOGIN_URL,
                     json={"id": self._username, "password": self._password},
                     headers={
-                        "Origin": "https://top.swim.mlit.go.jp",
-                        "Referer": "https://top.swim.mlit.go.jp/",
+                        **_XHR_HEADERS,
+                        "Origin": SWIM_TOP_URL,
+                        "Referer": f"{SWIM_TOP_URL}/",
                     },
                 )
         except Exception as e:
@@ -221,6 +241,8 @@ class SwimClient:
         if resp.status_code != 200:
             raise SwimAuthError(f"APIエラー (status={resp.status_code})")
 
+        # レスポンス処理時間シミュレーション（ブラウザのDOM更新・レンダリング）
+        await asyncio.sleep(random.uniform(0.1, 0.5))
         return resp.json()
 
     async def _relogin(self) -> None:
