@@ -162,7 +162,12 @@ class WorkerGUI:
 
     def _tray_show(self, icon=None, item=None):
         """Show the main window from tray"""
-        self._root.after(0, self._root.deiconify)
+        def restore():
+            self._root.deiconify()
+            self._root.state("normal")
+            self._root.lift()
+            self._root.focus_force()
+        self._root.after(0, restore)
 
     def _tray_quit(self, icon=None, item=None):
         """Quit from tray"""
@@ -177,12 +182,13 @@ class WorkerGUI:
         self._root.destroy()
 
     def _minimize_to_tray(self):
-        """Minimize window to system tray"""
+        """Minimize window to system tray — タスクバーからも消える"""
         if not _HAS_TRAY or not self._tray_icon:
             return
-        self._root.withdraw()
+        self._root.withdraw()  # ウィンドウ非表示（タスクバーからも消える）
         if not self._tray_icon.visible:
             threading.Thread(target=self._tray_icon.run, daemon=True).start()
+        logging.info("システムトレイに格納しました")
 
     def _load_env(self):
         """既存の.envから設定を読み込む"""
@@ -368,12 +374,20 @@ class WorkerGUI:
     def run(self):
         """GUIメインループ"""
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
+        # 最小化ボタン（ー）でトレイに格納
+        self._root.bind("<Iconify>", self._on_iconify)
         self._root.mainloop()
 
+    def _on_iconify(self, event=None):
+        """最小化ボタンが押された時 → トレイに格納"""
+        if _HAS_TRAY and self._tray_icon:
+            # iconify のデフォルト動作をキャンセルして withdraw（タスクバーからも消す）
+            self._root.after(10, self._minimize_to_tray)
+
     def _on_close(self):
-        """ウィンドウ閉じる時"""
+        """Xボタンが押された時"""
         if self._worker_running and _HAS_TRAY:
-            self._minimize_to_tray()  # トレイに最小化してバックグラウンド動作を継続
+            self._minimize_to_tray()
         else:
             self._force_quit()
 
