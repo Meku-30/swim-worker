@@ -128,7 +128,7 @@ class SwimClient:
             self._session = AsyncSession(
                 impersonate=_BROWSER_TYPE,
                 headers=_XHR_HEADERS,
-                timeout=30.0,
+                timeout=60.0,
             )
             for name, value in saved.items():
                 self._session.cookies.set(name, value, domain="mlit.go.jp")
@@ -155,7 +155,7 @@ class SwimClient:
         logger.info("SWIMポータルにログイン開始")
         all_cookies: dict[str, str] = {}
         try:
-            async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=30.0) as tmp:
+            async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=60.0) as tmp:
                 # 1. ポータルページ読み込み（URL直接入力を再現）
                 await tmp.get(f"{SWIM_TOP_URL}/", headers=_NAV_HEADERS)
                 await asyncio.sleep(random.uniform(1.0, 3.0))
@@ -211,7 +211,7 @@ class SwimClient:
         self._session = AsyncSession(
             impersonate=_BROWSER_TYPE,
             headers=_XHR_HEADERS,
-            timeout=30.0,
+            timeout=60.0,
         )
         # Cookie domain は mlit.go.jp（実測で確認済み、省略すると403）
         for name, value in all_cookies.items():
