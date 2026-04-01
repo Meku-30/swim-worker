@@ -35,7 +35,11 @@ class TaskConsumer:
         self._tasks: list[asyncio.Task] = []
 
     async def register(self) -> None:
-        """Worker を pending リストに登録"""
+        """Worker を pending リストに登録（承認済みならスキップ）"""
+        is_approved = await self._redis.sismember("workers:approved", self._worker_name)
+        if is_approved:
+            logger.info("Worker '%s' は承認済み（再登録スキップ）", self._worker_name)
+            return
         await self._redis.sadd("workers:pending", self._worker_name)
         logger.info("Worker '%s' を登録しました (pending)", self._worker_name)
 
