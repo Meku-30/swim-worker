@@ -27,9 +27,31 @@ _REFERER_MAP = {
     "/f2aspr/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv850s001",    # 空域プロファイル（全f2aspr APIの入口）
 }
 
-# ブラウズ画面URL — セッション中に1回GETしてナビゲーション状態を確立する
-# 利用登録済みサービスのブラウズ画面のみ（未登録サービスへのアクセスは不自然）
-_BROWSE_PAGES = sorted(set(_REFERER_MAP.values()))
+# SPA初期化リクエスト — 実ブラウザがブラウズ画面を開く前に自動で読み込むリソース
+# 各サービスで共通のパターン（実測: investigation_results/94_all_api_calls.json）
+_SPA_INIT_PATHS = {
+    "f2aspr": [
+        "LuciadRIALicense",
+        "js/lib/WebGIS/ATCMAP.settings",
+        "settings/auto_filter.json",
+        "web/FLV901/LGV300",
+        "web/FLV811/LGV231",
+        "settings/map_disp.json",
+        "web/resource/message",
+        "web/resource/webfw",
+        "web/resource/user",
+    ],
+    "f2dnrq": [
+        "LuciadRIALicense",
+        "js/lib/WebGIS/ATCMAP.settings",
+        "settings/auto_filter.json",
+        "web/FUV201/USV005",
+        "settings/map_disp.json",
+        "web/resource/message",
+        "web/resource/webfw",
+        "web/resource/user",
+    ],
+}
 
 
 def _get_referer(url: str) -> str:
@@ -224,17 +246,44 @@ class SwimClient:
         logger.info("SWIMポータルにログイン成功")
 
     async def _ensure_browse_page(self, api_url: str) -> None:
-        """API URLに対応するブラウズ画面を未訪問なら1回GETする。
+        """API URLに対応するサービスのSPA初期化+ブラウズ画面遷移を再現する。
 
-        実ブラウザではユーザーがブラウズ画面を開いてからAPI呼び出しが発生する。
-        このナビゲーションを再現することでSec-Fetch-*ヘッダーの整合性を確保する。
+        実ブラウザでは、サービスページを開くと以下の順序でリクエストが発生する:
+        1. SPA初期化（ライセンス、設定ファイル、リソースバンドル等のGET）
+        2. ブラウズ画面のGET（Angular SPAルーティング）
+        セッション中に各サービス1回だけ実行する。
         """
         browse_url = _get_referer(api_url)
         if browse_url in self._visited_pages:
             return
         if self._session is None:
             return
+
+        # サービスプレフィックスを特定（f2aspr or f2dnrq）
+        service_prefix = None
+        for prefix in _SPA_INIT_PATHS:
+            if f"/{prefix}/" in api_url:
+                service_prefix = prefix
+                break
+
         try:
+            # 1. SPA初期化リクエスト
+            if service_prefix and service_prefix in _SPA_INIT_PATHS:
+                base = f"{SWIM_PORTAL_URL}/{service_prefix}"
+                xhr_nav = {
+                    k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
+                } | {
+                    "Referer": browse_url,
+                    "Sec-Fetch-Site": "same-origin",
+                }
+                for path in _SPA_INIT_PATHS[service_prefix]:
+                    try:
+                        await self._session.get(f"{base}/{path}", headers=xhr_nav)
+                        await asyncio.sleep(random.uniform(0.05, 0.2))
+                    except Exception:
+                        pass
+
+            # 2. ブラウズ画面ナビゲーション
             logger.debug("ブラウズ画面ナビゲーション: %s", browse_url)
             await self._session.get(browse_url, headers={
                 k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
