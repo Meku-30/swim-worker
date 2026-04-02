@@ -7,6 +7,7 @@ import asyncio
 import gzip
 import json
 import logging
+import math
 import random
 from datetime import datetime, timezone
 
@@ -23,14 +24,19 @@ HEARTBEAT_TTL_MULTIPLIER = 3
 class TaskConsumer:
     def __init__(self, redis_client, swim_client: SwimClient, worker_name: str,
                  heartbeat_interval: int = 30,
-                 request_delay_min: float = 2.0,
-                 request_delay_max: float = 8.0) -> None:
+                 request_delay_median: float = 4.0,
+                 request_delay_p99: float = 15.0,
+                 request_delay_clip_min: float = 1.5,
+                 request_delay_clip_max: float = 25.0) -> None:
         self._redis = redis_client
         self._swim = swim_client
         self._worker_name = worker_name
         self._heartbeat_interval = heartbeat_interval
-        self._request_delay_min = request_delay_min
-        self._request_delay_max = request_delay_max
+        # 対数正規分布パラメータ（人間のブラウジング間隔を再現）
+        self._delay_mu = math.log(request_delay_median)
+        self._delay_sigma = (math.log(request_delay_p99) - self._delay_mu) / 2.326
+        self._delay_clip_min = request_delay_clip_min
+        self._delay_clip_max = request_delay_clip_max
         self._running = False
         self._tasks: list[asyncio.Task] = []
 
@@ -58,7 +64,8 @@ class TaskConsumer:
         logger.info("タスク実行開始: %s (type=%s)", task_id, job_type)
 
         try:
-            delay = random.uniform(self._request_delay_min, self._request_delay_max)
+            raw = random.lognormvariate(self._delay_mu, self._delay_sigma)
+            delay = max(self._delay_clip_min, min(self._delay_clip_max, raw))
             logger.debug("リクエスト前遅延: %.1f秒", delay)
             await asyncio.sleep(delay)
 
