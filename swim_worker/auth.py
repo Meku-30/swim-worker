@@ -29,29 +29,61 @@ _REFERER_MAP = {
 
 # SPA初期化リクエスト — 実ブラウザがブラウズ画面を開く前に自動で読み込むリソース
 # 各サービスで共通のパターン（実測: investigation_results/94_all_api_calls.json）
-_SPA_INIT_PATHS = {
+# SPA初期化リクエスト — 実ブラウザがブラウズ画面を開く際に自動で読み込むリソース
+# (method, path) のリスト。順序は実測キャプチャに基づく。
+_SPA_INIT_REQUESTS = {
     "f2aspr": [
-        "LuciadRIALicense",
-        "js/lib/WebGIS/ATCMAP.settings",
-        "settings/auto_filter.json",
-        "web/FLV901/LGV300",
-        "web/FLV811/LGV231",
-        "web/FLV802/LGV205",
-        "web/FLV934/LGV387",
-        "settings/map_disp.json",
-        "web/resource/message",
-        "web/resource/webfw",
-        "web/resource/user",
+        ("POST", "LuciadRIALicense"),
+        ("GET",  "js/lib/WebGIS/ATCMAP.settings"),
+        ("GET",  "settings/auto_filter.json"),
+        ("GET",  "settings/map_disp.json"),
+        ("GET",  "web/resource/message"),
+        ("GET",  "web/resource/webfw"),
+        ("GET",  "web/resource/user"),
+        ("GET",  "settings/velocity.json"),
+        # ブラウズ画面GETはここで挿入（_ensure_browse_pageで処理）
+        ("GET",  "settings/default_view.json"),
+        ("GET",  "settings/default_font.json"),
+        ("GET",  "settings/default_dire_dist_position.json"),
+        ("GET",  "settings/shape_datablock_setting.json"),
+        ("GET",  "settings/default_color.json"),
+        ("GET",  "settings/map_disp.json"),
+        ("POST", "web/FLV901/LGV300"),
+        ("GET",  "settings/menu.json"),
+        ("GET",  "settings/commonMenuSetting.json"),
+        ("GET",  "settings/toolbarSetting.json"),
+        ("GET",  "settings/blink_info.json"),
+        ("GET",  "settings/groupLayer.json"),
+        ("POST", "web/FLV811/LGV231"),
+        ("POST", "web/FLV802/LGV205"),
+        ("POST", "web/FLV934/LGV387"),
     ],
     "f2dnrq": [
-        "LuciadRIALicense",
-        "js/lib/WebGIS/ATCMAP.settings",
-        "settings/auto_filter.json",
-        "web/FUV201/USV005",
-        "settings/map_disp.json",
-        "web/resource/message",
-        "web/resource/webfw",
-        "web/resource/user",
+        ("POST", "LuciadRIALicense"),
+        ("GET",  "js/lib/WebGIS/ATCMAP.settings"),
+        ("GET",  "settings/auto_filter.json"),
+        ("GET",  "settings/map_disp.json"),
+        ("GET",  "web/resource/message"),
+        ("GET",  "web/resource/webfw"),
+        ("GET",  "web/resource/user"),
+        ("POST", "web/FUV201/USV005"),
+        ("GET",  "settings/velocity.json"),
+        # ブラウズ画面GETはここで挿入
+        ("GET",  "settings/default_view.json"),
+        ("GET",  "settings/default_font.json"),
+        ("GET",  "settings/default_dire_dist_position.json"),
+        ("GET",  "settings/shape_datablock_setting.json"),
+        ("GET",  "settings/default_color.json"),
+        ("GET",  "settings/map_disp.json"),
+        ("GET",  "settings/menu.json"),
+        ("GET",  "settings/commonMenuSetting.json"),
+        ("GET",  "settings/toolbarSetting.json"),
+        ("GET",  "settings/blink_info.json"),
+        ("GET",  "settings/groupLayer.json"),
+        ("GET",  "js/lib/WebGIS/layer/UTM0.json"),
+        ("GET",  "js/lib/WebGIS/layer/UTM1.json"),
+        ("GET",  "js/lib/WebGIS/layer/UTM2.json"),
+        ("GET",  "js/lib/WebGIS/layer/UTM3.json"),
     ],
 }
 
@@ -251,8 +283,10 @@ class SwimClient:
         """API URLに対応するサービスのSPA初期化+ブラウズ画面遷移を再現する。
 
         実ブラウザでは、サービスページを開くと以下の順序でリクエストが発生する:
-        1. SPA初期化（ライセンス、設定ファイル、リソースバンドル等のGET）
-        2. ブラウズ画面のGET（Angular SPAルーティング）
+        1. ブラウズ画面の初回GET（HTMLシェル読み込み）
+        2. SPA初期化前半（ライセンスPOST、設定ファイルGET、リソースバンドルGET）
+        3. ブラウズ画面の追加GET（SPAルーティング、計3-4回）
+        4. SPA初期化後半（追加設定ファイル、初期データAPI）
         セッション中に各サービス1回だけ実行する。
         """
         browse_url = _get_referer(api_url)
@@ -261,38 +295,52 @@ class SwimClient:
         if self._session is None:
             return
 
-        # サービスプレフィックスを特定（f2aspr or f2dnrq）
+        # サービスプレフィックスを特定
         service_prefix = None
-        for prefix in _SPA_INIT_PATHS:
+        for prefix in _SPA_INIT_REQUESTS:
             if f"/{prefix}/" in api_url:
                 service_prefix = prefix
                 break
 
+        nav_headers = {
+            k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
+        } | {
+            "Referer": f"{SWIM_PORTAL_URL}/",
+            "Sec-Fetch-Site": "same-origin",
+        }
+
         try:
-            # 1. SPA初期化リクエスト
-            if service_prefix and service_prefix in _SPA_INIT_PATHS:
+            # 1. ブラウズ画面の初回GET
+            logger.debug("ブラウズ画面ナビゲーション: %s", browse_url)
+            await self._session.get(browse_url, headers=nav_headers)
+            await asyncio.sleep(random.uniform(0.3, 0.8))
+
+            # 2. SPA初期化リクエスト（実測順序に従う）
+            if service_prefix and service_prefix in _SPA_INIT_REQUESTS:
                 base = f"{SWIM_PORTAL_URL}/{service_prefix}"
-                xhr_nav = {
-                    k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
-                } | {
-                    "Referer": browse_url,
-                    "Sec-Fetch-Site": "same-origin",
-                }
-                for path in _SPA_INIT_PATHS[service_prefix]:
+                ref_header = {"Referer": browse_url}
+                browse_count = 0
+                for method, path in _SPA_INIT_REQUESTS[service_prefix]:
                     try:
-                        await self._session.get(f"{base}/{path}", headers=xhr_nav)
-                        await asyncio.sleep(random.uniform(0.05, 0.2))
+                        url = f"{base}/{path}"
+                        if method == "POST":
+                            await self._session.post(url, json={}, headers=ref_header)
+                        else:
+                            await self._session.get(url, headers=ref_header)
+                        await asyncio.sleep(random.uniform(0.02, 0.15))
                     except Exception:
                         pass
 
-            # 2. ブラウズ画面ナビゲーション
-            logger.debug("ブラウズ画面ナビゲーション: %s", browse_url)
-            await self._session.get(browse_url, headers={
-                k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
-            } | {
-                "Referer": f"{SWIM_PORTAL_URL}/",
-                "Sec-Fetch-Site": "same-origin",
-            })
+                    # velocity.json の後にブラウズ画面の追加GETが来る（実測パターン）
+                    if path == "settings/velocity.json" and browse_count == 0:
+                        for _ in range(3):
+                            try:
+                                await self._session.get(browse_url, headers=nav_headers)
+                                await asyncio.sleep(random.uniform(0.02, 0.1))
+                            except Exception:
+                                pass
+                        browse_count += 1
+
             self._visited_pages.add(browse_url)
             await asyncio.sleep(random.uniform(1.0, 3.0))
         except Exception as e:
