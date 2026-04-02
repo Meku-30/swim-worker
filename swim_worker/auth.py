@@ -33,6 +33,9 @@ _REFERER_MAP = {
     "/f2aspr/web/FLV918/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv850s001",  # SIGMET
 }
 
+# ブラウズ画面URL（重複排除）— セッション中に1回GETしてナビゲーション状態を確立する
+_BROWSE_PAGES = sorted(set(_REFERER_MAP.values()))
+
 
 def _get_referer(url: str) -> str:
     """URLに応じたRefererを返す"""
@@ -88,6 +91,8 @@ class SwimClient:
         self._last_response_time: float = 0.0
         self._slow_threshold: float = 10.0  # 10秒以上で「遅い」判定
         self._extra_delay: float = 0.0  # 追加遅延（秒）
+        # 訪問済みブラウズ画面（セッション中に1回GETしたURL）
+        self._visited_pages: set[str] = set()
 
     def _save_cookies(self) -> None:
         """セッションCookieをファイルに保存"""
@@ -146,6 +151,7 @@ class SwimClient:
                 check = await self._session.get(SWIM_SESSION_CHECK_URL)
                 if check.status_code == 200:
                     self._is_ready = True
+                    self._visited_pages.clear()
                     logger.info("保存済みCookieでセッション復元成功")
                     return
             except Exception:
@@ -218,8 +224,33 @@ class SwimClient:
             self._session.cookies.set(name, value, domain="mlit.go.jp")
 
         self._is_ready = True
+        self._visited_pages.clear()
         self._save_cookies()
         logger.info("SWIMポータルにログイン成功")
+
+    async def _ensure_browse_page(self, api_url: str) -> None:
+        """API URLに対応するブラウズ画面を未訪問なら1回GETする。
+
+        実ブラウザではユーザーがブラウズ画面を開いてからAPI呼び出しが発生する。
+        このナビゲーションを再現することでSec-Fetch-*ヘッダーの整合性を確保する。
+        """
+        browse_url = _get_referer(api_url)
+        if browse_url in self._visited_pages:
+            return
+        if self._session is None:
+            return
+        try:
+            logger.debug("ブラウズ画面ナビゲーション: %s", browse_url)
+            await self._session.get(browse_url, headers={
+                k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
+            } | {
+                "Referer": f"{SWIM_PORTAL_URL}/",
+                "Sec-Fetch-Site": "same-origin",
+            })
+            self._visited_pages.add(browse_url)
+            await asyncio.sleep(random.uniform(1.0, 3.0))
+        except Exception as e:
+            logger.warning("ブラウズ画面ナビゲーション失敗: %s", e)
 
     async def execute_api(self, url: str, body: dict, *, _retried: bool = False) -> dict:
         """SWIM APIを実行する。403/HTTPエラー時は1回リトライする。"""
@@ -232,15 +263,10 @@ class SwimClient:
             logger.debug("応答速度ベース追加遅延: %.1f秒", self._extra_delay)
             await asyncio.sleep(self._extra_delay)
 
-        extra_headers = {"Referer": _get_referer(url)}
+        # 対応するブラウズ画面を未訪問なら先にナビゲーション
+        await self._ensure_browse_page(url)
 
-        # f2dnrq (NOTAM) はSec-Fetch-*ヘッダーを受け付けない
-        if "/f2dnrq/" in url:
-            extra_headers.update({
-                "Sec-Fetch-Dest": None,
-                "Sec-Fetch-Mode": None,
-                "Sec-Fetch-Site": None,
-            })
+        extra_headers = {"Referer": _get_referer(url)}
 
         start = time.monotonic()
         try:
