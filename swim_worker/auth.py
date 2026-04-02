@@ -28,62 +28,70 @@ _REFERER_MAP = {
 }
 
 # SPA初期化リクエスト — 実ブラウザがブラウズ画面を開く際に自動で読み込むリソース
-# (method, path) のリスト。順序はPlaywrightキャプチャ（94_all_api_calls.json）に基づく。
-_SPA_INIT_REQUESTS = {
-    # 順序はPlaywrightキャプチャ（94_all_api_calls.json）に基づく
+# (method, path, body) のリスト。bodyはPOSTのみ使用、GETはNone。
+# 順序はPlaywrightキャプチャに基づく（非同期JSにより実行順は毎回変動する）。
+# body は 2026-04-02 のキャプチャで実測。
+
+_BASIC_BODY = {
+    "msgHeader": {"jnlInfo": {"jnlRegistFlag": 0}, "tsusuInfo": {}},
+    "ctrlInfo": {},
+    "ctrlHeader": {},
+}
+
+_SPA_INIT_REQUESTS: dict[str, list[tuple[str, str, dict | None]]] = {
     "f2aspr": [
-        ("POST", "LuciadRIALicense"),
-        ("GET",  "js/lib/WebGIS/ATCMAP.settings"),
-        ("GET",  "settings/auto_filter.json"),
-        ("POST", "web/FLV901/LGV300"),
-        ("POST", "web/FLV811/LGV231"),
-        ("GET",  "settings/map_disp.json"),
-        ("GET",  "web/resource/message"),
-        ("GET",  "web/resource/webfw"),
-        ("GET",  "web/resource/user"),
+        ("POST", "LuciadRIALicense", None),  # bodyなし（ライセンス検証）
+        ("GET",  "js/lib/WebGIS/ATCMAP.settings", None),
+        ("GET",  "settings/auto_filter.json", None),
+        ("POST", "web/FLV901/LGV300", {**_BASIC_BODY}),
+        ("POST", "web/FLV811/LGV231", {**_BASIC_BODY, "profileType": 0, "lang": "ja"}),
+        ("GET",  "settings/map_disp.json", None),
+        ("GET",  "web/resource/message", None),
+        ("GET",  "web/resource/webfw", None),
+        ("GET",  "web/resource/user", None),
         # ブラウズ画面GETはここで挿入（resource/userの後、_ensure_browse_pageで処理）
-        ("POST", "web/FLV802/LGV205"),
-        ("POST", "web/FLV934/LGV387"),
-        ("GET",  "settings/velocity.json"),
-        ("GET",  "settings/default_view.json"),
-        ("GET",  "settings/default_font.json"),
-        ("GET",  "settings/default_dire_dist_position.json"),
-        ("GET",  "settings/shape_datablock_setting.json"),
-        ("GET",  "settings/default_color.json"),
-        ("GET",  "settings/map_disp.json"),
-        ("GET",  "settings/menu.json"),
-        ("GET",  "settings/commonMenuSetting.json"),
-        ("GET",  "settings/toolbarSetting.json"),
-        ("GET",  "settings/blink_info.json"),
-        ("GET",  "settings/groupLayer.json"),
+        ("POST", "web/FLV802/LGV205", {**_BASIC_BODY, "profileType": 0}),
+        ("POST", "web/FLV934/LGV387", {**_BASIC_BODY}),
+        ("GET",  "settings/velocity.json", None),
+        ("GET",  "settings/default_view.json", None),
+        ("GET",  "settings/default_font.json", None),
+        ("GET",  "settings/default_dire_dist_position.json", None),
+        ("GET",  "settings/shape_datablock_setting.json", None),
+        ("GET",  "settings/default_color.json", None),
+        ("GET",  "settings/map_disp.json", None),
+        ("GET",  "settings/menu.json", None),
+        ("GET",  "settings/commonMenuSetting.json", None),
+        ("GET",  "settings/toolbarSetting.json", None),
+        ("GET",  "settings/blink_info.json", None),
+        ("GET",  "settings/groupLayer.json", None),
     ],
     "f2dnrq": [
-        ("POST", "LuciadRIALicense"),
-        ("GET",  "js/lib/WebGIS/ATCMAP.settings"),
-        ("GET",  "settings/auto_filter.json"),
-        ("POST", "web/FUV201/USV005"),
-        ("GET",  "settings/map_disp.json"),
-        ("GET",  "web/resource/message"),
-        ("GET",  "web/resource/webfw"),
-        ("GET",  "web/resource/user"),
+        ("POST", "LuciadRIALicense", None),  # bodyなし
+        ("GET",  "js/lib/WebGIS/ATCMAP.settings", None),
+        ("GET",  "settings/auto_filter.json", None),
+        ("POST", "web/FUV201/USV005", {**_BASIC_BODY}),
+        ("GET",  "settings/map_disp.json", None),
+        ("GET",  "web/resource/message", None),
+        ("GET",  "web/resource/webfw", None),
+        ("GET",  "web/resource/user", None),
         # ブラウズ画面GETはここで挿入（resource/userの後）
-        ("GET",  "settings/velocity.json"),
-        ("GET",  "settings/default_view.json"),
-        ("GET",  "settings/default_font.json"),
-        ("GET",  "settings/default_dire_dist_position.json"),
-        ("GET",  "settings/shape_datablock_setting.json"),
-        ("GET",  "settings/default_color.json"),
-        ("GET",  "settings/map_disp.json"),
-        ("GET",  "settings/menu.json"),
-        ("GET",  "settings/commonMenuSetting.json"),
-        ("GET",  "settings/toolbarSetting.json"),
-        ("GET",  "settings/blink_info.json"),
-        ("GET",  "settings/groupLayer.json"),
-        ("POST", "web/FUV201/USV005"),
-        ("GET",  "js/lib/WebGIS/layer/UTM0.json"),
-        ("GET",  "js/lib/WebGIS/layer/UTM1.json"),
-        ("GET",  "js/lib/WebGIS/layer/UTM2.json"),
-        ("GET",  "js/lib/WebGIS/layer/UTM3.json"),
+        ("GET",  "settings/velocity.json", None),
+        ("GET",  "settings/default_view.json", None),
+        ("GET",  "settings/default_font.json", None),
+        ("GET",  "settings/default_dire_dist_position.json", None),
+        ("GET",  "settings/shape_datablock_setting.json", None),
+        ("GET",  "settings/default_color.json", None),
+        ("GET",  "settings/map_disp.json", None),
+        ("GET",  "settings/menu.json", None),
+        ("GET",  "settings/commonMenuSetting.json", None),
+        ("GET",  "settings/toolbarSetting.json", None),
+        ("GET",  "settings/blink_info.json", None),
+        ("GET",  "settings/groupLayer.json", None),
+        ("POST", "web/FUV201/USV005", {**_BASIC_BODY}),
+        ("GET",  "js/lib/WebGIS/layer/UTM0.json", None),
+        ("GET",  "js/lib/WebGIS/layer/UTM1.json", None),
+        ("GET",  "js/lib/WebGIS/layer/UTM2.json", None),
+        ("GET",  "js/lib/WebGIS/layer/UTM3.json", None),
     ],
 }
 
@@ -320,11 +328,14 @@ class SwimClient:
                 base = f"{SWIM_PORTAL_URL}/{service_prefix}"
                 ref_header = {"Referer": browse_url}
                 browse_count = 0
-                for method, path in _SPA_INIT_REQUESTS[service_prefix]:
+                for method, path, body in _SPA_INIT_REQUESTS[service_prefix]:
                     try:
                         url = f"{base}/{path}"
                         if method == "POST":
-                            await self._session.post(url, json={}, headers=ref_header)
+                            if body is not None:
+                                await self._session.post(url, json=body, headers=ref_header)
+                            else:
+                                await self._session.post(url, headers=ref_header)
                         else:
                             await self._session.get(url, headers=ref_header)
                         await asyncio.sleep(random.uniform(0.02, 0.15))
