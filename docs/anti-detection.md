@@ -73,18 +73,19 @@ _NAV_HEADERS = {
 実ブラウザでサービスページを開くと、API呼び出しの前にSPA初期化リクエストが自動で発生する。Workerでもこの遷移をセッション中に各サービス1回再現する。リクエスト内容・順序・HTTPメソッドはPlaywrightで実際のChrome操作をキャプチャして特定したもの。
 
 ```
-サービスページを開く際の実ブラウザの挙動:
+サービスページを開く際の実ブラウザの挙動（Playwrightキャプチャで実測）:
 1. ブラウズ画面の初回GET（HTMLシェル読み込み）
-2. SPA初期化前半（ライセンスPOST、設定ファイルGET、リソースバンドルGET）
-3. ブラウズ画面の追加GET × 3回（Angular SPAルーティング）
-4. SPA初期化後半（追加設定ファイル、初期データAPI POST）
-5. 以降のAPI呼び出し（XHRヘッダー + Referer付き）
+2. SPA初期化: ライセンスPOST → ATCMAP設定 → auto_filter → 初期データAPI POST
+3. 設定ファイルGET + リソースバンドルGET（message/webfw/user）
+4. ブラウズ画面の追加GET × 3回（Angular SPAルーティング、resource/userの後）
+5. 追加API POST → velocity.json以降の設定ファイルGET
+6. 以降のAPI呼び出し（XHRヘッダー + Referer付き）
 ```
 
 | サービス | 初期化リクエスト数 | ブラウズ画面 | 内訳 |
 |---------|------------------|-----------|------|
-| f2aspr (PKG気象/PIREP/便/空港等) | 24件 + ブラウズGET×4 | `/f2aspr/browse/flv850s001` | LuciadRIALicense(POST), 設定JSON×11, リソースバンドル×3, 初期データAPI×4(FLV901/FLV811/FLV802/FLV934) |
-| f2dnrq (NOTAM) | 25件 + ブラウズGET×4 | `/f2dnrq/browse/FUV201` | LuciadRIALicense(POST), 設定JSON×11, リソースバンドル×3, USV005(POST), UTMレイヤー×4 |
+| f2aspr (PKG気象/PIREP/便/空港等) | 23件 + ブラウズGET×4 | `/f2aspr/browse/flv850s001` | LuciadRIALicense(POST), ATCMAP設定, 設定JSON×12, リソースバンドル×3, 初期データAPI×4(FLV901/FLV811/FLV802/FLV934) |
+| f2dnrq (NOTAM) | 25件 + ブラウズGET×4 | `/f2dnrq/browse/FUV201` | LuciadRIALicense(POST), ATCMAP設定, 設定JSON×12, リソースバンドル×3, USV005(POST)×2, UTMレイヤー×4 |
 
 ブラウズ画面は**利用登録済みサービスのみ**にアクセスする。未登録サービスのページにアクセスすることは不自然な行動になるため。
 

@@ -27,48 +27,47 @@ _REFERER_MAP = {
     "/f2aspr/": f"{SWIM_PORTAL_URL}/f2aspr/browse/flv850s001",    # 空域プロファイル（全f2aspr APIの入口）
 }
 
-# SPA初期化リクエスト — 実ブラウザがブラウズ画面を開く前に自動で読み込むリソース
-# 各サービスで共通のパターン（実測: investigation_results/94_all_api_calls.json）
 # SPA初期化リクエスト — 実ブラウザがブラウズ画面を開く際に自動で読み込むリソース
-# (method, path) のリスト。順序は実測キャプチャに基づく。
+# (method, path) のリスト。順序はPlaywrightキャプチャ（94_all_api_calls.json）に基づく。
 _SPA_INIT_REQUESTS = {
+    # 順序はPlaywrightキャプチャ（94_all_api_calls.json）に基づく
     "f2aspr": [
         ("POST", "LuciadRIALicense"),
         ("GET",  "js/lib/WebGIS/ATCMAP.settings"),
         ("GET",  "settings/auto_filter.json"),
+        ("POST", "web/FLV901/LGV300"),
+        ("POST", "web/FLV811/LGV231"),
         ("GET",  "settings/map_disp.json"),
         ("GET",  "web/resource/message"),
         ("GET",  "web/resource/webfw"),
         ("GET",  "web/resource/user"),
+        # ブラウズ画面GETはここで挿入（resource/userの後、_ensure_browse_pageで処理）
+        ("POST", "web/FLV802/LGV205"),
+        ("POST", "web/FLV934/LGV387"),
         ("GET",  "settings/velocity.json"),
-        # ブラウズ画面GETはここで挿入（_ensure_browse_pageで処理）
         ("GET",  "settings/default_view.json"),
         ("GET",  "settings/default_font.json"),
         ("GET",  "settings/default_dire_dist_position.json"),
         ("GET",  "settings/shape_datablock_setting.json"),
         ("GET",  "settings/default_color.json"),
         ("GET",  "settings/map_disp.json"),
-        ("POST", "web/FLV901/LGV300"),
         ("GET",  "settings/menu.json"),
         ("GET",  "settings/commonMenuSetting.json"),
         ("GET",  "settings/toolbarSetting.json"),
         ("GET",  "settings/blink_info.json"),
         ("GET",  "settings/groupLayer.json"),
-        ("POST", "web/FLV811/LGV231"),
-        ("POST", "web/FLV802/LGV205"),
-        ("POST", "web/FLV934/LGV387"),
     ],
     "f2dnrq": [
         ("POST", "LuciadRIALicense"),
         ("GET",  "js/lib/WebGIS/ATCMAP.settings"),
         ("GET",  "settings/auto_filter.json"),
+        ("POST", "web/FUV201/USV005"),
         ("GET",  "settings/map_disp.json"),
         ("GET",  "web/resource/message"),
         ("GET",  "web/resource/webfw"),
         ("GET",  "web/resource/user"),
-        ("POST", "web/FUV201/USV005"),
+        # ブラウズ画面GETはここで挿入（resource/userの後）
         ("GET",  "settings/velocity.json"),
-        # ブラウズ画面GETはここで挿入
         ("GET",  "settings/default_view.json"),
         ("GET",  "settings/default_font.json"),
         ("GET",  "settings/default_dire_dist_position.json"),
@@ -80,6 +79,7 @@ _SPA_INIT_REQUESTS = {
         ("GET",  "settings/toolbarSetting.json"),
         ("GET",  "settings/blink_info.json"),
         ("GET",  "settings/groupLayer.json"),
+        ("POST", "web/FUV201/USV005"),
         ("GET",  "js/lib/WebGIS/layer/UTM0.json"),
         ("GET",  "js/lib/WebGIS/layer/UTM1.json"),
         ("GET",  "js/lib/WebGIS/layer/UTM2.json"),
@@ -331,8 +331,8 @@ class SwimClient:
                     except Exception:
                         pass
 
-                    # velocity.json の後にブラウズ画面の追加GETが来る（実測パターン）
-                    if path == "settings/velocity.json" and browse_count == 0:
+                    # resource/user の後にブラウズ画面の追加GETが来る（実測パターン）
+                    if path == "web/resource/user" and browse_count == 0:
                         for _ in range(3):
                             try:
                                 await self._session.get(browse_url, headers=nav_headers)
