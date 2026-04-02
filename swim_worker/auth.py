@@ -36,6 +36,8 @@ _SPA_INIT_PATHS = {
         "settings/auto_filter.json",
         "web/FLV901/LGV300",
         "web/FLV811/LGV231",
+        "web/FLV802/LGV205",
+        "web/FLV934/LGV387",
         "settings/map_disp.json",
         "web/resource/message",
         "web/resource/webfw",
