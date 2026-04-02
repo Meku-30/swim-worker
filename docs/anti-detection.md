@@ -91,7 +91,71 @@ _NAV_HEADERS = {
 
 #### Playwrightキャプチャ記録
 
-2026-03-04にPlaywright (Chromium) で実際のSWIMポータルにログインし、各サービスページを開いた際のネットワークリクエストを記録した。以下はそのキャプチャ結果（`swim-api-legacy/scripts/investigation_results/94_all_api_calls.json`、全131リクエスト）。Workerの `_SPA_INIT_REQUESTS` はこの記録に基づいて実装している。
+2026-03-04にPlaywright (Chromium) で実際のSWIMポータルにログインし、各サービスページを開いた際のネットワークリクエストを2回記録した。キャプチャデータは `swim-api-legacy/scripts/investigation_results/` に保存されている。
+
+- **71_all_data_api_calls.json** (11:20, 72リクエスト) — 1回目のキャプチャ
+- **94_all_api_calls.json** (11:27, 131リクエスト) — 2回目のキャプチャ
+
+**重要な発見**: 2回のキャプチャでSPA初期化リクエストの**順序に差異**がある。これはAngular SPAの非同期JavaScript読み込みによるもので、毎回同じ順序になるとは限らない。
+
+| 項目 | 71_ (1回目) | 94_ (2回目) |
+|------|------------|------------|
+| LuciadRIA vs ATCMAP | ATCMAP → LuciadRIA | LuciadRIA → ATCMAP |
+| API POST (FLV901等) | SPA init中に出現せず、groupLayer後 | auto_filter直後に出現 |
+| USV005 1回目 (f2dnrq) | groupLayer後に1回のみ | auto_filter直後 + groupLayer後 |
+| browse GETs位置 | resource/user後 | resource/user後 |
+| 設定ファイル群の順序 | 同一 | 同一 |
+
+**安定している部分**: browse GETsは常にresource/userの後、設定ファイル群(velocity〜groupLayer)の順序は固定。
+**可変な部分**: LuciadRIA/ATCMAPの前後、API POSTの出現タイミング（SPA init前半 or groupLayer後）。
+
+Workerの `_SPA_INIT_REQUESTS` は94_（2回目）の順序に基づいて実装している。毎回固定順序で送信するが、上記の通り実ブラウザでも順序にばらつきがあるため、固定であること自体は検知リスクにならない。
+
+##### キャプチャ1回目: 71_all_data_api_calls.json (11:20)
+
+**f2aspr（空域プロファイル）:**
+
+```
+# SPA初期化
+ 1. GET  200 js/lib/WebGIS/ATCMAP.settings
+ 2. POST 200 LuciadRIALicense
+ 3. GET  200 settings/auto_filter.json
+ 4. GET  200 settings/map_disp.json
+ 5. GET  200 web/resource/message
+ 6. GET  200 web/resource/webfw
+ 7. GET  200 web/resource/user
+     [GET browse/flv850s001 ×3]         ← Angular SPAルーティング
+ 8. GET  200 settings/velocity.json
+ 9. GET  200 settings/default_view.json
+    ... (default_font〜groupLayerは94_と同一順序)
+19. GET  200 settings/groupLayer.json
+# ここまでSPA初期化。API POSTはSPA init中に出現せず、以降のユーザー操作で発生:
+20. POST 200 web/FLV901/LGV300
+```
+
+**f2dnrq（デジタルノータム）:**
+
+```
+# SPA初期化
+ 1. GET  200 js/lib/WebGIS/ATCMAP.settings
+ 2. POST 200 LuciadRIALicense
+ 3. GET  200 settings/auto_filter.json
+ 4. GET  200 settings/map_disp.json
+ 5. GET  200 web/resource/message
+ 6. GET  200 web/resource/webfw
+ 7. GET  200 web/resource/user
+     [GET browse/FUV201 ×3]             ← Angular SPAルーティング
+ 8. GET  200 settings/velocity.json
+    ... (default_font〜groupLayerは94_と同一順序)
+19. GET  200 settings/groupLayer.json
+20. POST 200 web/FUV201/USV005           ← 1回のみ（94_では2回）
+21. GET  200 js/lib/WebGIS/layer/UTM1.json
+22. GET  200 js/lib/WebGIS/layer/UTM0.json  ← UTM0/1の順序が94_と逆
+23. GET  200 js/lib/WebGIS/layer/UTM2.json
+24. GET  200 js/lib/WebGIS/layer/UTM3.json
+```
+
+##### キャプチャ2回目: 94_all_api_calls.json (11:27) — Worker実装のベース
 
 **f2aspr（空域プロファイル）— `/f2aspr/browse/flv850s001` を開いた際のリクエスト:**
 
@@ -106,28 +170,25 @@ _NAV_HEADERS = {
  7. GET  200 web/resource/message
  8. GET  200 web/resource/webfw
  9. GET  200 web/resource/user
-10. GET  200 browse/flv850s001          ← Angular SPAルーティング
-11. GET  200 browse/flv850s001
-12. GET  200 browse/flv850s001
-13. POST   ? web/FLV802/LGV205
-14. POST   ? web/FLV934/LGV387
-15. GET  200 settings/velocity.json
-16. GET  200 settings/default_view.json
-17. GET  200 settings/default_font.json
-18. GET  200 settings/default_dire_dist_position.json
-19. GET  200 settings/shape_datablock_setting.json
-20. GET  200 settings/default_color.json
-21. GET  200 settings/map_disp.json
-22. GET  200 settings/menu.json
-23. GET  200 settings/commonMenuSetting.json
-24. GET  200 settings/toolbarSetting.json
-25. GET  200 settings/blink_info.json
-26. GET  200 settings/groupLayer.json
-# ここまでがSPA初期化。以降はユーザー操作に応じたAPI呼び出し。
-27. POST 200 web/FLV901/LGV300
-28. POST   ? web/FLV921/LGV359
-29. POST   ? web/FLV909/LGV330
-    ... (各種データ取得API)
+     [GET browse/flv850s001 ×3]         ← Angular SPAルーティング
+10. POST   ? web/FLV802/LGV205
+11. POST   ? web/FLV934/LGV387
+12. GET  200 settings/velocity.json
+13. GET  200 settings/default_view.json
+14. GET  200 settings/default_font.json
+15. GET  200 settings/default_dire_dist_position.json
+16. GET  200 settings/shape_datablock_setting.json
+17. GET  200 settings/default_color.json
+18. GET  200 settings/map_disp.json
+19. GET  200 settings/menu.json
+20. GET  200 settings/commonMenuSetting.json
+21. GET  200 settings/toolbarSetting.json
+22. GET  200 settings/blink_info.json
+23. GET  200 settings/groupLayer.json
+# ここまでがSPA初期化。以降はユーザー操作に応じたAPI呼び出し:
+24. POST 200 web/FLV901/LGV300
+25. POST   ? web/FLV921/LGV359
+    ... (FLV909/FLV913/FLV914/FLV915/FLV916/FLV918/FLV919/FLV920/FLV921/FLV807/FLV811/FLV802)
 43. POST 200 web/FLV934/LGV387
 ```
 
@@ -143,32 +204,33 @@ _NAV_HEADERS = {
  6. GET  200 web/resource/message
  7. GET  200 web/resource/webfw
  8. GET  200 web/resource/user
- 9. GET  200 browse/FUV201              ← Angular SPAルーティング
-10. GET  200 browse/FUV201
-11. GET  200 browse/FUV201
-12. GET  200 settings/velocity.json
-13. GET  200 settings/default_view.json
-14. GET  200 settings/default_font.json
-15. GET  200 settings/default_dire_dist_position.json
-16. GET  200 settings/shape_datablock_setting.json
-17. GET  200 settings/default_color.json
-18. GET  200 settings/map_disp.json
-19. GET  200 settings/menu.json
-20. GET  200 settings/commonMenuSetting.json
-21. GET  200 settings/toolbarSetting.json
-22. GET  200 settings/blink_info.json
-23. GET  200 settings/groupLayer.json
-24. POST 200 web/FUV201/USV005          ← 2回目
-25. GET  200 js/lib/WebGIS/layer/UTM0.json
-26. GET  200 js/lib/WebGIS/layer/UTM1.json
-27. GET  200 js/lib/WebGIS/layer/UTM2.json
-28. GET  200 js/lib/WebGIS/layer/UTM3.json
+     [GET browse/FUV201 ×3]             ← Angular SPAルーティング
+ 9. GET  200 settings/velocity.json
+10. GET  200 settings/default_view.json
+11. GET  200 settings/default_font.json
+12. GET  200 settings/default_dire_dist_position.json
+13. GET  200 settings/shape_datablock_setting.json
+14. GET  200 settings/default_color.json
+15. GET  200 settings/map_disp.json
+16. GET  200 settings/menu.json
+17. GET  200 settings/commonMenuSetting.json
+18. GET  200 settings/toolbarSetting.json
+19. GET  200 settings/blink_info.json
+20. GET  200 settings/groupLayer.json
+21. POST 200 web/FUV201/USV005           ← 2回目
+22. GET  200 js/lib/WebGIS/layer/UTM0.json
+23. GET  200 js/lib/WebGIS/layer/UTM1.json
+24. GET  200 js/lib/WebGIS/layer/UTM2.json
+25. GET  200 js/lib/WebGIS/layer/UTM3.json
 # ここまでがSPA初期化。
-29. POST   ? RegistPreValue
-30. POST 403 RegistPreValue
+26. POST   ? RegistPreValue
+27. POST 403 RegistPreValue
 ```
 
-**補足**: status `?` はPlaywrightのレスポンスキャプチャで記録されなかったもの（POSTリクエストのレスポンスが非同期で完了した等）。実際にはすべて200で応答していると考えられる。キャプチャ時には `/f2lfss/` (地図WMSサービス) へのリクエスト47件も同時に発生しているが、これらは地図タイル取得でありWorkerでは再現不要。
+**補足**:
+- status `?` はPlaywrightのレスポンスキャプチャで記録されなかったもの（POSTリクエストのレスポンスが非同期で完了した等）。実際にはすべて200で応答していると考えられる。
+- キャプチャ時には `/f2lfss/` (地図WMSサービス) へのリクエスト47件も同時に発生しているが、これらは地図タイル取得でありWorkerでは再現不要。
+- `RegistPreValue` はNOTAM検索の前回値保存で、Workerでは不要。
 
 ### 1.5 API別Refererヘッダー
 
