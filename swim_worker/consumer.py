@@ -49,9 +49,12 @@ class TaskConsumer:
 
     async def execute_task(self, task: dict) -> None:
         """タスクを実行し結果をRedisに書き込む"""
-        task_id = task["task_id"]
-        job_type = task["job_type"]
-        params = task.get("params", {})
+        task_id = task.get("task_id")
+        job_type = task.get("job_type")
+        if not task_id or not job_type:
+            logger.error("不正なタスク（task_id/job_type欠落）: %s", str(task)[:200])
+            return
+        params = task.get("params") or {}
         logger.info("タスク実行開始: %s (type=%s)", task_id, job_type)
 
         try:

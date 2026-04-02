@@ -263,20 +263,21 @@ class SwimClient:
         elif self._extra_delay > 0:
             self._extra_delay = max(self._extra_delay - 0.5, 0.0)
 
-        if resp.status_code == 403:
+        if resp.status_code in (401, 403):
             if not _retried:
                 delay = random.uniform(5, 15)
-                logger.warning("API 403エラー、%.0f秒待機後にリトライ", delay)
+                logger.warning("API %dエラー、%.0f秒待機後に再ログイン+リトライ", resp.status_code, delay)
                 await asyncio.sleep(delay)
                 await self._relogin()
                 return await self.execute_api(url, body, _retried=True)
-            raise SwimAuthError(f"API 403エラー (body={resp.text[:500]})")
+            raise SwimAuthError(f"API {resp.status_code}エラー (body={resp.text[:500]})")
 
         if resp.status_code != 200:
             raise SwimAuthError(f"APIエラー (status={resp.status_code})")
 
         # レスポンス処理時間シミュレーション（ブラウザのDOM更新・レンダリング）
-        await asyncio.sleep(random.uniform(0.1, 0.5))
+        # 実ブラウザはレスポンスサイズやJS処理量で変動するため、ばらつきを持たせる
+        await asyncio.sleep(random.expovariate(3.0) + 0.05)  # 中央値~0.38秒、稀に1-2秒
         return resp.json()
 
     async def _relogin(self) -> None:
