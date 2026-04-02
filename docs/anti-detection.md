@@ -89,6 +89,87 @@ _NAV_HEADERS = {
 
 ブラウズ画面は**利用登録済みサービスのみ**にアクセスする。未登録サービスのページにアクセスすることは不自然な行動になるため。
 
+#### Playwrightキャプチャ記録
+
+2026-03-04にPlaywright (Chromium) で実際のSWIMポータルにログインし、各サービスページを開いた際のネットワークリクエストを記録した。以下はそのキャプチャ結果（`swim-api-legacy/scripts/investigation_results/94_all_api_calls.json`、全131リクエスト）。Workerの `_SPA_INIT_REQUESTS` はこの記録に基づいて実装している。
+
+**f2aspr（空域プロファイル）— `/f2aspr/browse/flv850s001` を開いた際のリクエスト:**
+
+```
+# SPA初期化（ページ読み込み時に自動発生）
+ 1. POST 200 LuciadRIALicense
+ 2. GET  200 js/lib/WebGIS/ATCMAP.settings
+ 3. GET  200 settings/auto_filter.json
+ 4. POST   ? web/FLV901/LGV300
+ 5. POST   ? web/FLV811/LGV231
+ 6. GET  200 settings/map_disp.json
+ 7. GET  200 web/resource/message
+ 8. GET  200 web/resource/webfw
+ 9. GET  200 web/resource/user
+10. GET  200 browse/flv850s001          ← Angular SPAルーティング
+11. GET  200 browse/flv850s001
+12. GET  200 browse/flv850s001
+13. POST   ? web/FLV802/LGV205
+14. POST   ? web/FLV934/LGV387
+15. GET  200 settings/velocity.json
+16. GET  200 settings/default_view.json
+17. GET  200 settings/default_font.json
+18. GET  200 settings/default_dire_dist_position.json
+19. GET  200 settings/shape_datablock_setting.json
+20. GET  200 settings/default_color.json
+21. GET  200 settings/map_disp.json
+22. GET  200 settings/menu.json
+23. GET  200 settings/commonMenuSetting.json
+24. GET  200 settings/toolbarSetting.json
+25. GET  200 settings/blink_info.json
+26. GET  200 settings/groupLayer.json
+# ここまでがSPA初期化。以降はユーザー操作に応じたAPI呼び出し。
+27. POST 200 web/FLV901/LGV300
+28. POST   ? web/FLV921/LGV359
+29. POST   ? web/FLV909/LGV330
+    ... (各種データ取得API)
+43. POST 200 web/FLV934/LGV387
+```
+
+**f2dnrq（デジタルノータム）— `/f2dnrq/browse/FUV201` を開いた際のリクエスト:**
+
+```
+# SPA初期化
+ 1. POST 200 LuciadRIALicense
+ 2. GET  200 js/lib/WebGIS/ATCMAP.settings
+ 3. GET  200 settings/auto_filter.json
+ 4. POST   ? web/FUV201/USV005
+ 5. GET  200 settings/map_disp.json
+ 6. GET  200 web/resource/message
+ 7. GET  200 web/resource/webfw
+ 8. GET  200 web/resource/user
+ 9. GET  200 browse/FUV201              ← Angular SPAルーティング
+10. GET  200 browse/FUV201
+11. GET  200 browse/FUV201
+12. GET  200 settings/velocity.json
+13. GET  200 settings/default_view.json
+14. GET  200 settings/default_font.json
+15. GET  200 settings/default_dire_dist_position.json
+16. GET  200 settings/shape_datablock_setting.json
+17. GET  200 settings/default_color.json
+18. GET  200 settings/map_disp.json
+19. GET  200 settings/menu.json
+20. GET  200 settings/commonMenuSetting.json
+21. GET  200 settings/toolbarSetting.json
+22. GET  200 settings/blink_info.json
+23. GET  200 settings/groupLayer.json
+24. POST 200 web/FUV201/USV005          ← 2回目
+25. GET  200 js/lib/WebGIS/layer/UTM0.json
+26. GET  200 js/lib/WebGIS/layer/UTM1.json
+27. GET  200 js/lib/WebGIS/layer/UTM2.json
+28. GET  200 js/lib/WebGIS/layer/UTM3.json
+# ここまでがSPA初期化。
+29. POST   ? RegistPreValue
+30. POST 403 RegistPreValue
+```
+
+**補足**: status `?` はPlaywrightのレスポンスキャプチャで記録されなかったもの（POSTリクエストのレスポンスが非同期で完了した等）。実際にはすべて200で応答していると考えられる。キャプチャ時には `/f2lfss/` (地図WMSサービス) へのリクエスト47件も同時に発生しているが、これらは地図タイル取得でありWorkerでは再現不要。
+
 ### 1.5 API別Refererヘッダー
 
 SWIMポータルはAngular SPAで、各APIは利用登録済みサービスのブラウズ画面から呼び出される。Refererはユーザーが実際にアクセスするブラウズ画面のURLを使用する。
