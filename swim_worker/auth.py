@@ -203,8 +203,8 @@ class SwimClient:
                     "Sec-Fetch-Site": "none",
                 })
                 await asyncio.sleep(random.uniform(0.5, 1.0))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Cookie復元後のナビゲーション失敗: %s", e)
             # セッション有効性チェック
             try:
                 check = await self._session.get(SWIM_SESSION_CHECK_URL)
@@ -328,6 +328,8 @@ class SwimClient:
                 base = f"{SWIM_PORTAL_URL}/{service_prefix}"
                 ref_header = {"Referer": browse_url}
                 browse_count = 0
+                # フェーズブレイク: 実ブラウザではJSパース/実行で特定箇所に長めの間隔が入る
+                _PHASE_BREAK_AFTER = {"ATCMAP.settings", "web/resource/user", "settings/groupLayer.json"}
                 for method, path, body in _SPA_INIT_REQUESTS[service_prefix]:
                     try:
                         url = f"{base}/{path}"
@@ -338,7 +340,11 @@ class SwimClient:
                                 await self._session.post(url, headers=ref_header)
                         else:
                             await self._session.get(url, headers=ref_header)
-                        await asyncio.sleep(random.uniform(0.02, 0.15))
+                        # フェーズブレイク or 通常の短い間隔
+                        if any(marker in path for marker in _PHASE_BREAK_AFTER):
+                            await asyncio.sleep(random.uniform(0.3, 1.0))
+                        else:
+                            await asyncio.sleep(random.uniform(0.02, 0.15))
                     except Exception:
                         pass
 
