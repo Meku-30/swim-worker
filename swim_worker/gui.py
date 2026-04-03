@@ -402,7 +402,7 @@ class WorkerGUI:
             self._root.bind("<Iconify>", self._on_iconify)
         except tk.TclError:
             # PyInstaller環境等で<Iconify>が使えない場合はoverrideredirectで代替
-            logging.warning("<Iconify>イベント未対応: トレイ最小化は閉じるボタンのみ")
+            logging.debug("<Iconify>イベント未対応: トレイ最小化は閉じるボタンのみ")
         self._root.mainloop()
 
     def _on_iconify(self, event=None):
