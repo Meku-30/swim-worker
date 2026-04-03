@@ -1,4 +1,5 @@
 """Consumer テスト"""
+import asyncio
 import gzip
 import json
 import pytest
@@ -53,3 +54,14 @@ class TestTaskConsumer:
         result_data = json.loads(gzip.decompress(result_calls[0][0][2]))
         assert result_data["status"] == "error"
         assert "API down" in result_data["error"]
+
+    async def test_run_sets_client_name(self):
+        mock_redis = AsyncMock()
+        mock_redis.sismember.return_value = True
+        mock_redis.blpop.side_effect = asyncio.CancelledError()
+        consumer = TaskConsumer(mock_redis, AsyncMock(), "test-worker")
+        try:
+            await asyncio.wait_for(consumer.run(), timeout=3)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        mock_redis.client_setname.assert_called_once_with("test-worker")
