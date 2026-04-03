@@ -130,6 +130,10 @@ class TaskConsumer:
 
     async def run(self) -> None:
         self._running = True
+        try:
+            await self._redis.client_setname(self._worker_name)
+        except Exception as e:
+            logger.warning("CLIENT SETNAME 失敗: %s", e)
         await self.register()
         await self.send_heartbeat()
         logger.info("Worker '%s' 起動", self._worker_name)
