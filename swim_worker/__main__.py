@@ -29,12 +29,20 @@ async def main() -> None:
         decode_responses=True,
     )
 
-    try:
-        await redis_client.ping()
-        logger.info("Redis接続成功")
-    except Exception as e:
-        logger.error("Redis接続失敗: %s", e)
-        sys.exit(1)
+    # Redis接続を指数バックオフでリトライ (最大10回)
+    delay = 1.0
+    for attempt in range(1, 11):
+        try:
+            await redis_client.ping()
+            logger.info("Redis接続成功 (%d回目)", attempt)
+            break
+        except Exception as e:
+            if attempt == 10:
+                logger.error("Redis接続失敗 (10回試行、諦めます): %s", e)
+                sys.exit(1)
+            logger.warning("Redis接続失敗 (%d/10)、%.1f秒後にリトライ: %s", attempt, delay, e)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30.0)
 
     swim_client = SwimClient(username=settings.swim_username, password=settings.swim_password)
     consumer = TaskConsumer(
