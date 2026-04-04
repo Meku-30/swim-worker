@@ -49,6 +49,23 @@ class TaskConsumer:
         await self._redis.sadd("workers:pending", self._worker_name)
         logger.info("Worker '%s' を登録しました (pending)", self._worker_name)
 
+    async def report_public_ip(self) -> None:
+        """公開IPを取得してRedis hash worker_public_ips に保存する"""
+        try:
+            from curl_cffi.requests import AsyncSession, BrowserType
+            async with AsyncSession(impersonate=BrowserType.chrome136, timeout=10.0) as client:
+                resp = await client.get("https://api.ipify.org?format=json")
+                if resp.status_code != 200:
+                    logger.warning("公開IP取得失敗: status=%d", resp.status_code)
+                    return
+                ip = resp.json().get("ip", "")
+                if not ip:
+                    return
+            await self._redis.hset("worker_public_ips", self._worker_name, ip)
+            logger.info("公開IPを登録: %s", ip)
+        except Exception as e:
+            logger.warning("公開IP取得エラー: %s", e)
+
     async def send_heartbeat(self) -> None:
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
         await self._redis.setex(f"heartbeat:{self._worker_name}", ttl, "alive")
@@ -70,8 +87,14 @@ class TaskConsumer:
             await asyncio.sleep(delay)
 
             url = params["url"]
-            body = params["body"]
-            data = await self._swim.execute_api(url, body)
+            method = params.get("method", "POST")
+            if method == "GET":
+                data = await self._swim.fetch_public_get(
+                    url, params=params.get("params"), headers=params.get("headers"),
+                )
+            else:
+                body = params["body"]
+                data = await self._swim.execute_api(url, body)
             result = {
                 "task_id": task_id, "worker_name": self._worker_name,
                 "status": "success", "data": data, "error": None,
@@ -136,6 +159,7 @@ class TaskConsumer:
             logger.warning("CLIENT SETNAME 失敗: %s", e)
         await self.register()
         await self.send_heartbeat()
+        await self.report_public_ip()
         logger.info("Worker '%s' 起動", self._worker_name)
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         consume_task = asyncio.create_task(self._consume_loop())

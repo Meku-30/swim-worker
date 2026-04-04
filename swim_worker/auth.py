@@ -417,6 +417,30 @@ class SwimClient:
         await asyncio.sleep(random.expovariate(3.0) + 0.05)  # 中央値~0.38秒、稀に1-2秒
         return resp.json()
 
+    async def fetch_public_get(self, url: str, params: dict | None = None,
+                               headers: dict | None = None) -> dict:
+        """認証不要の公開GET API を実行する（メンテナンス情報API等）。
+
+        SwimClientの認証済みセッションを使わず、毎回一時セッションを生成する。
+        top.swim.mlit.go.jp/swim/api/informations 等の公開APIで使用。
+        """
+        merged_headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+            "Referer": f"{SWIM_TOP_URL}/",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        }
+        if headers:
+            merged_headers.update(headers)
+
+        async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=30.0) as client:
+            resp = await client.get(url, params=params or {}, headers=merged_headers)
+            if resp.status_code != 200:
+                raise SwimAuthError(f"公開GET APIエラー (status={resp.status_code})")
+            return resp.json()
+
     async def _relogin(self, *, force: bool = False) -> None:
         """再ログイン（ロック付き）
 
