@@ -50,6 +50,43 @@ class TaskConsumer:
         await self._redis.sadd("workers:pending", self._worker_name)
         logger.info("Worker '%s' を登録しました (pending)", self._worker_name)
 
+    async def _run_capability_test(self, task_id: str, params: dict) -> None:
+        """capability_test ジョブ: 複数のテストリクエストを実行して結果を返す。
+
+        params: {"tests": [{"job_type": str, "url": str, "body": dict}, ...]}
+        返却: {job_type: {"ok": bool, "error": str | None}, ...}
+        """
+        tests = params.get("tests") or []
+        results: dict[str, dict] = {}
+        for test in tests:
+            jt = test.get("job_type", "")
+            url = test.get("url", "")
+            body = test.get("body") or {}
+            try:
+                # 各テスト間に短い遅延 (一気に叩かない)
+                await asyncio.sleep(random.uniform(1.0, 3.0))
+                await self._swim.execute_api(url, body)
+                results[jt] = {"ok": True, "error": None}
+                logger.info("capability OK: %s", jt)
+            except Exception as e:
+                results[jt] = {"ok": False, "error": str(e)[:300]}
+                logger.warning("capability NG: %s — %s", jt, e)
+        result = {
+            "task_id": task_id,
+            "worker_name": self._worker_name,
+            "status": "success",
+            "data": {"capabilities": results},
+            "error": None,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        compressed = gzip.compress(json.dumps(result).encode())
+        await self._redis.setex(f"results:{task_id}", RESULT_TTL, compressed)
+        logger.info("capability_test 完了: %s (ok=%d, ng=%d)",
+            task_id[:8],
+            sum(1 for r in results.values() if r["ok"]),
+            sum(1 for r in results.values() if not r["ok"]),
+        )
+
     async def report_version(self) -> None:
         """自身のバージョンをRedis hash worker_versions に保存する"""
         try:
@@ -93,6 +130,11 @@ class TaskConsumer:
             return
         params = task.get("params") or {}
         logger.info("タスク実行開始: %s (type=%s)", task_id, job_type)
+
+        # capability_test: 複数のテストリクエストを順に実行し各結果を返す
+        if job_type == "capability_test":
+            await self._run_capability_test(task_id, params)
+            return
 
         try:
             raw = random.lognormvariate(self._delay_mu, self._delay_sigma)

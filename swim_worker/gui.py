@@ -2,11 +2,14 @@
 import asyncio
 import logging
 import os
+import subprocess
 import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
+
+from swim_worker import __version__
 
 # System tray support (Windows + macOS)
 _HAS_TRAY = False
@@ -343,8 +346,26 @@ class WorkerGUI:
                     decode_responses=True,
                 )
 
-                await redis_client.ping()
-                logging.info("Redis接続成功")
+                # Redis接続を指数バックオフでリトライ (最大10回)
+                delay = 1.0
+                connected = False
+                for attempt in range(1, 11):
+                    try:
+                        await redis_client.ping()
+                        logging.info("Redis接続成功 (%d回目)", attempt)
+                        connected = True
+                        break
+                    except Exception as e:
+                        if attempt == 10:
+                            raise
+                        logging.warning("Redis接続失敗 (%d/10)、%.1f秒後にリトライ: %s",
+                            attempt, delay, e)
+                        self._root.after(0, lambda a=attempt: self._status_var.set(
+                            f"再試行中 ({a}/10)"))
+                        await asyncio.sleep(delay)
+                        delay = min(delay * 2, 30.0)
+                if not connected:
+                    raise RuntimeError("Redis接続失敗")
                 self._root.after(0, lambda: self._status_var.set("● 接続中 (タスク待ち)"))
 
                 swim_client = SwimClient(
@@ -445,7 +466,146 @@ class WorkerGUI:
             else:
                 logging.warning("自動接続: 設定が未入力のためスキップしました")
 
+        # アップデートチェック: GUI起動2秒後にバックグラウンドで確認
+        self._root.after(2000, self._start_update_check)
+
         self._root.mainloop()
+
+    # --- 自動アップデート ---
+    def _start_update_check(self):
+        """アップデートチェックを別スレッドで実行"""
+        threading.Thread(target=self._check_update_worker, daemon=True).start()
+
+    def _check_update_worker(self):
+        """GitHub Release API で最新版をチェック (別スレッド)"""
+        try:
+            from curl_cffi.requests import Session, BrowserType
+            with Session(impersonate=BrowserType.chrome136, timeout=10.0) as client:
+                resp = client.get(
+                    "https://api.github.com/repos/Meku-30/swim-worker/releases/latest"
+                )
+                if resp.status_code != 200:
+                    return
+                data = resp.json()
+            tag = (data.get("tag_name") or "").lstrip("v")
+            if not tag:
+                return
+            current = tuple(int(x) for x in __version__.split(".") if x.isdigit())
+            latest = tuple(int(x) for x in tag.split(".") if x.isdigit())
+            if latest <= current:
+                logging.info("バージョン最新 (v%s)", __version__)
+                return
+            # アセット URL を抽出
+            asset_name = None
+            if sys.platform == "win32":
+                asset_name = "swim-worker-windows.exe"
+            elif sys.platform == "darwin":
+                asset_name = "swim-worker-macos"
+            download_url = None
+            for asset in data.get("assets", []):
+                if asset.get("name") == asset_name:
+                    download_url = asset.get("browser_download_url")
+                    break
+            if not download_url:
+                logging.warning("新バージョン v%s 検出 (アセットなし)", tag)
+                return
+            logging.warning("新しいバージョン v%s が利用可能です", tag)
+            # UIスレッドで確認ダイアログを表示
+            self._root.after(0, lambda: self._prompt_update(tag, download_url))
+        except Exception as e:
+            logging.debug("アップデートチェック失敗: %s", e)
+
+    def _prompt_update(self, new_version: str, download_url: str):
+        """新バージョン検知時の確認ダイアログ"""
+        answer = messagebox.askyesno(
+            "アップデートがあります",
+            f"新しいバージョン v{new_version} が利用可能です。\n"
+            f"現在のバージョン: v{__version__}\n\n"
+            f"今すぐアップデートしますか？\n"
+            f"（ダウンロード後、自動で再起動します）",
+        )
+        if not answer:
+            logging.info("アップデートはキャンセルされました")
+            return
+        # 別スレッドでダウンロード開始
+        threading.Thread(
+            target=self._do_update, args=(new_version, download_url), daemon=True,
+        ).start()
+
+    def _do_update(self, new_version: str, download_url: str):
+        """新exeをダウンロードし、ヘルパースクリプト経由で置き換え → 再起動"""
+        try:
+            logging.info("アップデート v%s をダウンロード中...", new_version)
+            # ダウンロード先 (exeと同じディレクトリ)
+            base = _get_base_dir()
+            if sys.platform == "win32":
+                new_exe = base / "swim-worker-gui.new.exe"
+            else:
+                new_exe = base / "swim-worker.new"
+
+            from curl_cffi.requests import Session, BrowserType
+            with Session(impersonate=BrowserType.chrome136, timeout=120.0) as client:
+                resp = client.get(download_url, stream=True)
+                if resp.status_code != 200:
+                    raise RuntimeError(f"ダウンロード失敗: status={resp.status_code}")
+                with new_exe.open("wb") as f:
+                    # curl_cffi はstream時 iter_content を使う
+                    content = resp.content if hasattr(resp, "content") else resp.body
+                    f.write(content)
+            logging.info("ダウンロード完了: %s", new_exe)
+
+            # Worker停止
+            if self._worker_running:
+                self._root.after(0, self._on_stop)
+
+            # 現在のexeのパス
+            if getattr(sys, 'frozen', False):
+                current_exe = Path(sys.executable)
+            else:
+                logging.warning("開発環境ではアップデート不可")
+                return
+
+            # ヘルパースクリプト作成
+            if sys.platform == "win32":
+                script_path = base / "swim-worker-update.bat"
+                script = (
+                    "@echo off\r\n"
+                    "timeout /t 3 /nobreak > nul\r\n"
+                    f'move /Y "{new_exe}" "{current_exe}"\r\n'
+                    f'start "" "{current_exe}"\r\n'
+                    'del "%~f0"\r\n'
+                )
+                script_path.write_text(script, encoding="utf-8")
+                subprocess.Popen(
+                    ["cmd", "/c", str(script_path)],
+                    creationflags=0x00000008 | 0x00000200,  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                    close_fds=True,
+                )
+            else:  # darwin
+                script_path = base / "swim-worker-update.sh"
+                script = (
+                    "#!/bin/bash\n"
+                    "sleep 3\n"
+                    f'mv "{new_exe}" "{current_exe}"\n'
+                    f'chmod +x "{current_exe}"\n'
+                    f'"{current_exe}" &\n'
+                    'rm "$0"\n'
+                )
+                script_path.write_text(script, encoding="utf-8")
+                os.chmod(script_path, 0o755)
+                subprocess.Popen(
+                    ["bash", str(script_path)],
+                    start_new_session=True,
+                    close_fds=True,
+                )
+
+            logging.info("アップデータを起動しました。3秒後に再起動します")
+            self._root.after(1000, self._force_quit)
+        except Exception as e:
+            logging.exception("アップデート失敗")
+            self._root.after(0, lambda: messagebox.showerror(
+                "アップデート失敗", f"アップデートに失敗しました:\n{e}"
+            ))
 
     def _on_iconify(self, event=None):
         """最小化ボタンが押された時 → トレイに格納"""
