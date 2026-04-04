@@ -111,12 +111,23 @@ class WorkerGUI:
         self._save_btn = ttk.Button(btn_frame, text="設定保存", command=self._save_env)
         self._save_btn.pack(side="left")
 
-        # --- 自動起動 (Windows / macOS) ---
+        # --- 自動接続 ---
+        opt_frame = ttk.Frame(root, padding=(10, 0))
+        opt_frame.pack(fill="x", padx=10)
+
+        self._autoconnect_var = tk.BooleanVar(value=False)
+        autoconnect_cb = ttk.Checkbutton(
+            opt_frame, text="起動時に自動接続",
+            variable=self._autoconnect_var, command=self._save_autoconnect,
+        )
+        autoconnect_cb.pack(side="left")
+
+        # --- OS自動起動 (Windows / macOS) ---
         if sys.platform in ("win32", "darwin"):
             self._autostart_var = tk.BooleanVar(value=self._check_autostart())
             label = "ログイン時に自動起動" if sys.platform == "darwin" else "Windows起動時に自動起動"
             autostart_cb = ttk.Checkbutton(
-                btn_frame, text=label,
+                opt_frame, text=label,
                 variable=self._autostart_var, command=self._toggle_autostart,
             )
             autostart_cb.pack(side="right")
@@ -207,10 +218,15 @@ class WorkerGUI:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, value = line.partition("=")
-            field = env_map.get(key.strip())
+            key = key.strip()
+            value = value.strip()
+            if key == "AUTO_CONNECT":
+                self._autoconnect_var.set(value.lower() == "true")
+                continue
+            field = env_map.get(key)
             if field and field in self._entries:
                 self._entries[field].delete(0, tk.END)
-                self._entries[field].insert(0, value.strip())
+                self._entries[field].insert(0, value)
 
     def _save_env(self):
         """設定を.envに保存"""
@@ -229,8 +245,22 @@ class WorkerGUI:
         # 固定値
         lines.append("REDIS_PORT=6380")
 
+        # 自動接続設定
+        lines.append(f"AUTO_CONNECT={'true' if self._autoconnect_var.get() else 'false'}")
+
         ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
         logging.info("設定を保存しました")
+
+    def _save_autoconnect(self):
+        """自動接続チェックボックス変更時に.envを更新"""
+        if not ENV_PATH.exists():
+            return
+        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+        new_lines = [l for l in lines if not l.strip().startswith("AUTO_CONNECT=")]
+        new_lines.append(f"AUTO_CONNECT={'true' if self._autoconnect_var.get() else 'false'}")
+        ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        state = "有効" if self._autoconnect_var.get() else "無効"
+        logging.info("自動接続を%sにしました", state)
 
     def _on_start(self):
         """Worker起動"""
@@ -401,8 +431,17 @@ class WorkerGUI:
         try:
             self._root.bind("<Iconify>", self._on_iconify)
         except tk.TclError:
-            # PyInstaller環境等で<Iconify>が使えない場合はoverrideredirectで代替
-            logging.debug("<Iconify>イベント未対応: トレイ最小化は閉じるボタンのみ")
+            logging.warning("<Iconify>イベント未対応: トレイ最小化は閉じるボタンのみ")
+
+        # 自動接続: 全フィールドが埋まっていれば起動後に自動開始
+        if self._autoconnect_var.get():
+            all_filled = all(e.get().strip() for e in self._entries.values())
+            if all_filled:
+                logging.info("自動接続: Workerを起動します")
+                self._root.after(500, self._on_start)
+            else:
+                logging.warning("自動接続: 設定が未入力のためスキップしました")
+
         self._root.mainloop()
 
     def _on_iconify(self, event=None):
