@@ -19,6 +19,12 @@ common_args = [
     "--hidden-import", "hiredis",
     "--hidden-import", "pydantic_settings",
     "--hidden-import", "dotenv",
+    # curl_cffi は C拡張 (_cffi_backend) を持つため念のため明示
+    "--hidden-import", "curl_cffi",
+    "--hidden-import", "curl_cffi.requests",
+    "--hidden-import", "_cffi_backend",
+    # PyInstallerがswim_worker.__init__.pyを確実に含めるため
+    "--collect-submodules", "swim_worker",
 ]
 
 system = platform.system()

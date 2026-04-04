@@ -160,17 +160,20 @@ class WorkerGUI:
         """Setup system tray icon"""
         if not _HAS_TRAY:
             return
-
-        menu = pystray.Menu(
-            pystray.MenuItem("表示", self._tray_show),
-            pystray.MenuItem("終了", self._tray_quit),
-        )
-        self._tray_icon = pystray.Icon(
-            "swim-worker",
-            self._create_tray_icon("gray"),
-            "SWIM Worker",
-            menu,
-        )
+        try:
+            menu = pystray.Menu(
+                pystray.MenuItem("表示", self._tray_show),
+                pystray.MenuItem("終了", self._tray_quit),
+            )
+            self._tray_icon = pystray.Icon(
+                "swim-worker",
+                self._create_tray_icon("gray"),
+                "SWIM Worker",
+                menu,
+            )
+        except Exception as e:
+            logging.warning("システムトレイ初期化失敗（トレイ機能を無効化）: %s", e)
+            self._tray_icon = None
 
     def _tray_show(self, icon=None, item=None):
         """Show the main window from tray"""
@@ -458,9 +461,41 @@ class WorkerGUI:
             self._force_quit()
 
 
+def _write_crash_log(exc: BaseException) -> None:
+    """起動時例外をファイルに書き出す（Windowsの--windowed環境では標準出力が消失するため）"""
+    import traceback
+    try:
+        log_path = _get_base_dir() / "swim-worker-crash.log"
+        from datetime import datetime
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(f"\n=== {datetime.now().isoformat()} ===\n")
+            f.write("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+            f.write("\n")
+    except Exception:
+        pass  # クラッシュログの書き込みで更にクラッシュしないよう握りつぶす
+
+
 def main():
-    app = WorkerGUI()
-    app.run()
+    # 早期ファイルログ設定 (exe環境でも起動段階のエラーを追跡可能に)
+    try:
+        log_path = _get_base_dir() / "swim-worker.log"
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        ))
+        logging.root.addHandler(file_handler)
+        logging.root.setLevel(logging.INFO)
+        logging.info("swim-worker 起動開始")
+    except Exception:
+        pass
+
+    try:
+        app = WorkerGUI()
+        app.run()
+    except Exception as e:
+        logging.exception("致命的エラーで終了")
+        _write_crash_log(e)
+        raise
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 import redis.exceptions
 
+from swim_worker import __version__
 from swim_worker.auth import SwimClient
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,6 @@ class TaskConsumer:
     async def report_version(self) -> None:
         """自身のバージョンをRedis hash worker_versions に保存する"""
         try:
-            from swim_worker import __version__
             await self._redis.hset("worker_versions", self._worker_name, __version__)
             logger.info("Workerバージョン: v%s", __version__)
         except Exception as e:
@@ -61,7 +61,6 @@ class TaskConsumer:
     async def check_latest_version(self) -> None:
         """Coordinatorが記録した最新版 (Redis) と自分を比較し、古ければ警告ログを出す"""
         try:
-            from swim_worker import __version__
             raw = await self._redis.get("swim:latest_worker_version")
             if not raw:
                 return
