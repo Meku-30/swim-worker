@@ -28,7 +28,8 @@ class TaskConsumer:
                  request_delay_median: float = 4.0,
                  request_delay_p99: float = 15.0,
                  request_delay_clip_min: float = 1.5,
-                 request_delay_clip_max: float = 25.0) -> None:
+                 request_delay_clip_max: float = 25.0,
+                 on_update_available=None) -> None:
         self._redis = redis_client
         self._swim = swim_client
         self._worker_name = worker_name
@@ -40,6 +41,9 @@ class TaskConsumer:
         self._delay_clip_max = request_delay_clip_max
         self._running = False
         self._tasks: list[asyncio.Task] = []
+        # 新バージョン検知時に呼ばれるコールバック (GUI連携用)
+        # シグネチャ: callback(latest_version: str) -> None
+        self._on_update_available = on_update_available
 
     async def register(self) -> None:
         """Worker を pending リストに登録（承認済みならスキップ）"""
@@ -112,6 +116,12 @@ class TaskConsumer:
                     "https://github.com/Meku-30/swim-worker/releases/latest",
                     __version__, latest_tag,
                 )
+                # GUIに通知 (設定されていれば)
+                if self._on_update_available:
+                    try:
+                        self._on_update_available(latest_tag)
+                    except Exception as e:
+                        logger.debug("update callback エラー: %s", e)
             else:
                 logger.info("バージョン最新 (v%s)", __version__)
         except Exception as e:
