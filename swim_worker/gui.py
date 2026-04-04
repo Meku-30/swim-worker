@@ -434,7 +434,7 @@ class WorkerGUI:
         try:
             self._root.bind("<Iconify>", self._on_iconify)
         except tk.TclError:
-            logging.warning("<Iconify>イベント未対応: トレイ最小化は閉じるボタンのみ")
+            logging.debug("<Iconify>イベント未対応: トレイ最小化は閉じるボタンのみ")
 
         # 自動接続: 全フィールドが埋まっていれば起動後に自動開始
         if self._autoconnect_var.get():
