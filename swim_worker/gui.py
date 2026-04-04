@@ -378,6 +378,7 @@ class WorkerGUI:
                     swim_client=swim_client,
                     worker_name=settings.worker_name,
                     heartbeat_interval=settings.heartbeat_interval,
+                    on_update_available=self._on_update_detected,
                 )
 
                 await self._consumer.run()
@@ -466,57 +467,33 @@ class WorkerGUI:
             else:
                 logging.warning("自動接続: 設定が未入力のためスキップしました")
 
-        # アップデートチェック: GUI起動2秒後にバックグラウンドで確認
-        self._root.after(2000, self._start_update_check)
-
         self._root.mainloop()
 
     # --- 自動アップデート ---
-    def _start_update_check(self):
-        """アップデートチェックを別スレッドで実行"""
-        threading.Thread(target=self._check_update_worker, daemon=True).start()
+    def _on_update_detected(self, new_version: str):
+        """Consumerから呼ばれる (別スレッド)。UIスレッドに転送して確認ダイアログ表示"""
+        # 重複通知防止: 同じバージョンに対して複数回ダイアログを出さない
+        if getattr(self, "_update_prompted_version", None) == new_version:
+            return
+        self._update_prompted_version = new_version
+        self._root.after(0, lambda: self._prompt_update(new_version))
 
-    def _check_update_worker(self):
-        """GitHub Release API で最新版をチェック (別スレッド)"""
-        try:
-            from curl_cffi.requests import Session, BrowserType
-            with Session(impersonate=BrowserType.chrome136, timeout=10.0) as client:
-                resp = client.get(
-                    "https://api.github.com/repos/Meku-30/swim-worker/releases/latest"
-                )
-                if resp.status_code != 200:
-                    return
-                data = resp.json()
-            tag = (data.get("tag_name") or "").lstrip("v")
-            if not tag:
-                return
-            current = tuple(int(x) for x in __version__.split(".") if x.isdigit())
-            latest = tuple(int(x) for x in tag.split(".") if x.isdigit())
-            if latest <= current:
-                logging.info("バージョン最新 (v%s)", __version__)
-                return
-            # アセット URL を抽出
-            asset_name = None
-            if sys.platform == "win32":
-                asset_name = "swim-worker-windows.exe"
-            elif sys.platform == "darwin":
-                asset_name = "swim-worker-macos"
-            download_url = None
-            for asset in data.get("assets", []):
-                if asset.get("name") == asset_name:
-                    download_url = asset.get("browser_download_url")
-                    break
-            if not download_url:
-                logging.warning("新バージョン v%s 検出 (アセットなし)", tag)
-                return
-            logging.warning("新しいバージョン v%s が利用可能です", tag)
-            # UIスレッドで確認ダイアログを表示
-            self._root.after(0, lambda: self._prompt_update(tag, download_url))
-        except Exception as e:
-            logging.debug("アップデートチェック失敗: %s", e)
+    def _get_download_url(self, version: str) -> str | None:
+        """バージョンタグからダウンロードURLを組み立てる (GitHub APIを使わない)"""
+        if sys.platform == "win32":
+            asset = "swim-worker-windows.exe"
+        elif sys.platform == "darwin":
+            asset = "swim-worker-macos"
+        else:
+            return None
+        return f"https://github.com/Meku-30/swim-worker/releases/download/v{version}/{asset}"
 
-    def _prompt_update(self, new_version: str, download_url: str):
+    def _prompt_update(self, new_version: str):
         """新バージョン検知時の確認ダイアログ"""
+        download_url = self._get_download_url(new_version)
+        if not download_url:
+            logging.warning("このプラットフォームはアップデート非対応")
+            return
         answer = messagebox.askyesno(
             "アップデートがあります",
             f"新しいバージョン v{new_version} が利用可能です。\n"
