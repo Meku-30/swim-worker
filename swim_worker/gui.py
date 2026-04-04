@@ -114,6 +114,13 @@ class WorkerGUI:
         self._save_btn = ttk.Button(btn_frame, text="設定保存", command=self._save_env)
         self._save_btn.pack(side="left")
 
+        # アップデートボタン (新バージョン検知時のみ表示)
+        self._pending_update_version: str | None = None
+        self._update_btn = ttk.Button(
+            btn_frame, text="⬆ アップデート", command=self._on_update_click,
+        )
+        # 初期状態は非表示 (pack_forget 相当 — 初回は pack しない)
+
         # --- 自動接続 ---
         opt_frame = ttk.Frame(root, padding=(10, 0))
         opt_frame.pack(fill="x", padx=10)
@@ -471,12 +478,32 @@ class WorkerGUI:
 
     # --- 自動アップデート ---
     def _on_update_detected(self, new_version: str):
-        """Consumerから呼ばれる (別スレッド)。UIスレッドに転送して確認ダイアログ表示"""
-        # 重複通知防止: 同じバージョンに対して複数回ダイアログを出さない
+        """Consumerから呼ばれる (別スレッド)。
+
+        アップデートボタンを表示 + 初回のみポップアップを出す。
+        ユーザーがキャンセルした場合もボタンは残るので、あとから再アップデート可能。
+        """
+        # UIスレッドに転送
+        self._root.after(0, lambda: self._show_update_button(new_version))
+        # 初回のみポップアップ表示 (ボタン追加後も Worker 再起動までは重複表示しない)
         if getattr(self, "_update_prompted_version", None) == new_version:
             return
         self._update_prompted_version = new_version
         self._root.after(0, lambda: self._prompt_update(new_version))
+
+    def _show_update_button(self, new_version: str):
+        """メインGUIにアップデートボタンを表示する"""
+        self._pending_update_version = new_version
+        self._update_btn.configure(text=f"⬆ アップデート (v{new_version})")
+        # すでにpack済みならスキップ
+        if not self._update_btn.winfo_ismapped():
+            self._update_btn.pack(side="right")
+
+    def _on_update_click(self):
+        """アップデートボタンクリック時: 確認ダイアログを出す"""
+        if not self._pending_update_version:
+            return
+        self._prompt_update(self._pending_update_version)
 
     def _get_download_url(self, version: str) -> str | None:
         """バージョンタグからダウンロードURLを組み立てる (GitHub APIを使わない)"""
