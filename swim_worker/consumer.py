@@ -66,6 +66,38 @@ class TaskConsumer:
         except Exception as e:
             logger.warning("公開IP取得エラー: %s", e)
 
+    async def report_version(self) -> None:
+        """自身のバージョンをRedis hash worker_versions に保存する"""
+        try:
+            from swim_worker import __version__
+            await self._redis.hset("worker_versions", self._worker_name, __version__)
+            logger.info("Workerバージョン: v%s", __version__)
+        except Exception as e:
+            logger.warning("バージョン登録エラー: %s", e)
+
+    async def check_latest_version(self) -> None:
+        """Coordinatorが記録した最新版 (Redis) と自分を比較し、古ければ警告ログを出す"""
+        try:
+            from swim_worker import __version__
+            raw = await self._redis.get("swim:latest_worker_version")
+            if not raw:
+                return
+            latest_tag = (raw.decode() if isinstance(raw, bytes) else raw).lstrip("v")
+            if not latest_tag:
+                return
+            current = tuple(int(x) for x in __version__.split(".") if x.isdigit())
+            latest = tuple(int(x) for x in latest_tag.split(".") if x.isdigit())
+            if latest > current:
+                logger.warning(
+                    "新しいバージョンが利用可能です: v%s → v%s  "
+                    "https://github.com/Meku-30/swim-worker/releases/latest",
+                    __version__, latest_tag,
+                )
+            else:
+                logger.info("バージョン最新 (v%s)", __version__)
+        except Exception as e:
+            logger.debug("バージョンチェックエラー: %s", e)
+
     async def send_heartbeat(self) -> None:
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
         await self._redis.setex(f"heartbeat:{self._worker_name}", ttl, "alive")
@@ -160,6 +192,8 @@ class TaskConsumer:
         await self.register()
         await self.send_heartbeat()
         await self.report_public_ip()
+        await self.report_version()
+        await self.check_latest_version()
         logger.info("Worker '%s' 起動", self._worker_name)
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         consume_task = asyncio.create_task(self._consume_loop())
