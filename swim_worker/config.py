@@ -21,4 +21,4 @@ class Settings(BaseSettings):
     request_delay_clip_min: float = 1.5  # リクエスト前遅延の下限（秒）
     request_delay_clip_max: float = 25.0  # リクエスト前遅延の上限（秒）
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
