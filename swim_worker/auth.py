@@ -405,7 +405,7 @@ class SwimClient:
                 delay = random.uniform(5, 15)
                 logger.warning("API %dエラー、%.0f秒待機後に再ログイン+リトライ", resp.status_code, delay)
                 await asyncio.sleep(delay)
-                await self._relogin()
+                await self._relogin(force=True)
                 return await self.execute_api(url, body, _retried=True)
             raise SwimAuthError(f"API {resp.status_code}エラー (body={resp.text[:500]})")
 
@@ -417,10 +417,13 @@ class SwimClient:
         await asyncio.sleep(random.expovariate(3.0) + 0.05)  # 中央値~0.38秒、稀に1-2秒
         return resp.json()
 
-    async def _relogin(self) -> None:
-        """再ログイン（ロック付き）"""
+    async def _relogin(self, *, force: bool = False) -> None:
+        """再ログイン（ロック付き）
+
+        force=True: セッションチェックをスキップして強制再ログイン（403起因時）
+        """
         async with self._relogin_lock:
-            if self._is_ready and self._session is not None:
+            if not force and self._is_ready and self._session is not None:
                 try:
                     check = await self._session.get(SWIM_SESSION_CHECK_URL)
                     if check.status_code == 200:
@@ -428,6 +431,14 @@ class SwimClient:
                 except Exception:
                     pass
             self._is_ready = False
+            if force:
+                # 403起因: 保存済みCookieも期限切れの可能性が高いので削除
+                try:
+                    if os.path.exists(COOKIE_FILE):
+                        os.remove(COOKIE_FILE)
+                        logger.debug("保存済みCookie削除（強制再ログイン）")
+                except OSError:
+                    pass
             await self.login()
 
     async def close(self) -> None:
