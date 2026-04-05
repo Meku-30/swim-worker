@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import random
+import uuid
 from datetime import datetime, timezone
 
 import redis.exceptions
@@ -20,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 RESULT_TTL = 3600  # 結果の有効期限（秒）
 HEARTBEAT_TTL_MULTIPLIER = 3
+
+
+class DuplicateWorkerError(RuntimeError):
+    """同一の worker_name で別プロセスが既に稼働していることを示す例外"""
+    pass
 
 
 class TaskConsumer:
@@ -51,6 +57,8 @@ class TaskConsumer:
         self._on_task_state = on_task_state
         self._task_total = 0
         self._task_errors = 0
+        # 重複起動検知用のインスタンストークン (Redis lock の所有者識別に使用)
+        self._instance_token = str(uuid.uuid4())
 
     async def register(self) -> None:
         """Worker を pending リストに登録（承認済みならスキップ）"""
@@ -134,9 +142,55 @@ class TaskConsumer:
         except Exception as e:
             logger.debug("バージョンチェックエラー: %s", e)
 
-    async def send_heartbeat(self) -> None:
+    async def _acquire_instance_lock(self) -> None:
+        """起動時に heartbeat キーを atomic に取得して重複起動を検知する。
+
+        - SET NX で heartbeat:{name} に自分の instance_token を登録
+        - 成功: 自分が唯一のワーカー
+        - 失敗: 既存所有者が別トークンなら DuplicateWorkerError を送出
+
+        ※ 他プロセスが graceful shutdown 時に DEL してくれば即再起動可能。
+           クラッシュ時は TTL (heartbeat_interval × 3) 経過後に再起動可能。
+        """
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
-        await self._redis.setex(f"heartbeat:{self._worker_name}", ttl, "alive")
+        key = f"heartbeat:{self._worker_name}"
+        acquired = await self._redis.set(key, self._instance_token, ex=ttl, nx=True)
+        if acquired:
+            return
+        raise DuplicateWorkerError(
+            f"worker_name '{self._worker_name}' は既に別プロセスで稼働中です。"
+            f" 別の名前を使うか、もう一方を停止してください。"
+            f" (残存 TTL が経過すれば自動解放されます)"
+        )
+
+    async def send_heartbeat(self) -> None:
+        """heartbeat を更新する。値は instance_token で所有者を識別する。
+
+        worker_manager 側は EXISTS しか見ないため値の変更は影響しない。
+        """
+        ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
+        await self._redis.setex(
+            f"heartbeat:{self._worker_name}", ttl, self._instance_token,
+        )
+
+    async def _release_instance_lock(self) -> None:
+        """自分の instance_token を持つ heartbeat キーだけを削除する。
+
+        GET で所有者確認 → DEL。他ワーカーが取って代わっていれば削除しない。
+        非原子的だが shutdown 時のベストエフォートクリーンアップなので許容。
+        """
+        key = f"heartbeat:{self._worker_name}"
+        try:
+            current = await self._redis.get(key)
+        except Exception:
+            return
+        current_str = current.decode() if isinstance(current, bytes) else current
+        if current_str != self._instance_token:
+            return
+        try:
+            await self._redis.delete(key)
+        except Exception as e:
+            logger.debug("instance lock 解放エラー (無視): %s", e)
 
     def _notify_state(self, state: str, job_type: str = "") -> None:
         """タスク状態変化をGUIコールバックに通知 (例外は握りつぶす)"""
@@ -245,12 +299,27 @@ class TaskConsumer:
 
     async def run(self) -> None:
         self._running = True
+        # 重複起動検知: SET NX で heartbeat キーを atomic に取得する。
+        # 同じ worker_name で別プロセス/別マシンが稼働中なら DuplicateWorkerError。
+        # これが最初の Redis 操作なので、失敗時は何も副作用を残さず exit できる。
+        await self._acquire_instance_lock()
+        # 起動時に自分宛キューをクリア (前回停止中にキューに残った
+        # スタールタスクの再実行を防止)。コーディネーターの timeout
+        # 再配布機構で既に別ワーカーに割り当て済みの可能性があるため、
+        # 残存タスクは破棄して良い。instance lock 取得済みなので、
+        # この時点で他プロセスが新規タスクを入れる余地はない。
+        try:
+            queue_key = f"tasks:{self._worker_name}"
+            cleared = await self._redis.delete(queue_key)
+            if cleared:
+                logger.info("起動時に古いタスクキューをクリアしました")
+        except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
+            logger.warning("起動時キュークリア失敗（続行）: %s", e)
         try:
             await self._redis.client_setname(self._worker_name)
         except Exception as e:
             logger.warning("CLIENT SETNAME 失敗: %s", e)
         await self.register()
-        await self.send_heartbeat()
         await self.report_version()
         await self.check_latest_version()
         logger.info("Worker '%s' 起動", self._worker_name)
@@ -263,6 +332,9 @@ class TaskConsumer:
             pass
         finally:
             self._running = False
+            # instance lock を自分の所有下にある場合のみ解放する。
+            # これにより次回起動時に TTL 待ちなく即再起動できる。
+            await self._release_instance_lock()
             logger.info("Worker '%s' 停止", self._worker_name)
 
     def stop(self) -> None:
