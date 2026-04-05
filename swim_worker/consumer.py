@@ -29,7 +29,8 @@ class TaskConsumer:
                  request_delay_p99: float = 15.0,
                  request_delay_clip_min: float = 1.5,
                  request_delay_clip_max: float = 25.0,
-                 on_update_available=None) -> None:
+                 on_update_available=None,
+                 on_task_state=None) -> None:
         self._redis = redis_client
         self._swim = swim_client
         self._worker_name = worker_name
@@ -44,6 +45,12 @@ class TaskConsumer:
         # 新バージョン検知時に呼ばれるコールバック (GUI連携用)
         # シグネチャ: callback(latest_version: str) -> None
         self._on_update_available = on_update_available
+        # タスク実行状態変化コールバック (GUIステータス表示更新用)
+        # シグネチャ: callback(state: str, job_type: str = "", total: int = 0, errors: int = 0)
+        #   state: "processing" | "idle"
+        self._on_task_state = on_task_state
+        self._task_total = 0
+        self._task_errors = 0
 
     async def register(self) -> None:
         """Worker を pending リストに登録（承認済みならスキップ）"""
@@ -131,6 +138,16 @@ class TaskConsumer:
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
         await self._redis.setex(f"heartbeat:{self._worker_name}", ttl, "alive")
 
+    def _notify_state(self, state: str, job_type: str = "") -> None:
+        """タスク状態変化をGUIコールバックに通知 (例外は握りつぶす)"""
+        if self._on_task_state is None:
+            return
+        try:
+            self._on_task_state(state, job_type=job_type,
+                                total=self._task_total, errors=self._task_errors)
+        except Exception as e:
+            logger.debug("on_task_state callback エラー: %s", e)
+
     async def execute_task(self, task: dict) -> None:
         """タスクを実行し結果をRedisに書き込む"""
         task_id = task.get("task_id")
@@ -140,12 +157,16 @@ class TaskConsumer:
             return
         params = task.get("params") or {}
         logger.info("タスク実行開始: %s (type=%s)", task_id, job_type)
+        self._notify_state("processing", job_type=job_type)
 
         # capability_test: 複数のテストリクエストを順に実行し各結果を返す
         if job_type == "capability_test":
             await self._run_capability_test(task_id, params)
+            self._task_total += 1
+            self._notify_state("idle")
             return
 
+        success = False
         try:
             raw = random.lognormvariate(self._delay_mu, self._delay_sigma)
             delay = max(self._delay_clip_min, min(self._delay_clip_max, raw))
@@ -167,6 +188,7 @@ class TaskConsumer:
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             }
             logger.info("タスク成功: %s", task_id)
+            success = True
         except Exception as e:
             result = {
                 "task_id": task_id, "worker_name": self._worker_name,
@@ -177,6 +199,10 @@ class TaskConsumer:
 
         compressed = gzip.compress(json.dumps(result).encode())
         await self._redis.setex(f"results:{task_id}", RESULT_TTL, compressed)
+        self._task_total += 1
+        if not success:
+            self._task_errors += 1
+        self._notify_state("idle")
 
     async def _ensure_registered(self) -> None:
         """approved にも pending にもいなければ再登録する"""
