@@ -1,5 +1,7 @@
 """SWIM Worker GUI"""
 import asyncio
+import base64
+import io
 import logging
 import os
 import subprocess
@@ -10,13 +12,14 @@ from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
 from swim_worker import __version__
+from swim_worker.icon import create_icon
 
 # System tray support (Windows + macOS)
+# 実際の描画は swim_worker.icon.create_icon に委譲するため、ここでは pystray の有無だけ判定。
 _HAS_TRAY = False
 if sys.platform in ("win32", "darwin"):
     try:
         import pystray
-        from PIL import Image, ImageDraw
         _HAS_TRAY = True
     except ImportError:
         pass
@@ -67,6 +70,7 @@ class WorkerGUI:
 
         self._tray_icon = None
         self._build_ui()
+        self._set_window_icon()
         self._load_env()
 
     def _build_ui(self):
@@ -159,12 +163,25 @@ class WorkerGUI:
 
     # --- System tray ---
     def _create_tray_icon(self, color="green"):
-        """Create a simple colored circle icon for the system tray"""
-        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        colors = {"green": (0, 180, 0), "gray": (128, 128, 128), "red": (200, 0, 0)}
-        draw.ellipse([8, 8, 56, 56], fill=colors.get(color, (128, 128, 128)))
-        return img
+        """トレイアイコン用レーダー画像を生成 (共通モジュール経由)"""
+        return create_icon(color=color, size=64)
+
+    def _set_window_icon(self):
+        """ウィンドウタイトルバー (Windows/Linux) と Dock (macOS) のアイコンを設定する。
+
+        tkinter の iconphoto は PhotoImage を要求するため、PIL Image を
+        PNG → base64 経由で渡す (ImageTk 不要)。
+        """
+        try:
+            img = create_icon(color="green", size=256)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            data = base64.b64encode(buf.getvalue())
+            photo = tk.PhotoImage(data=data)
+            self._root.iconphoto(True, photo)
+            self._window_icon_photo = photo  # GC 防止のため参照を保持
+        except Exception as e:
+            logging.debug("ウィンドウアイコン設定失敗 (無視): %s", e)
 
     def _setup_tray(self):
         """Setup system tray icon — 起動時にバックグラウンドスレッドで常駐開始"""
@@ -350,7 +367,7 @@ class WorkerGUI:
         from swim_worker.certs import get_ca_cert_path
         from swim_worker.config import Settings
         from swim_worker.auth import SwimClient
-        from swim_worker.consumer import TaskConsumer
+        from swim_worker.consumer import TaskConsumer, DuplicateWorkerError
 
         async def _main():
             try:
@@ -414,6 +431,28 @@ class WorkerGUI:
 
                 await self._consumer.run()
 
+            except DuplicateWorkerError as e:
+                # 同じ worker_name の別プロセス/別マシンが稼働中
+                logging.error("重複起動検知: %s", e)
+                msg = str(e)
+                self._root.after(0, lambda m=msg: messagebox.showerror(
+                    "SWIM Worker - 重複起動",
+                    f"同じ Worker 名 '{self._worker_settings['worker_name']}' で"
+                    f"別のプロセスが稼働中のため起動できません。\n\n"
+                    f"考えられる原因:\n"
+                    f"  • 他の PC や VPS で同名ワーカーが動いている\n"
+                    f"  • 前回クラッシュ時の古い heartbeat が残っている\n"
+                    f"    (数分で自動解放されます)\n\n"
+                    f"別の worker_name を設定するか、もう一方を停止してください。",
+                ))
+                self._root.after(0, lambda: self._status_var.set("重複起動エラー"))
+                self._root.after(0, lambda: self._start_btn.configure(state="normal"))
+                self._root.after(0, lambda: self._stop_btn.configure(state="disabled"))
+                self._worker_running = False
+                if _HAS_TRAY and self._tray_icon:
+                    self._tray_icon.icon = self._create_tray_icon("red")
+                for entry in self._entries.values():
+                    self._root.after(0, lambda e=entry: e.configure(state="normal"))
             except Exception as e:
                 logging.error("エラー: %s", e)
                 self._root.after(0, lambda: self._status_var.set("エラー"))
@@ -798,6 +837,28 @@ def main():
     except Exception:
         pass
 
+    # 同一マシン上の多重起動をOSファイルロックで防ぐ。
+    # 2個目の exe はここで即座に終了する。
+    from swim_worker.single_instance import LocalInstanceLock, AlreadyRunning
+    local_lock = LocalInstanceLock()
+    try:
+        local_lock.acquire()
+    except AlreadyRunning as e:
+        logging.warning("多重起動検知: %s", e)
+        # GUI 環境なのでダイアログで通知してから終了
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror(
+                "SWIM Worker",
+                "SWIM Worker は既に起動しています。\n\n"
+                "タスクバーまたはシステムトレイ (レーダー型アイコン) を確認してください。",
+            )
+            root.destroy()
+        except Exception:
+            pass
+        sys.exit(2)
+
     try:
         app = WorkerGUI()
         app.run()
@@ -805,6 +866,8 @@ def main():
         logging.exception("致命的エラーで終了")
         _write_crash_log(e)
         raise
+    finally:
+        local_lock.release()
 
 
 if __name__ == "__main__":
