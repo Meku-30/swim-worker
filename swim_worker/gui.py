@@ -167,12 +167,12 @@ class WorkerGUI:
         return img
 
     def _setup_tray(self):
-        """Setup system tray icon"""
+        """Setup system tray icon — 起動時にバックグラウンドスレッドで常駐開始"""
         if not _HAS_TRAY:
             return
         try:
             menu = pystray.Menu(
-                pystray.MenuItem("表示", self._tray_show),
+                pystray.MenuItem("表示", self._tray_show, default=True),
                 pystray.MenuItem("終了", self._tray_quit),
             )
             self._tray_icon = pystray.Icon(
@@ -181,6 +181,11 @@ class WorkerGUI:
                 "SWIM Worker",
                 menu,
             )
+            # 起動時にトレイアイコンを常駐開始 (最小化時に即反応できるように)
+            self._tray_thread = threading.Thread(
+                target=self._tray_icon.run, daemon=True,
+            )
+            self._tray_thread.start()
         except Exception as e:
             logging.warning("システムトレイ初期化失敗（トレイ機能を無効化）: %s", e)
             self._tray_icon = None
@@ -225,9 +230,12 @@ class WorkerGUI:
         """Minimize window to system tray — タスクバーからも消える"""
         if not _HAS_TRAY or not self._tray_icon:
             return
+        # 最小化状態を解除してから withdraw (iconic 状態だと withdraw が効かないことがある)
+        try:
+            self._root.state("normal")
+        except tk.TclError:
+            pass
         self._root.withdraw()  # ウィンドウ非表示（タスクバーからも消える）
-        if not self._tray_icon.visible:
-            threading.Thread(target=self._tray_icon.run, daemon=True).start()
         logging.info("システムトレイに格納しました")
 
     def _load_env(self):
@@ -506,11 +514,9 @@ class WorkerGUI:
     def run(self):
         """GUIメインループ"""
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
-        # 最小化ボタン（ー）でトレイに格納
-        try:
-            self._root.bind("<Iconify>", self._on_iconify)
-        except tk.TclError:
-            logging.debug("<Iconify>イベント未対応: トレイ最小化は閉じるボタンのみ")
+        # 最小化検出: <Unmap> が発火したとき state が 'iconic' ならトレイに格納
+        # (Tk には <Iconify> イベントは存在しない。<Unmap> + state チェックが正攻法)
+        self._root.bind("<Unmap>", self._on_unmap)
 
         # 自動起動パスの整合性チェック (exeを移動した場合に自動修正)
         self._sync_autostart_path()
@@ -691,10 +697,19 @@ class WorkerGUI:
                 "アップデート失敗", f"アップデートに失敗しました:\n{e}"
             ))
 
-    def _on_iconify(self, event=None):
-        """最小化ボタンが押された時 → トレイに格納"""
-        if _HAS_TRAY and self._tray_icon:
-            # iconify のデフォルト動作をキャンセルして withdraw（タスクバーからも消す）
+    def _on_unmap(self, event=None):
+        """<Unmap>イベント発生時、最小化されていればトレイに格納する"""
+        # トップレベル以外 (子ウィジェット) の Unmap は無視
+        if event is not None and event.widget is not self._root:
+            return
+        if not _HAS_TRAY or not self._tray_icon:
+            return
+        try:
+            state = self._root.state()
+        except tk.TclError:
+            return
+        # 最小化されたときのみトレイへ (withdraw 済みや normal は無視)
+        if state == "iconic":
             self._root.after(10, self._minimize_to_tray)
 
     def _on_close(self):
