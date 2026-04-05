@@ -645,15 +645,19 @@ class WorkerGUI:
                     f'move /Y "{new_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
                     "if errorlevel 1 goto retry\r\n"
                     f'echo [%DATE% %TIME%] move success >> "{log_path}"\r\n'
-                    # ファイルシステム同期待ち (move 直後の launch を安定化)
-                    "ping 127.0.0.1 -n 3 > nul\r\n"
-                    # explorer.exe 経由で新exeを起動する
-                    # ダブルクリック相当の shell context で起動され、
-                    # PyInstaller --onefile の bootstrap (temp 展開/DLL 読み込み) が
-                    # 確実に動作する。cmd からの start だと session 継承が
-                    # 不完全で "python312.dll LoadLibrary failed" になるケースを回避。
-                    f'explorer "{current_exe}"\r\n'
-                    f'echo [%DATE% %TIME%] new exe launched via explorer >> "{log_path}"\r\n'
+                    # ファイルシステム同期待ち
+                    "ping 127.0.0.1 -n 2 > nul\r\n"
+                    # PyInstaller 6.9+ の bootloader が _PYI_ARCHIVE_FILE を
+                    # 継承していると onefile 展開をスキップして python DLL 読み込み失敗する
+                    # (親exeが終了して _MEI tmpdir が消えているため)
+                    # 公式対応: PYINSTALLER_RESET_ENVIRONMENT=1 + 関連envを削除
+                    'set "_PYI_ARCHIVE_FILE="\r\n'
+                    'set "_PYI_APPLICATION_HOME_DIR="\r\n'
+                    'set "_PYI_PARENT_PROCESS_LEVEL="\r\n'
+                    'set "_MEIPASS2="\r\n'
+                    'set "PYINSTALLER_RESET_ENVIRONMENT=1"\r\n'
+                    f'start "" /D "{base}" "{current_exe}"\r\n'
+                    f'echo [%DATE% %TIME%] new exe started >> "{log_path}"\r\n'
                     'del "%~f0"\r\n'
                     "exit /b 0\r\n"
                     ":fail\r\n"
@@ -662,7 +666,15 @@ class WorkerGUI:
                 )
                 # パスに日本語が含まれる場合に備えて mbcs (システム ANSI) で書き込む
                 script_path.write_bytes(script.encode("mbcs", errors="replace"))
-                # CREATE_NO_WINDOW: コンソールは持つが非表示 (DETACHED_PROCESS より start が安定動作)
+                # PyInstaller 6.9+ の "Failed to load Python DLL" 対策として
+                # 子プロセスの環境変数から _PYI_* を除去し、PYINSTALLER_RESET_ENVIRONMENT を設定
+                # 参考: https://pyinstaller.org/en/stable/runtime-information.html
+                clean_env = os.environ.copy()
+                for k in ("_PYI_ARCHIVE_FILE", "_PYI_APPLICATION_HOME_DIR",
+                          "_PYI_PARENT_PROCESS_LEVEL", "_MEIPASS2"):
+                    clean_env.pop(k, None)
+                clean_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+                # CREATE_NO_WINDOW: コンソールは持つが非表示
                 CREATE_NO_WINDOW = 0x08000000
                 CREATE_NEW_PROCESS_GROUP = 0x00000200
                 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
@@ -672,6 +684,7 @@ class WorkerGUI:
                         CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
                         | CREATE_BREAKAWAY_FROM_JOB
                     ),
+                    env=clean_env,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
