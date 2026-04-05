@@ -9,7 +9,8 @@ import redis.asyncio as aioredis
 from swim_worker.certs import get_ca_cert_path
 from swim_worker.config import Settings
 from swim_worker.auth import SwimClient
-from swim_worker.consumer import TaskConsumer
+from swim_worker.consumer import TaskConsumer, DuplicateWorkerError
+from swim_worker.single_instance import LocalInstanceLock, AlreadyRunning
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -61,10 +62,24 @@ async def main() -> None:
 
     try:
         await consumer.run()
+    except DuplicateWorkerError as e:
+        logger.error("重複起動検知: %s", e)
+        sys.exit(2)
     finally:
         await swim_client.close()
         await redis_client.aclose()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # 同一マシン上の多重起動を OS ファイルロックで防ぐ。
+    # Redis 接続前に検査することで、無駄な接続/認証を避ける。
+    _local_lock = LocalInstanceLock()
+    try:
+        _local_lock.acquire()
+    except AlreadyRunning as e:
+        logger.error("%s", e)
+        sys.exit(2)
+    try:
+        asyncio.run(main())
+    finally:
+        _local_lock.release()
