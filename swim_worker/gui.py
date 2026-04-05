@@ -420,6 +420,34 @@ class WorkerGUI:
             return False
         return self._get_startup_path().exists()
 
+    def _sync_autostart_path(self):
+        """自動起動ファイル内のexeパスが現在のパスと異なる場合、自動で書き直す。
+
+        exeを別フォルダに移動すると、スタートアップフォルダの.bat/plist内に
+        残った古いパスが無効になり、Windows再起動時に自動起動しなくなる問題を解消する。
+        """
+        if sys.platform not in ("win32", "darwin"):
+            return
+        if not getattr(sys, "frozen", False):
+            return  # 開発環境では何もしない
+        path = self._get_startup_path()
+        if not path.exists():
+            return  # 自動起動未設定ならスキップ
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception:
+            return
+        current_exe = sys.executable
+        if current_exe in content:
+            return  # パス一致、更新不要
+        # パスが変わっている → 書き直し
+        logging.info("exeの場所が変わったため自動起動パスを更新: %s", current_exe)
+        try:
+            self._autostart_var.set(True)
+            self._toggle_autostart()
+        except Exception as e:
+            logging.warning("自動起動パス更新失敗: %s", e)
+
     def _toggle_autostart(self):
         path = self._get_startup_path()
         if self._autostart_var.get():
@@ -464,6 +492,9 @@ class WorkerGUI:
             self._root.bind("<Iconify>", self._on_iconify)
         except tk.TclError:
             logging.debug("<Iconify>イベント未対応: トレイ最小化は閉じるボタンのみ")
+
+        # 自動起動パスの整合性チェック (exeを移動した場合に自動修正)
+        self._sync_autostart_path()
 
         # 自動接続: 全フィールドが埋まっていれば起動後に自動開始
         if self._autoconnect_var.get():
