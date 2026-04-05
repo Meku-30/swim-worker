@@ -206,6 +206,21 @@ class WorkerGUI:
             self._on_stop()
         self._root.destroy()
 
+    def _quit_for_update(self):
+        """アップデート用の完全終了: exeファイルのロックを確実に解放するため os._exit を使う"""
+        try:
+            if self._worker_running:
+                self._on_stop()
+            if self._tray_icon:
+                try:
+                    self._tray_icon.stop()
+                except Exception:
+                    pass
+            self._root.destroy()
+        finally:
+            # daemon スレッドが残っていても強制終了 (ファイルロック即解放)
+            os._exit(0)
+
     def _minimize_to_tray(self):
         """Minimize window to system tray — タスクバーからも消える"""
         if not _HAS_TRAY or not self._tray_icon:
@@ -584,14 +599,17 @@ class WorkerGUI:
 
             from curl_cffi.requests import Session, BrowserType
             with Session(impersonate=BrowserType.chrome136, timeout=120.0) as client:
-                resp = client.get(download_url, stream=True)
+                # stream=False で全体をメモリに読み込む (curl_cffi では stream=True の扱いが不安定)
+                resp = client.get(download_url, allow_redirects=True)
                 if resp.status_code != 200:
                     raise RuntimeError(f"ダウンロード失敗: status={resp.status_code}")
+                content = resp.content
+                if not content or len(content) < 1024 * 1024:  # 1MB未満は異常
+                    raise RuntimeError(f"ダウンロードサイズ異常: {len(content) if content else 0} bytes")
                 with new_exe.open("wb") as f:
-                    # curl_cffi はstream時 iter_content を使う
-                    content = resp.content if hasattr(resp, "content") else resp.body
                     f.write(content)
-            logging.info("ダウンロード完了: %s", new_exe)
+            size_mb = new_exe.stat().st_size / 1024 / 1024
+            logging.info("ダウンロード完了: %s (%.1f MB)", new_exe, size_mb)
 
             # Worker停止
             if self._worker_running:
@@ -607,18 +625,43 @@ class WorkerGUI:
             # ヘルパースクリプト作成
             if sys.platform == "win32":
                 script_path = base / "swim-worker-update.bat"
+                log_path = base / "swim-worker-update.log"
+                # move をリトライする (旧exeが解放されるまで最大30秒待機)
                 script = (
                     "@echo off\r\n"
-                    "timeout /t 3 /nobreak > nul\r\n"
-                    f'move /Y "{new_exe}" "{current_exe}"\r\n'
+                    f'echo [%DATE% %TIME%] update start > "{log_path}"\r\n'
+                    "set /a COUNT=0\r\n"
+                    ":retry\r\n"
+                    "set /a COUNT+=1\r\n"
+                    f'echo [%DATE% %TIME%] attempt %COUNT% >> "{log_path}"\r\n'
+                    "if %COUNT% gtr 30 goto fail\r\n"
+                    "ping 127.0.0.1 -n 2 > nul\r\n"
+                    f'move /Y "{new_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
+                    "if errorlevel 1 goto retry\r\n"
+                    f'echo [%DATE% %TIME%] move success >> "{log_path}"\r\n'
                     f'start "" "{current_exe}"\r\n'
+                    f'echo [%DATE% %TIME%] new exe started >> "{log_path}"\r\n'
                     'del "%~f0"\r\n'
+                    "exit /b 0\r\n"
+                    ":fail\r\n"
+                    f'echo [%DATE% %TIME%] FAILED after %COUNT% attempts >> "{log_path}"\r\n'
+                    "exit /b 1\r\n"
                 )
                 # パスに日本語が含まれる場合に備えて mbcs (システム ANSI) で書き込む
                 script_path.write_bytes(script.encode("mbcs", errors="replace"))
+                # 親プロセス終了後も確実に生き残るよう detach + breakaway + stdio cut
+                DETACHED_PROCESS = 0x00000008
+                CREATE_NEW_PROCESS_GROUP = 0x00000200
+                CREATE_BREAKAWAY_FROM_JOB = 0x01000000
                 subprocess.Popen(
                     ["cmd", "/c", str(script_path)],
-                    creationflags=0x00000008 | 0x00000200,  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                    creationflags=(
+                        DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                        | CREATE_BREAKAWAY_FROM_JOB
+                    ),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     close_fds=True,
                 )
             else:  # darwin
@@ -639,8 +682,9 @@ class WorkerGUI:
                     close_fds=True,
                 )
 
-            logging.info("アップデータを起動しました。3秒後に再起動します")
-            self._root.after(1000, self._force_quit)
+            logging.info("アップデータを起動しました。まもなく再起動します")
+            # 1秒後に強制終了 → exe ファイルロック解放 → bat が move 成功
+            self._root.after(1000, self._quit_for_update)
         except Exception as e:
             logging.exception("アップデート失敗")
             self._root.after(0, lambda: messagebox.showerror(
