@@ -409,6 +409,7 @@ class WorkerGUI:
                     worker_name=settings.worker_name,
                     heartbeat_interval=settings.heartbeat_interval,
                     on_update_available=self._on_update_detected,
+                    on_task_state=self._on_task_state_changed,
                 )
 
                 await self._consumer.run()
@@ -531,6 +532,35 @@ class WorkerGUI:
                 logging.warning("自動接続: 設定が未入力のためスキップしました")
 
         self._root.mainloop()
+
+    # --- タスク状態更新 (Consumer から別スレッドで呼ばれる) ---
+    # SWIM API ジョブタイプの日本語ラベル
+    _JOB_LABELS = {
+        "collect_notams": "NOTAM収集",
+        "collect_pireps": "PIREP収集",
+        "collect_pkg_weather": "PKG気象収集",
+        "collect_airports": "空港一覧取得",
+        "collect_airport_profiles": "空港詳細取得",
+        "collect_airspace_data": "空域データ取得",
+        "collect_flight_foids": "フライト一覧取得",
+        "collect_flight_details": "フライト詳細取得",
+        "fetch_maintenance_info": "メンテ情報取得",
+        "capability_test": "権限テスト",
+    }
+
+    def _on_task_state_changed(self, state: str, job_type: str = "",
+                                total: int = 0, errors: int = 0):
+        """Consumer から別スレッドで呼ばれるタスク状態変化コールバック"""
+        if state == "processing":
+            label = self._JOB_LABELS.get(job_type, job_type)
+            msg = f"● 実行中: {label}"
+        else:
+            # idle
+            if errors > 0:
+                msg = f"● 接続中 (処理済 {total} 件, エラー {errors})"
+            else:
+                msg = f"● 接続中 (処理済 {total} 件)"
+        self._root.after(0, lambda: self._status_var.set(msg))
 
     # --- 自動アップデート ---
     def _on_update_detected(self, new_version: str):
