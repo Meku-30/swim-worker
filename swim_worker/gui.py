@@ -645,11 +645,15 @@ class WorkerGUI:
                     f'move /Y "{new_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
                     "if errorlevel 1 goto retry\r\n"
                     f'echo [%DATE% %TIME%] move success >> "{log_path}"\r\n'
-                    # ファイルシステム同期待ち (move 直後の start を安定化)
-                    "ping 127.0.0.1 -n 2 > nul\r\n"
-                    # 作業ディレクトリ指定で新exeを起動
-                    f'start "" /D "{base}" "{current_exe}"\r\n'
-                    f'echo [%DATE% %TIME%] new exe started (errorlevel=%errorlevel%) >> "{log_path}"\r\n'
+                    # ファイルシステム同期待ち (move 直後の launch を安定化)
+                    "ping 127.0.0.1 -n 3 > nul\r\n"
+                    # explorer.exe 経由で新exeを起動する
+                    # ダブルクリック相当の shell context で起動され、
+                    # PyInstaller --onefile の bootstrap (temp 展開/DLL 読み込み) が
+                    # 確実に動作する。cmd からの start だと session 継承が
+                    # 不完全で "python312.dll LoadLibrary failed" になるケースを回避。
+                    f'explorer "{current_exe}"\r\n'
+                    f'echo [%DATE% %TIME%] new exe launched via explorer >> "{log_path}"\r\n'
                     'del "%~f0"\r\n'
                     "exit /b 0\r\n"
                     ":fail\r\n"
