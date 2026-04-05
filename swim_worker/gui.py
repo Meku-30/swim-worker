@@ -433,8 +433,10 @@ class WorkerGUI:
         path = self._get_startup_path()
         if not path.exists():
             return  # 自動起動未設定ならスキップ
+        # .bat はシステムコードページ (mbcs)、plist は UTF-8
+        read_encoding = "utf-8" if sys.platform == "darwin" else "mbcs"
         try:
-            content = path.read_text(encoding="utf-8")
+            content = path.read_text(encoding=read_encoding, errors="replace")
         except Exception:
             return
         current_exe = sys.executable
@@ -476,8 +478,10 @@ class WorkerGUI:
 """
                 path.write_text(plist_content, encoding="utf-8")
             else:
-                bat_content = f'@echo off\ncd /d "{_get_base_dir()}"\nstart "" "{exe_path}"\n'
-                path.write_text(bat_content, encoding="utf-8")
+                # Windows .bat はシステムの ANSI コードページで読まれる
+                # パスに日本語が含まれる場合UTF-8だと文字化けするため mbcs (日本語Windows=CP932) で書き込む
+                bat_content = f'@echo off\r\ncd /d "{_get_base_dir()}"\r\nstart "" "{exe_path}"\r\n'
+                path.write_bytes(bat_content.encode("mbcs", errors="replace"))
             logging.info("自動起動を有効にしました")
         else:
             if path.exists():
@@ -610,7 +614,8 @@ class WorkerGUI:
                     f'start "" "{current_exe}"\r\n'
                     'del "%~f0"\r\n'
                 )
-                script_path.write_text(script, encoding="utf-8")
+                # パスに日本語が含まれる場合に備えて mbcs (システム ANSI) で書き込む
+                script_path.write_bytes(script.encode("mbcs", errors="replace"))
                 subprocess.Popen(
                     ["cmd", "/c", str(script_path)],
                     creationflags=0x00000008 | 0x00000200,  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
