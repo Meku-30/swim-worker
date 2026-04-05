@@ -645,8 +645,11 @@ class WorkerGUI:
                     f'move /Y "{new_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
                     "if errorlevel 1 goto retry\r\n"
                     f'echo [%DATE% %TIME%] move success >> "{log_path}"\r\n'
-                    f'start "" "{current_exe}"\r\n'
-                    f'echo [%DATE% %TIME%] new exe started >> "{log_path}"\r\n'
+                    # ファイルシステム同期待ち (move 直後の start を安定化)
+                    "ping 127.0.0.1 -n 2 > nul\r\n"
+                    # 作業ディレクトリ指定で新exeを起動
+                    f'start "" /D "{base}" "{current_exe}"\r\n'
+                    f'echo [%DATE% %TIME%] new exe started (errorlevel=%errorlevel%) >> "{log_path}"\r\n'
                     'del "%~f0"\r\n'
                     "exit /b 0\r\n"
                     ":fail\r\n"
@@ -655,14 +658,14 @@ class WorkerGUI:
                 )
                 # パスに日本語が含まれる場合に備えて mbcs (システム ANSI) で書き込む
                 script_path.write_bytes(script.encode("mbcs", errors="replace"))
-                # 親プロセス終了後も確実に生き残るよう detach + breakaway + stdio cut
-                DETACHED_PROCESS = 0x00000008
+                # CREATE_NO_WINDOW: コンソールは持つが非表示 (DETACHED_PROCESS より start が安定動作)
+                CREATE_NO_WINDOW = 0x08000000
                 CREATE_NEW_PROCESS_GROUP = 0x00000200
                 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
                 subprocess.Popen(
                     ["cmd", "/c", str(script_path)],
                     creationflags=(
-                        DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                        CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
                         | CREATE_BREAKAWAY_FROM_JOB
                     ),
                     stdin=subprocess.DEVNULL,
