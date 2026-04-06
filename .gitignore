@@ -9,4 +9,6 @@ data/
 *.spec
 # 自動生成されるアイコンファイル (build 時に scripts/generate_icons.py が作成)
 swim_worker/resources/
+# Playwrightキャプチャ結果 (セッションCookie含む)
+scripts/header_capture_*.json
 
