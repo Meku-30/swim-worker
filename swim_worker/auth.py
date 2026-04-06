@@ -16,7 +16,7 @@ from curl_cffi.requests import AsyncSession, BrowserType
 
 logger = logging.getLogger(__name__)
 
-SWIM_LOGIN_URL = "https://top.swim.mlit.go.jp/swim/webapi/login"
+SWIM_LOGIN_URL = "https://top.swim.mlit.go.jp/swim/api/login"
 SWIM_SESSION_CHECK_URL = "https://web.swim.mlit.go.jp/service/api/accounts/summary"
 SWIM_PORTAL_URL = "https://web.swim.mlit.go.jp"
 SWIM_TOP_URL = "https://top.swim.mlit.go.jp"
@@ -267,11 +267,11 @@ class SwimClient:
                 # 2. ログインPOST（SPA内のXHR）
                 resp = await tmp.post(
                     SWIM_LOGIN_URL,
-                    json={"id": self._username, "password": self._password},
+                    json={"userId": self._username, "password": self._password},
                     headers={
                         **_SESSION_HEADERS,
                         "Origin": SWIM_TOP_URL,
-                        "Referer": f"{SWIM_TOP_URL}/",
+                        "Referer": f"{SWIM_TOP_URL}/swim/login",
                     },
                 )
 
@@ -290,11 +290,10 @@ class SwimClient:
                     raise SwimAuthError("ログイン後にCookieを取得できませんでした")
 
                 # 3. web.swim への遷移を再現（ログイン後のSPAリダイレクト）
-                # Sec-Fetch-User は除外（JS起動の遷移では Chrome が付与しない）
+                # web.swim への遷移（実測: Sec-Fetch-User: ?1 付き）
                 await asyncio.sleep(random.uniform(0.5, 1.5))
                 await tmp.get(f"{SWIM_PORTAL_URL}/", headers={
-                    k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
-                } | {
+                    **_NAV_HEADERS,
                     "Referer": f"{SWIM_TOP_URL}/",
                     "Sec-Fetch-Site": "same-site",
                 })
