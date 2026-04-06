@@ -54,9 +54,14 @@ _REFERER_MAP = {
 }
 
 # SPA初期化リクエスト — 実ブラウザがブラウズ画面を開く際に自動で読み込むリソース
-# (method, path, body) のリスト。bodyはPOSTのみ使用、GETはNone。
-# 順序はPlaywrightキャプチャに基づく（非同期JSにより実行順は毎回変動する）。
-# body は 2026-04-02 のキャプチャで実測。
+# (method, path, body, header_type) のリスト。
+# header_type: "jquery" / "angular" / "angular_res" / "luciadria"
+#   jquery      → X-Requested-With: XMLHttpRequest, Accept: json+js (jQuery $.ajax)
+#   jquery_text → X-Requested-With: XMLHttpRequest, Accept: text/plain (LuciadRIA/ATCMAP)
+#   angular     → Origin付きPOST, Accept: json (Angular HttpClient)
+#   angular_res → Accept: */* (Angular リソースバンドル)
+#   luciadria   → Accept: application/javascript, application/json (地図ライブラリ)
+# 順序・body は Playwright キャプチャ (2026-04-02/04-06) で実測。
 
 _BASIC_BODY = {
     "msgHeader": {"jnlInfo": {"jnlRegistFlag": 0}, "tsusuInfo": {}},
@@ -64,60 +69,60 @@ _BASIC_BODY = {
     "ctrlHeader": {},
 }
 
-_SPA_INIT_REQUESTS: dict[str, list[tuple[str, str, dict | None]]] = {
+_SPA_INIT_REQUESTS: dict[str, list[tuple[str, str, dict | None, str]]] = {
     "f2aspr": [
-        ("POST", "LuciadRIALicense", None),  # bodyなし（ライセンス検証）
-        ("GET",  "js/lib/WebGIS/ATCMAP.settings", None),
-        ("GET",  "settings/auto_filter.json", None),
-        ("POST", "web/FLV901/LGV300", {**_BASIC_BODY}),
-        ("POST", "web/FLV811/LGV231", {**_BASIC_BODY, "profileType": 0, "lang": "ja"}),
-        ("GET",  "settings/map_disp.json", None),
-        ("GET",  "web/resource/message", None),
-        ("GET",  "web/resource/webfw", None),
-        ("GET",  "web/resource/user", None),
+        ("POST", "LuciadRIALicense", None, "jquery_text"),
+        ("GET",  "js/lib/WebGIS/ATCMAP.settings", None, "jquery_text"),
+        ("GET",  "settings/auto_filter.json", None, "jquery"),
+        ("POST", "web/FLV901/LGV300", {**_BASIC_BODY}, "angular"),
+        ("POST", "web/FLV811/LGV231", {**_BASIC_BODY, "profileType": 0, "lang": "ja"}, "angular"),
+        ("GET",  "settings/map_disp.json", None, "jquery"),
+        ("GET",  "web/resource/message", None, "angular_res"),
+        ("GET",  "web/resource/webfw", None, "angular_res"),
+        ("GET",  "web/resource/user", None, "angular_res"),
         # ブラウズ画面GETはここで挿入（resource/userの後、_ensure_browse_pageで処理）
-        ("POST", "web/FLV802/LGV205", {**_BASIC_BODY, "profileType": 0}),
-        ("POST", "web/FLV934/LGV387", {**_BASIC_BODY}),
-        ("GET",  "settings/velocity.json", None),
-        ("GET",  "settings/default_view.json", None),
-        ("GET",  "settings/default_font.json", None),
-        ("GET",  "settings/default_dire_dist_position.json", None),
-        ("GET",  "settings/shape_datablock_setting.json", None),
-        ("GET",  "settings/default_color.json", None),
-        ("GET",  "settings/map_disp.json", None),
-        ("GET",  "settings/menu.json", None),
-        ("GET",  "settings/commonMenuSetting.json", None),
-        ("GET",  "settings/toolbarSetting.json", None),
-        ("GET",  "settings/blink_info.json", None),
-        ("GET",  "settings/groupLayer.json", None),
+        ("POST", "web/FLV802/LGV205", {**_BASIC_BODY, "profileType": 0}, "angular"),
+        ("POST", "web/FLV934/LGV387", {**_BASIC_BODY}, "angular"),
+        ("GET",  "settings/velocity.json", None, "jquery"),
+        ("GET",  "settings/default_view.json", None, "jquery"),
+        ("GET",  "settings/default_font.json", None, "jquery"),
+        ("GET",  "settings/default_dire_dist_position.json", None, "jquery"),
+        ("GET",  "settings/shape_datablock_setting.json", None, "jquery"),
+        ("GET",  "settings/default_color.json", None, "jquery"),
+        ("GET",  "settings/map_disp.json", None, "jquery"),
+        ("GET",  "settings/menu.json", None, "jquery"),
+        ("GET",  "settings/commonMenuSetting.json", None, "jquery"),
+        ("GET",  "settings/toolbarSetting.json", None, "jquery"),
+        ("GET",  "settings/blink_info.json", None, "jquery"),
+        ("GET",  "settings/groupLayer.json", None, "jquery"),
     ],
     "f2dnrq": [
-        ("POST", "LuciadRIALicense", None),  # bodyなし
-        ("GET",  "js/lib/WebGIS/ATCMAP.settings", None),
-        ("GET",  "settings/auto_filter.json", None),
-        ("POST", "web/FUV201/USV005", {**_BASIC_BODY}),
-        ("GET",  "settings/map_disp.json", None),
-        ("GET",  "web/resource/message", None),
-        ("GET",  "web/resource/webfw", None),
-        ("GET",  "web/resource/user", None),
+        ("POST", "LuciadRIALicense", None, "jquery_text"),
+        ("GET",  "js/lib/WebGIS/ATCMAP.settings", None, "jquery_text"),
+        ("GET",  "settings/auto_filter.json", None, "jquery"),
+        ("POST", "web/FUV201/USV005", {**_BASIC_BODY}, "angular"),
+        ("GET",  "settings/map_disp.json", None, "jquery"),
+        ("GET",  "web/resource/message", None, "angular_res"),
+        ("GET",  "web/resource/webfw", None, "angular_res"),
+        ("GET",  "web/resource/user", None, "angular_res"),
         # ブラウズ画面GETはここで挿入（resource/userの後）
-        ("GET",  "settings/velocity.json", None),
-        ("GET",  "settings/default_view.json", None),
-        ("GET",  "settings/default_font.json", None),
-        ("GET",  "settings/default_dire_dist_position.json", None),
-        ("GET",  "settings/shape_datablock_setting.json", None),
-        ("GET",  "settings/default_color.json", None),
-        ("GET",  "settings/map_disp.json", None),
-        ("GET",  "settings/menu.json", None),
-        ("GET",  "settings/commonMenuSetting.json", None),
-        ("GET",  "settings/toolbarSetting.json", None),
-        ("GET",  "settings/blink_info.json", None),
-        ("GET",  "settings/groupLayer.json", None),
-        ("POST", "web/FUV201/USV005", {**_BASIC_BODY}),
-        ("GET",  "js/lib/WebGIS/layer/UTM0.json", None),
-        ("GET",  "js/lib/WebGIS/layer/UTM1.json", None),
-        ("GET",  "js/lib/WebGIS/layer/UTM2.json", None),
-        ("GET",  "js/lib/WebGIS/layer/UTM3.json", None),
+        ("GET",  "settings/velocity.json", None, "jquery"),
+        ("GET",  "settings/default_view.json", None, "jquery"),
+        ("GET",  "settings/default_font.json", None, "jquery"),
+        ("GET",  "settings/default_dire_dist_position.json", None, "jquery"),
+        ("GET",  "settings/shape_datablock_setting.json", None, "jquery"),
+        ("GET",  "settings/default_color.json", None, "jquery"),
+        ("GET",  "settings/map_disp.json", None, "jquery"),
+        ("GET",  "settings/menu.json", None, "jquery"),
+        ("GET",  "settings/commonMenuSetting.json", None, "jquery"),
+        ("GET",  "settings/toolbarSetting.json", None, "jquery"),
+        ("GET",  "settings/blink_info.json", None, "jquery"),
+        ("GET",  "settings/groupLayer.json", None, "jquery"),
+        ("POST", "web/FUV201/USV005", {**_BASIC_BODY}, "angular"),
+        ("GET",  "js/lib/WebGIS/layer/UTM0.json", None, "luciadria"),
+        ("GET",  "js/lib/WebGIS/layer/UTM1.json", None, "luciadria"),
+        ("GET",  "js/lib/WebGIS/layer/UTM2.json", None, "luciadria"),
+        ("GET",  "js/lib/WebGIS/layer/UTM3.json", None, "luciadria"),
     ],
 }
 
@@ -360,22 +365,48 @@ class SwimClient:
             # 2. SPA初期化リクエスト（実測順序に従う）
             if service_prefix and service_prefix in _SPA_INIT_REQUESTS:
                 base = f"{SWIM_PORTAL_URL}/{service_prefix}"
-                # POST: Origin付き、GET: Refererのみ（Chromeの実測に基づく）
-                post_headers = {**_POST_EXTRA_HEADERS, "Referer": browse_url}
-                get_headers = {"Referer": browse_url}
+                ref = browse_url
+                # ヘッダーパターン（2026-04-06 Playwrightキャプチャ実測）
+                _H = {
+                    "jquery": lambda m: {
+                        "Accept": "application/json, text/javascript, */*; q=0.01",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": ref,
+                        **({"Origin": SWIM_PORTAL_URL} if m == "POST" else {}),
+                    },
+                    "jquery_text": lambda m: {
+                        "Accept": "text/plain, */*; q=0.01",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": ref,
+                        **({"Origin": SWIM_PORTAL_URL} if m == "POST" else {}),
+                    },
+                    "angular": lambda m: {
+                        **_POST_EXTRA_HEADERS,
+                        "Referer": ref,
+                    },
+                    "angular_res": lambda _: {
+                        "Accept": "*/*",
+                        "Referer": ref,
+                    },
+                    "luciadria": lambda _: {
+                        "Accept": "application/javascript, application/json",
+                        "Referer": ref,
+                    },
+                }
                 browse_count = 0
                 # フェーズブレイク: 実ブラウザではJSパース/実行で特定箇所に長めの間隔が入る
                 _PHASE_BREAK_AFTER = {"ATCMAP.settings", "web/resource/user", "settings/groupLayer.json"}
-                for method, path, body in _SPA_INIT_REQUESTS[service_prefix]:
+                for method, path, body, htype in _SPA_INIT_REQUESTS[service_prefix]:
                     try:
                         url = f"{base}/{path}"
+                        h = _H[htype](method)
                         if method == "POST":
                             if body is not None:
-                                await self._session.post(url, json=body, headers=post_headers)
+                                await self._session.post(url, json=body, headers=h)
                             else:
-                                await self._session.post(url, headers=post_headers)
+                                await self._session.post(url, headers=h)
                         else:
-                            await self._session.get(url, headers=get_headers)
+                            await self._session.get(url, headers=h)
                         # フェーズブレイク or 通常の短い間隔
                         if any(marker in path for marker in _PHASE_BREAK_AFTER):
                             await asyncio.sleep(random.uniform(0.3, 1.0))
@@ -385,10 +416,12 @@ class SwimClient:
                         pass
 
                     # resource/user の後にブラウズ画面の追加GETが来る（実測パターン）
+                    # jQuery $.ajax 経由: X-Requested-With + json/js Accept
                     if path == "web/resource/user" and browse_count == 0:
+                        browse_jquery_h = _H["jquery"]("GET")
                         for _ in range(3):
                             try:
-                                await self._session.get(browse_url, headers=nav_headers)
+                                await self._session.get(browse_url, headers=browse_jquery_h)
                                 await asyncio.sleep(random.uniform(0.02, 0.1))
                             except Exception:
                                 pass
