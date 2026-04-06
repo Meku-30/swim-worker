@@ -94,12 +94,13 @@ _NAV_HEADERS = {
 
 ```
 サービスページを開く際の実ブラウザの挙動（Playwrightキャプチャで実測）:
-1. ブラウズ画面の初回GET（HTMLシェル読み込み）
+1. ブラウズ画面の初回GET（HTMLシェル読み込み、ブックマークからアクセス想定）
+     ヘッダー: NAV_HEADERS (Sec-Fetch-Site: none, Sec-Fetch-User: ?1, Referer: なし)
 2. SPA初期化: ライセンスPOST → ATCMAP設定 → auto_filter → 初期データAPI POST
 3. 設定ファイルGET + リソースバンドルGET（message/webfw/user）
-4. ブラウズ画面の追加GET × 3回（Angular SPAルーティング、resource/userの後）
+4. ブラウズ画面の追加GET × 3回（jQuery $.ajax経由、resource/userの後）
 5. 追加API POST → velocity.json以降の設定ファイルGET
-6. 以降のAPI呼び出し（XHRヘッダー + Referer付き）
+6. 以降のAPI呼び出し（Angular POST: Origin付き、X-Requested-Withなし）
 ```
 
 | サービス | 初期化リクエスト数 | ブラウズ画面 | 内訳 |
@@ -111,7 +112,8 @@ _NAV_HEADERS = {
 
 #### Playwrightキャプチャ記録
 
-2026-03-04にPlaywright (Chromium) で実際のSWIMポータルにログインし、各サービスページを開いた際のネットワークリクエストを2回記録した。キャプチャデータは `swim-api-legacy/scripts/investigation_results/` に保存されている。
+- **2026-03-04** (リクエスト順序確認): `swim-api-legacy/scripts/investigation_results/` に保存。SPA初期化の順序と内容を特定。
+- **2026-04-06** (ヘッダー実測): `swim-worker/scripts/header_capture_*.json` に保存。全リクエストのヘッダー（Origin, X-Requested-With, Sec-Fetch-*, Referer, Accept）を実測し、jQuery/Angular混在パターンを特定。ログインフロー（URL, body, レスポンス形式）も実測確認。
 
 - **71_all_data_api_calls.json** (11:20, 72リクエスト) — 1回目のキャプチャ
 - **94_all_api_calls.json** (11:27, 131リクエスト) — 2回目のキャプチャ
