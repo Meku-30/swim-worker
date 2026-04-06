@@ -133,14 +133,20 @@ def _get_referer(url: str) -> str:
 # XHR固有のヘッダーのみオーバーライド
 # User-Agent, Sec-Ch-Ua, Sec-Ch-Ua-Platform はcurl_cffiのchrome136デフォルトに任せる
 # （TLSフィンガープリントとの一貫性を維持するため）
-_XHR_HEADERS = {
+# セッションデフォルトヘッダー（XHR/ナビゲーション共通）
+# Origin と X-Requested-With はXHR固有のため、セッションデフォルトには含めない。
+# ナビゲーションGETとのマージ時に残留してbot判定されるリスクを回避する。
+_SESSION_HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-    "Origin": SWIM_PORTAL_URL,
-    "X-Requested-With": "XMLHttpRequest",
     "Sec-Fetch-Dest": "empty",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Site": "same-origin",
+}
+
+# POST/PUT時に追加するヘッダー（Chromeの標準動作: GETではOriginを送信しない）
+_POST_EXTRA_HEADERS = {
+    "Origin": SWIM_PORTAL_URL,
 }
 
 
@@ -220,7 +226,7 @@ class SwimClient:
                 await self._session.close()
             self._session = AsyncSession(
                 impersonate=_BROWSER_TYPE,
-                headers=_XHR_HEADERS,
+                headers=_SESSION_HEADERS,
                 timeout=60.0,
             )
             for name, value in saved.items():
@@ -304,7 +310,7 @@ class SwimClient:
 
         self._session = AsyncSession(
             impersonate=_BROWSER_TYPE,
-            headers=_XHR_HEADERS,
+            headers=_SESSION_HEADERS,
             timeout=60.0,
         )
         # Cookie domain は mlit.go.jp（実測で確認済み、省略すると403）
@@ -355,7 +361,9 @@ class SwimClient:
             # 2. SPA初期化リクエスト（実測順序に従う）
             if service_prefix and service_prefix in _SPA_INIT_REQUESTS:
                 base = f"{SWIM_PORTAL_URL}/{service_prefix}"
-                ref_header = {"Referer": browse_url}
+                # POST: Origin付き、GET: Refererのみ（Chromeの実測に基づく）
+                post_headers = {**_POST_EXTRA_HEADERS, "Referer": browse_url}
+                get_headers = {"Referer": browse_url}
                 browse_count = 0
                 # フェーズブレイク: 実ブラウザではJSパース/実行で特定箇所に長めの間隔が入る
                 _PHASE_BREAK_AFTER = {"ATCMAP.settings", "web/resource/user", "settings/groupLayer.json"}
@@ -364,11 +372,11 @@ class SwimClient:
                         url = f"{base}/{path}"
                         if method == "POST":
                             if body is not None:
-                                await self._session.post(url, json=body, headers=ref_header)
+                                await self._session.post(url, json=body, headers=post_headers)
                             else:
-                                await self._session.post(url, headers=ref_header)
+                                await self._session.post(url, headers=post_headers)
                         else:
-                            await self._session.get(url, headers=ref_header)
+                            await self._session.get(url, headers=get_headers)
                         # フェーズブレイク or 通常の短い間隔
                         if any(marker in path for marker in _PHASE_BREAK_AFTER):
                             await asyncio.sleep(random.uniform(0.3, 1.0))
@@ -406,7 +414,7 @@ class SwimClient:
         # 対応するブラウズ画面を未訪問なら先にナビゲーション
         await self._ensure_browse_page(url)
 
-        extra_headers = {"Referer": _get_referer(url)}
+        extra_headers = {**_POST_EXTRA_HEADERS, "Referer": _get_referer(url)}
 
         start = time.monotonic()
         try:
@@ -464,7 +472,7 @@ class SwimClient:
         if headers:
             merged_headers.update(headers)
 
-        async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=30.0) as client:
+        async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=60.0) as client:
             resp = await client.get(url, params=params or {}, headers=merged_headers)
             if resp.status_code != 200:
                 raise SwimAuthError(f"公開GET APIエラー (status={resp.status_code})")
