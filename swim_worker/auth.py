@@ -130,7 +130,6 @@ def _get_referer(url: str) -> str:
     return f"{SWIM_PORTAL_URL}/"
 
 
-# XHR固有のヘッダーのみオーバーライド
 # User-Agent, Sec-Ch-Ua, Sec-Ch-Ua-Platform はcurl_cffiのchrome136デフォルトに任せる
 # （TLSフィンガープリントとの一貫性を維持するため）
 # セッションデフォルトヘッダー（XHR/ナビゲーション共通）
@@ -265,7 +264,7 @@ class SwimClient:
                     SWIM_LOGIN_URL,
                     json={"id": self._username, "password": self._password},
                     headers={
-                        **_XHR_HEADERS,
+                        **_SESSION_HEADERS,
                         "Origin": SWIM_TOP_URL,
                         "Referer": f"{SWIM_TOP_URL}/",
                     },
