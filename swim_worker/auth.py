@@ -353,12 +353,9 @@ class SwimClient:
                 service_prefix = prefix
                 break
 
-        nav_headers = {
-            k: v for k, v in _NAV_HEADERS.items() if k != "Sec-Fetch-User"
-        } | {
-            "Referer": f"{SWIM_PORTAL_URL}/",
-            "Sec-Fetch-Site": "same-origin",
-        }
+        # ブラウズ画面GETのヘッダー（2026-04-06実測: URL直接アクセスのパターン）
+        # Sec-Fetch-Site: none, Sec-Fetch-User: ?1, Referer: なし
+        nav_headers = {**_NAV_HEADERS}
 
         try:
             # 1. ブラウズ画面の初回GET
