@@ -157,20 +157,32 @@ class TaskConsumer:
 
         - SET NX で heartbeat:{name} に自分の instance_token を登録
         - 成功: 自分が唯一のワーカー
-        - 失敗: 既存所有者が別トークンなら DuplicateWorkerError を送出
+        - 失敗: TTL 失効を最大90秒待ってリトライ（アップデート後の再起動に対応）
+        - それでも失敗: DuplicateWorkerError を送出
 
         ※ 他プロセスが graceful shutdown 時に DEL してくれば即再起動可能。
-           クラッシュ時は TTL (heartbeat_interval × 3) 経過後に再起動可能。
+           クラッシュ/アップデート時は TTL (heartbeat_interval × 3) 経過後に再起動可能。
         """
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
         key = f"heartbeat:{self._worker_name}"
         acquired = await self._redis.set(key, self._instance_token, ex=ttl, nx=True)
         if acquired:
             return
+        # TTL 失効を待ってリトライ（アップデート後の再起動等で旧プロセスの
+        # heartbeat が残っている場合に対応。最大 TTL + マージン 秒待つ）
+        max_wait = ttl + 10
+        logger.info(
+            "heartbeat キーが残存中。前プロセスの TTL 失効を最大%d秒待機します...", max_wait,
+        )
+        for elapsed in range(0, max_wait, 5):
+            await asyncio.sleep(5)
+            acquired = await self._redis.set(key, self._instance_token, ex=ttl, nx=True)
+            if acquired:
+                logger.info("heartbeat キー取得成功（%d秒待機）", elapsed + 5)
+                return
         raise DuplicateWorkerError(
             f"worker_name '{self._worker_name}' は既に別プロセスで稼働中です。"
             f" 別の名前を使うか、もう一方を停止してください。"
-            f" (残存 TTL が経過すれば自動解放されます)"
         )
 
     async def send_heartbeat(self) -> None:
