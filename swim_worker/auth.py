@@ -234,7 +234,7 @@ class SwimClient:
                 timeout=60.0,
             )
             for name, value in saved.items():
-                self._session.cookies.set(name, value, domain="mlit.go.jp")
+                self._session.cookies.set(name, value, domain=".mlit.go.jp")
             # web.swim へのナビゲーションを再現（ブラウザ再開を模倣）
             try:
                 await self._session.get(f"{SWIM_PORTAL_URL}/", headers={
@@ -321,9 +321,9 @@ class SwimClient:
             headers=_SESSION_HEADERS,
             timeout=60.0,
         )
-        # Cookie domain は mlit.go.jp（実測で確認済み、省略すると403）
+        # Cookie domain は .mlit.go.jp（2026-04-06実測確認、省略すると403）
         for name, value in all_cookies.items():
-            self._session.cookies.set(name, value, domain="mlit.go.jp")
+            self._session.cookies.set(name, value, domain=".mlit.go.jp")
 
         self._is_ready = True
         self._visited_pages.clear()
