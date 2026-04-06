@@ -8,7 +8,9 @@ import json
 import logging
 import os
 import random
+import sys
 import time
+from pathlib import Path
 
 from curl_cffi.requests import AsyncSession, BrowserType
 
@@ -19,7 +21,31 @@ SWIM_SESSION_CHECK_URL = "https://web.swim.mlit.go.jp/service/api/accounts/summa
 SWIM_PORTAL_URL = "https://web.swim.mlit.go.jp"
 SWIM_TOP_URL = "https://top.swim.mlit.go.jp"
 
-COOKIE_FILE = "/app/data/.swim_cookies.json"
+
+def _resolve_cookie_file(override: str = "") -> str:
+    """環境に応じたCookie保存先パスを決定する。
+
+    優先順位:
+      1. override（明示指定、環境変数 COOKIE_FILE 等）
+      2. Docker環境（/app 配下で実行中）→ /app/data/.swim_cookies.json
+      3. PyInstaller exe（frozen）→ exe と同じディレクトリの data/
+      4. それ以外（VPS systemd等）→ ワーキングディレクトリの data/
+    """
+    if override:
+        return override
+
+    cookie_name = ".swim_cookies.json"
+
+    # Docker: /app 配下で実行中
+    if Path("/app").is_dir() and str(Path.cwd()).startswith("/app"):
+        return f"/app/data/{cookie_name}"
+
+    # PyInstaller exe: exe と同じディレクトリ
+    if getattr(sys, "frozen", False):
+        return str(Path(sys.executable).parent / "data" / cookie_name)
+
+    # VPS / ローカル開発: ワーキングディレクトリ
+    return str(Path.cwd() / "data" / cookie_name)
 
 # API種別ごとのReferer（ポータルの実際の画面URLを再現）
 _REFERER_MAP = {
@@ -140,9 +166,10 @@ class SwimAuthError(Exception):
 class SwimClient:
     """SWIM APIクライアント（Worker用）"""
 
-    def __init__(self, username: str, password: str) -> None:
+    def __init__(self, username: str, password: str, cookie_file: str = "") -> None:
         self._username = username
         self._password = password
+        self._cookie_file = _resolve_cookie_file(cookie_file)
         self._session: AsyncSession | None = None
         self._is_ready = False
         self._relogin_lock = asyncio.Lock()
@@ -152,6 +179,7 @@ class SwimClient:
         self._extra_delay: float = 0.0  # 追加遅延（秒）
         # 訪問済みブラウズ画面（セッション中に1回GETしたURL）
         self._visited_pages: set[str] = set()
+        logger.info("Cookie保存先: %s", self._cookie_file)
 
     def _save_cookies(self) -> None:
         """セッションCookieをファイルに保存"""
@@ -161,25 +189,26 @@ class SwimClient:
             cookies = {}
             for name, value in self._session.cookies.items():
                 cookies[name] = value
-            os.makedirs(os.path.dirname(COOKIE_FILE), exist_ok=True)
-            with open(COOKIE_FILE, "w") as f:
+            os.makedirs(os.path.dirname(self._cookie_file), exist_ok=True)
+            with open(self._cookie_file, "w") as f:
                 json.dump(cookies, f)
-            logger.debug("Cookie保存: %d個", len(cookies))
+            logger.info("Cookie保存: %d個 → %s", len(cookies), self._cookie_file)
         except Exception as e:
-            logger.debug("Cookie保存失敗: %s", e)
+            logger.warning("Cookie保存失敗: %s", e)
 
     def _load_cookies(self) -> dict | None:
         """保存済みCookieを読み込む"""
         try:
-            if not os.path.exists(COOKIE_FILE):
+            if not os.path.exists(self._cookie_file):
+                logger.debug("Cookieファイルなし: %s", self._cookie_file)
                 return None
-            with open(COOKIE_FILE) as f:
+            with open(self._cookie_file) as f:
                 cookies = json.load(f)
             if cookies:
-                logger.info("保存済みCookie読み込み: %d個", len(cookies))
+                logger.info("保存済みCookie読み込み: %d個 (%s)", len(cookies), self._cookie_file)
                 return cookies
         except Exception as e:
-            logger.debug("Cookie読み込み失敗: %s", e)
+            logger.warning("Cookie読み込み失敗: %s", e)
         return None
 
     async def login(self) -> None:
@@ -458,8 +487,8 @@ class SwimClient:
             if force:
                 # 403起因: 保存済みCookieも期限切れの可能性が高いので削除
                 try:
-                    if os.path.exists(COOKIE_FILE):
-                        os.remove(COOKIE_FILE)
+                    if os.path.exists(self._cookie_file):
+                        os.remove(self._cookie_file)
                         logger.debug("保存済みCookie削除（強制再ログイン）")
                 except OSError:
                     pass

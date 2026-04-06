@@ -45,7 +45,11 @@ async def main() -> None:
             await asyncio.sleep(delay)
             delay = min(delay * 2, 30.0)
 
-    swim_client = SwimClient(username=settings.swim_username, password=settings.swim_password)
+    swim_client = SwimClient(
+        username=settings.swim_username,
+        password=settings.swim_password,
+        cookie_file=settings.cookie_file,
+    )
     consumer = TaskConsumer(
         redis_client=redis_client, swim_client=swim_client,
         worker_name=settings.worker_name,
