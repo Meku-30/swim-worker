@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     # Worker
     worker_name: str
     heartbeat_interval: int = 30  # 秒
+    cookie_file: str = ""  # Cookie保存先（未設定時は環境に応じて自動決定）
     request_delay_median: float = 4.0  # リクエスト前遅延の中央値（秒、対数正規分布）
     request_delay_p99: float = 15.0   # リクエスト前遅延の99パーセンタイル（秒）
     request_delay_clip_min: float = 1.5  # リクエスト前遅延の下限（秒）
