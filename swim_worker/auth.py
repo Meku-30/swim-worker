@@ -261,7 +261,7 @@ class SwimClient:
         try:
             async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=60.0) as tmp:
                 # 1. ポータルページ読み込み（URL直接入力を再現）
-                await tmp.get(f"{SWIM_TOP_URL}/", headers=_NAV_HEADERS)
+                await tmp.get(f"{SWIM_TOP_URL}/swim/", headers=_NAV_HEADERS)
                 await asyncio.sleep(random.uniform(1.0, 3.0))
 
                 # 2. ログインPOST（SPA内のXHR）
@@ -290,10 +290,14 @@ class SwimClient:
                 if not resp.cookies:
                     raise SwimAuthError("ログイン後にCookieを取得できませんでした")
 
-                # 3. web.swim への遷移を再現（ログイン後のSPAリダイレクト）
-                # web.swim への遷移（実測: Sec-Fetch-User: ?1 付き）
+                # 3. web.swim への遷移（ログインレスポンスの redirectUrl に従う）
+                redirect_url = f"{SWIM_PORTAL_URL}/service/portal?lang=ja"
+                try:
+                    redirect_url = data.get("datas", {}).get("redirectUrl", redirect_url)
+                except Exception:
+                    pass
                 await asyncio.sleep(random.uniform(0.5, 1.5))
-                await tmp.get(f"{SWIM_PORTAL_URL}/", headers={
+                await tmp.get(redirect_url, headers={
                     **_NAV_HEADERS,
                     "Referer": f"{SWIM_TOP_URL}/",
                     "Sec-Fetch-Site": "same-site",
