@@ -418,6 +418,7 @@ class WorkerGUI:
                 swim_client = SwimClient(
                     username=settings.swim_username,
                     password=settings.swim_password,
+                    cookie_file=settings.cookie_file,
                 )
 
                 self._consumer = TaskConsumer(
