@@ -426,6 +426,10 @@ class WorkerGUI:
                     swim_client=swim_client,
                     worker_name=settings.worker_name,
                     heartbeat_interval=settings.heartbeat_interval,
+                    request_delay_median=settings.request_delay_median,
+                    request_delay_p99=settings.request_delay_p99,
+                    request_delay_clip_min=settings.request_delay_clip_min,
+                    request_delay_clip_max=settings.request_delay_clip_max,
                     on_update_available=self._on_update_detected,
                     on_task_state=self._on_task_state_changed,
                 )
