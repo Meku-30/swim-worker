@@ -280,9 +280,10 @@ class SwimClient:
 
                 try:
                     data = resp.json()
-                    error_code = data.get("error_info", {}).get("error_code", -1)
-                    if error_code != 0:
-                        raise SwimAuthError(f"ログインAPIエラー (error_code={error_code})")
+                    status_code = data.get("statusCode", -1)
+                    if status_code != 0:
+                        msg = data.get("message", "unknown")
+                        raise SwimAuthError(f"ログインAPIエラー (statusCode={status_code}, message={msg})")
                 except (ValueError, KeyError):
                     pass
 
