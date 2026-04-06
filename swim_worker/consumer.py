@@ -59,6 +59,10 @@ class TaskConsumer:
         self._task_errors = 0
         # 重複起動検知用のインスタンストークン (Redis lock の所有者識別に使用)
         self._instance_token = str(uuid.uuid4())
+        # 定期バージョンチェック用（10分間隔 = ハートビート20回に1回）
+        self._version_check_counter = 0
+        self._VERSION_CHECK_INTERVAL = 20
+        self._notified_version: str | None = None
 
     async def register(self) -> None:
         """Worker を pending リストに登録（承認済みならスキップ）"""
@@ -114,8 +118,11 @@ class TaskConsumer:
         except Exception as e:
             logger.warning("バージョン登録エラー: %s", e)
 
-    async def check_latest_version(self) -> None:
-        """Coordinatorが記録した最新版 (Redis) と自分を比較し、古ければ警告ログを出す"""
+    async def check_latest_version(self, *, quiet: bool = False) -> None:
+        """Coordinatorが記録した最新版 (Redis) と自分を比較し、古ければ警告ログを出す
+
+        quiet=True: 定期チェック用。「最新です」ログを抑制し、同一バージョンの重複通知を防ぐ。
+        """
         try:
             raw = await self._redis.get("swim:latest_worker_version")
             if not raw:
@@ -126,18 +133,21 @@ class TaskConsumer:
             current = tuple(int(x) for x in __version__.split(".") if x.isdigit())
             latest = tuple(int(x) for x in latest_tag.split(".") if x.isdigit())
             if latest > current:
+                # 同じバージョンの重複通知を防ぐ
+                if quiet and self._notified_version == latest_tag:
+                    return
+                self._notified_version = latest_tag
                 logger.warning(
                     "新しいバージョンが利用可能です: v%s → v%s  "
                     "https://github.com/Meku-30/swim-worker/releases/latest",
                     __version__, latest_tag,
                 )
-                # GUIに通知 (設定されていれば)
                 if self._on_update_available:
                     try:
                         self._on_update_available(latest_tag)
                     except Exception as e:
                         logger.debug("update callback エラー: %s", e)
-            else:
+            elif not quiet:
                 logger.info("バージョン最新 (v%s)", __version__)
         except Exception as e:
             logger.debug("バージョンチェックエラー: %s", e)
@@ -270,6 +280,11 @@ class TaskConsumer:
             try:
                 await self.send_heartbeat()
                 await self._ensure_registered()
+                # 定期バージョンチェック（10分間隔）
+                self._version_check_counter += 1
+                if self._version_check_counter >= self._VERSION_CHECK_INTERVAL:
+                    self._version_check_counter = 0
+                    await self.check_latest_version(quiet=True)
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
                 logger.warning("Redis接続エラー（ハートビート）、5秒後にリトライ: %s", e)
                 await asyncio.sleep(5)
