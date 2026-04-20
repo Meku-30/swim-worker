@@ -200,8 +200,15 @@ class SwimClient:
             for name, value in self._session.cookies.items():
                 cookies[name] = value
             os.makedirs(os.path.dirname(self._cookie_file), exist_ok=True)
-            with open(self._cookie_file, "w") as f:
+            # セッショントークンを含むため、所有者のみ読み書き可能に制限
+            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+            fd = os.open(self._cookie_file, flags, 0o600)
+            with os.fdopen(fd, "w") as f:
                 json.dump(cookies, f)
+            try:
+                os.chmod(self._cookie_file, 0o600)
+            except OSError:
+                pass
             logger.info("Cookie保存: %d個 → %s", len(cookies), self._cookie_file)
         except Exception as e:
             logger.warning("Cookie保存失敗: %s", e)
