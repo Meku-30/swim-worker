@@ -75,7 +75,9 @@ jobs:
           cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux || true
           cp artifacts/swim-worker-macos/swim-worker release/swim-worker-macos || true
           cp artifacts/swim-worker-windows/swim-worker-gui.exe release/swim-worker-windows.exe || true
-          cp .env.example release/
+          # .env.example はドットファイルで GitHub Releases 側で勝手に
+          # "default.env.example" に名前が変わるため、install.sh は対話で
+          # .env を生成する。release には含めない。
           cp scripts/install.sh release/install.sh
           cp scripts/swim-worker.service release/swim-worker.service
           chmod +x release/install.sh
@@ -94,3 +96,8 @@ jobs:
           files: |
             release/*
           generate_release_notes: true
+          # タグに "-" が含まれる場合 (v1.2.3-rc1, v1.2.3-beta 等) は
+          # prerelease としてマークする。GitHub の /releases/latest API は
+          # prerelease を除外するため、既存 Worker に誤ってアップデート通知が
+          # 飛ぶのを防ぐ。
+          prerelease: ${{ contains(github.ref, '-') }}
