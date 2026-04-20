@@ -75,12 +75,23 @@ if system in ("Windows", "Darwin"):
     ])
 else:
     # Linux: CLI版 (Linux 実行ファイルにはアイコン埋め込みの概念なし)
+    # GUI 依存 (PIL/Pillow, pystray, tkinter) は CLI では未使用なのでバイナリから除外する。
+    # __main__.py は icon.py/gui.py をインポートしないので実行時に問題なし。
     print("Building swim-worker (CLI)...")
+    cli_exclude_args = [
+        "--exclude-module", "PIL",
+        "--exclude-module", "pystray",
+        "--exclude-module", "tkinter",
+        "--exclude-module", "swim_worker.gui",
+        "--exclude-module", "swim_worker.gui_main",
+        "--exclude-module", "swim_worker.icon",
+    ]
     PyInstaller.__main__.run([
         "swim_worker/__main__.py",
         "--onefile",
         "--name", "swim-worker",
         *common_args,
+        *cli_exclude_args,
     ])
 
 print("Done!")

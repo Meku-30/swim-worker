@@ -1,0 +1,63 @@
+[Unit]
+Description=SWIM Worker
+Documentation=https://github.com/Meku-30/swim-worker
+After=network-online.target
+Wants=network-online.target
+# 起動失敗が続いても諦めない (SWIM メンテナンス等)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=swim-worker
+Group=swim-worker
+WorkingDirectory=/opt/swim-worker
+EnvironmentFile=/opt/swim-worker/.env
+ExecStart=/opt/swim-worker/swim-worker
+Restart=always
+RestartSec=30
+
+# --- Hardening ---
+# 権限昇格禁止
+NoNewPrivileges=true
+# / を読み取り専用化、書き込みは data/ のみ許可 (Cookie 保存用)
+ProtectSystem=strict
+ReadWritePaths=/opt/swim-worker/data
+# 他ユーザーのホーム不可視
+ProtectHome=true
+# /tmp 分離
+PrivateTmp=true
+PrivateDevices=true
+# カーネル保護
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+# capability 全剥奪 (Python ワーカーに root 権限は不要)
+CapabilityBoundingSet=
+AmbientCapabilities=
+# ネットワーク: IPv4/IPv6 のみ、UNIX ドメインソケット等は不要
+RestrictAddressFamilies=AF_INET AF_INET6
+# システムコール絞り込み
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# リアルタイム優先度取得禁止
+RestrictRealtime=true
+# setuid/setgid 禁止
+RestrictSUIDSGID=true
+# execve で mmap(PROT_WRITE|PROT_EXEC) 禁止
+MemoryDenyWriteExecute=false
+# Personality 変更禁止
+LockPersonality=true
+# 名前空間作成禁止
+RestrictNamespaces=true
+
+# --- リソース制限 ---
+# Pi で他用途と同居しても暴走しない
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
