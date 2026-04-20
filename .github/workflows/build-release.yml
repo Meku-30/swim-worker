@@ -18,7 +18,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: swim-worker-linux
+            artifact: swim-worker-linux-amd64
+          - os: ubuntu-24.04-arm
+            artifact: swim-worker-linux-arm64
           - os: windows-latest
             artifact: swim-worker-windows
           - os: macos-latest
@@ -31,16 +33,14 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
+        run: pip install -r requirements-dev.txt
 
       - name: Install tkinter (macOS)
         if: runner.os == 'macOS'
-        run: brew install python-tk@3.12
+        run: brew install python-tk@3.11
 
       - name: Build executable
         run: python scripts/build_exe.py
@@ -67,11 +67,24 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          cp artifacts/swim-worker-linux/swim-worker release/swim-worker-linux || true
+          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux-amd64 || true
+          cp artifacts/swim-worker-linux-arm64/swim-worker release/swim-worker-linux-arm64 || true
+          # 後方互換: 既存 README 手順で swim-worker-linux (=amd64) をDLしているユーザー向け
+          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux || true
           cp artifacts/swim-worker-macos/swim-worker release/swim-worker-macos || true
           cp artifacts/swim-worker-windows/swim-worker-gui.exe release/swim-worker-windows.exe || true
           cp .env.example release/
+          cp scripts/install.sh release/install.sh
+          cp scripts/swim-worker.service release/swim-worker.service
+          chmod +x release/install.sh
           ls -la release/
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS
+          echo "=== SHA256SUMS ==="
+          cat SHA256SUMS
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

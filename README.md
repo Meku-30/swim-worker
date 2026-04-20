@@ -95,35 +95,73 @@ Windows版と同様です。**管理者に「起動しました」と連絡**し
 
 ---
 
-## Linux の場合（CLI版）
+## Linux / Raspberry Pi の場合（CLI版）
 
-### ステップ 1: ダウンロード
+amd64 (x86_64) と arm64 (aarch64) の両方に対応しています。
+Raspberry Pi 4/5 + 64bit OS (Pi OS Bookworm 等) で動作確認済みです。
 
-[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から `swim-worker-linux` と `.env.example` をダウンロードして同じフォルダに入れてください。
-
-### ステップ 2: 設定ファイルを作る
-
-`.env.example` を `.env` にリネームして、中身を書き換えます。
-
-```
-REDIS_HOST=管理者から教えてもらったアドレス
-REDIS_PORT=6380
-REDIS_PASSWORD=管理者から教えてもらったパスワード
-SWIM_USERNAME=あなたのSWIMログインID
-SWIM_PASSWORD=あなたのSWIMパスワード
-WORKER_NAME=あなたの名前（ローマ字、例: tanaka）
-```
-
-### ステップ 3: 起動
+### 推奨: ワンライナーインストール
 
 ```bash
-chmod +x ./swim-worker-linux
-./swim-worker-linux
+# まずスクリプトを DL して中身を確認してから実行することを推奨
+curl -fsSL -o install.sh https://github.com/Meku-30/swim-worker/releases/latest/download/install.sh
+less install.sh
+sudo bash install.sh
 ```
 
-起動後、**管理者に「起動しました」と連絡**してください。
+install.sh が以下を自動で行います:
 
-停止は `Ctrl+C` です。
+- お使いのアーキテクチャ (amd64 / arm64) に合うバイナリを DL し、SHA256 で整合性検証
+- 専用ユーザー `swim-worker` (システムアカウント、ログイン不可) を作成
+- `/opt/swim-worker/` にバイナリ配置
+- `.env` を対話式に作成 (入力値は `chmod 600` で保護)
+- systemd サービスとして登録 (自動起動)
+
+対話で以下を聞かれるので、管理者から教えてもらった値と、あなたの SWIM 認証情報を入力してください:
+
+| 欄 | 入力する内容 |
+|----|------------|
+| Redis ホスト | 管理者から教えてもらったアドレス |
+| Redis パスワード | 管理者から教えてもらったパスワード |
+| SWIM ユーザー名 | あなたのSWIMログインID |
+| SWIM パスワード | あなたのSWIMパスワード |
+| Worker 名 | あなたの名前（ローマ字、例: tanaka） |
+
+### 起動
+
+```bash
+sudo systemctl start swim-worker
+sudo systemctl status swim-worker
+```
+
+起動できたら **管理者に「起動しました」と連絡**してください。
+
+### ログ / 停止 / アンインストール
+
+```bash
+sudo journalctl -u swim-worker -f     # ライブログ
+sudo systemctl stop swim-worker       # 停止
+sudo systemctl disable --now swim-worker && \
+  sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker.service && \
+  sudo userdel swim-worker            # 完全削除
+```
+
+### 手動インストールしたい場合 (install.sh を使わない方法)
+
+[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下を DL:
+
+- バイナリ: `swim-worker-linux-amd64` または `swim-worker-linux-arm64`
+- `.env.example`
+- `SHA256SUMS`
+
+SHA256 を検証してから実行:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+chmod +x ./swim-worker-linux-*
+mv .env.example .env   # 中身を編集
+./swim-worker-linux-amd64   # お使いのアーキに応じて
+```
 
 ---
 
@@ -157,7 +195,8 @@ docker compose up -d
 
 ## Python で動かす場合（上級者向け）
 
-Python 3.12 以上がインストールされている場合：
+Python **3.10 以上** がインストールされていれば動作します。
+(Raspberry Pi OS Bookworm / Ubuntu 24.04 はデフォルトの Python 3.11/3.12 でそのまま動きます)
 
 ```bash
 git clone https://github.com/Meku-30/swim-worker.git
@@ -168,6 +207,13 @@ python -m swim_worker
 ```
 
 停止: `Ctrl+C`
+
+### GUI 版 / 開発用 (オプション)
+
+```bash
+pip install -r requirements-gui.txt   # GUI 版を動かす場合
+pip install -r requirements-dev.txt   # pytest / PyInstaller ビルド用
+```
 
 ---
 
