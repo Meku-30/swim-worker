@@ -151,15 +151,24 @@ sudo systemctl disable --now swim-worker && \
 [Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下を DL:
 
 - バイナリ: `swim-worker-linux-amd64` または `swim-worker-linux-arm64`
-- `.env.example`
 - `SHA256SUMS`
 
-SHA256 を検証してから実行:
+SHA256 を検証してから、`.env` を自前で作成して実行:
 
 ```bash
 sha256sum -c SHA256SUMS --ignore-missing
 chmod +x ./swim-worker-linux-*
-mv .env.example .env   # 中身を編集
+
+cat > .env <<EOF
+REDIS_HOST=管理者から教えてもらったアドレス
+REDIS_PORT=6380
+REDIS_PASSWORD=管理者から教えてもらったパスワード
+SWIM_USERNAME=あなたのSWIMログインID
+SWIM_PASSWORD=あなたのSWIMパスワード
+WORKER_NAME=あなたの名前（ローマ字、例: tanaka）
+EOF
+chmod 600 .env
+
 ./swim-worker-linux-amd64   # お使いのアーキに応じて
 ```
 
