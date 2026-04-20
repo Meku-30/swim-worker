@@ -69,17 +69,15 @@ log "SHA256SUMS をダウンロード中..."
 curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/SHA256SUMS" \
     "${BASE_URL}/SHA256SUMS"
 
-log "systemd unit と .env.example をダウンロード中..."
+log "systemd unit をダウンロード中..."
 curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/swim-worker.service" \
     "${BASE_URL}/swim-worker.service"
-curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/.env.example" \
-    "${BASE_URL}/.env.example"
 
 # --- 整合性検証 ---
 log "SHA256 を検証中..."
 cd "$TMPDIR"
 # SHA256SUMS から必要な行だけ抽出して検証 (他ファイルの欠落で失敗しないように)
-for f in "${BINARY_NAME}" swim-worker.service .env.example; do
+for f in "${BINARY_NAME}" swim-worker.service; do
     expected=$(grep "  ${f}$" SHA256SUMS | awk '{print $1}')
     [[ -n "$expected" ]] || die "SHA256SUMS に ${f} のエントリがありません"
     actual=$(sha256sum "$f" | awk '{print $1}')
