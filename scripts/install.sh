@@ -133,15 +133,30 @@ else
         read -rp "Worker 名 (ローマ字、他Workerと重複不可): " WORKER_NAME
     fi
     REDIS_PORT=${REDIS_PORT:-6380}
+    # 単引用符・改行を含む値は .env 上で安全にエスケープできないため reject。
+    # (python-dotenv の単引用符リテラルに \' エスケープが存在しないため)
+    for pair in "REDIS_HOST:${REDIS_HOST}" "REDIS_PASSWORD:${REDIS_PASSWORD}" \
+                "SWIM_USERNAME:${SWIM_USERNAME}" "SWIM_PASSWORD:${SWIM_PASSWORD}" \
+                "WORKER_NAME:${WORKER_NAME}"; do
+        name="${pair%%:*}"
+        val="${pair#*:}"
+        case "$val" in
+            *\'*|*$'\n'*)
+                die "${name} に単引用符 ( ' ) や改行は含められません。別の値を使ってください。" ;;
+        esac
+    done
+
     # umask を厳しくしてから生成 (race を避ける)
     umask 077
+    # 値を単引用符でくくる = python-dotenv が literal として扱い、${VAR} 展開を抑止。
+    # systemd の EnvironmentFile は単引用符・二重引用符どちらもサポート。
     cat > "$ENV_FILE" <<EOF
-REDIS_HOST=${REDIS_HOST}
+REDIS_HOST='${REDIS_HOST}'
 REDIS_PORT=${REDIS_PORT}
-REDIS_PASSWORD=${REDIS_PASSWORD}
-SWIM_USERNAME=${SWIM_USERNAME}
-SWIM_PASSWORD=${SWIM_PASSWORD}
-WORKER_NAME=${WORKER_NAME}
+REDIS_PASSWORD='${REDIS_PASSWORD}'
+SWIM_USERNAME='${SWIM_USERNAME}'
+SWIM_PASSWORD='${SWIM_PASSWORD}'
+WORKER_NAME='${WORKER_NAME}'
 EOF
     umask 022
     chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
