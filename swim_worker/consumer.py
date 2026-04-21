@@ -119,10 +119,32 @@ class TaskConsumer:
         try:
             await self._redis.hset("worker_versions", self._worker_name, __version__)
             import platform as _platform
-            # 例: "Linux 6.1.0-rpi7 aarch64" / "Windows 11 AMD64" / "Darwin 24.1 arm64"
             osname = _platform.system()
             release = _platform.release()
             machine = _platform.machine()
+
+            # Windows 11 は platform.release() が "10" を返す既知のバグ。
+            # ビルド番号 (>= 22000 で Win11) で判別して補正する。
+            if osname == "Windows":
+                try:
+                    build = int(_platform.version().split(".")[2])
+                    if build >= 22000:
+                        release = "11"
+                except (ValueError, IndexError):
+                    pass
+
+            # アーキ表記を OS 間で統一:
+            #   AMD64 (Windows) / x86_64 (Linux/Mac) は同じ 64bit x86 → "x86_64"
+            #   aarch64 (Linux) / ARM64 (Windows) / arm64 (Mac) は同じ ARM 64bit → "arm64"
+            machine_map = {
+                "AMD64": "x86_64",
+                "x64": "x86_64",
+                "aarch64": "arm64",
+                "ARM64": "arm64",
+            }
+            machine = machine_map.get(machine, machine)
+
+            # 例: "Linux 6.1.0-rpi7 arm64" / "Windows 11 x86_64" / "Darwin 24.1 arm64"
             platform_str = f"{osname} {release} {machine}".strip()
             await self._redis.hset("worker_platforms", self._worker_name, platform_str)
             logger.info("Workerバージョン: v%s, platform: %s", __version__, platform_str)
