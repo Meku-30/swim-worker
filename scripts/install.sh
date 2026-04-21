@@ -113,15 +113,20 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     # 同梱の小さい Python で直接問い合わせる (バイナリ内 Python は使えないため
     # 専用 helper を置く。シンプルに curl_cffi ではなく標準 python + ssl を使う)
     if command -v python3 >/dev/null; then
-        # .env から Redis 設定読み込み
-        WORKER_NAME=$(grep -E "^WORKER_NAME=" "${INSTALL_DIR}/.env" | head -1 | sed "s/^WORKER_NAME=//; s/^'//; s/'$//")
-        GUARD_RESULT=$(python3 - <<'PYEOF' 2>/dev/null || echo "ERROR"
-import re, socket, ssl, sys
+        # .env から WORKER_NAME 抽出 (log 表示用。Python helper は独自に .env 全体を読む)
+        WORKER_NAME=""
+        if [[ -r "${INSTALL_DIR}/.env" ]]; then
+            WORKER_NAME=$(grep -E "^WORKER_NAME=" "${INSTALL_DIR}/.env" 2>/dev/null \
+                | head -1 | sed "s/^WORKER_NAME=//; s/^'//; s/'$//" || true)
+        fi
+        GUARD_RESULT=$(INSTALL_DIR="$INSTALL_DIR" python3 - <<'PYEOF' 2>/dev/null || echo "ERROR"
+import os, re, socket, ssl, sys
 
 # .env を読み込み (install.sh が書いた単引用符形式)
 env = {}
 try:
-    with open("/opt/swim-worker/.env") as f:
+    env_path = os.path.join(os.environ.get("INSTALL_DIR", "/opt/swim-worker"), ".env")
+    with open(env_path) as f:
         for line in f:
             m = re.match(r"^([A-Z_]+)=(.*)$", line.strip())
             if not m:
@@ -234,7 +239,11 @@ PYEOF
                 ;;
         esac
     else
-        warn "python3 がないため Coordinator ガードをスキップ"
+        # python3 がないと kill switch / whitelist を確認できない。
+        # 安全側 (fail-closed) で更新自体をスキップする。Pi OS / Ubuntu / Debian は
+        # 標準で python3 同梱なので通常このパスには入らない。
+        warn "python3 がないため Coordinator ガードを確認できません、安全側で更新スキップ"
+        exit 0
     fi
 
     # --- ガード3: メジャーバージョン変更は手動必須 ---
