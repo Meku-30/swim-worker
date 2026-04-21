@@ -58,9 +58,18 @@ LockPersonality=true
 # 名前空間作成禁止
 RestrictNamespaces=true
 
-# --- リソース制限 ---
-# Pi で他用途と同居しても暴走しない
+# --- リソース制限 (メモリ暴走防止) ---
+# Pi で他用途と同居しても暴走しない。通常稼働は 80〜120MB 程度。
+# 段階的に保護:
+#   MemoryHigh=200M : 超えると systemd が throttle (ページ回収頻度↑、処理継続)
+#   MemoryMax=256M  : ハード上限。超えると cgroup 内プロセスを kill
+#   MemorySwapMax=0 : swap 不使用 (Pi の SD カード寿命を守る + swap 偽装の回避)
+#   OOMPolicy=stop  : OOM 時に SIGKILL ではなく SIGTERM でサービス停止
+#                     (Restart=always で自動再起動される、graceful なログ吐き出し期待)
+MemoryHigh=200M
 MemoryMax=256M
+MemorySwapMax=0
+OOMPolicy=stop
 TasksMax=64
 
 [Install]
