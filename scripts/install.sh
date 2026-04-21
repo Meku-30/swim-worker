@@ -77,6 +77,43 @@ log()  { echo -e "${GREEN}==>${NC} $*"; }
 warn() { echo -e "${YELLOW}!!${NC}  $*"; }
 die()  { echo -e "${RED}ERR${NC} $*" >&2; exit 1; }
 
+# --- ヘルパー関数 ---
+
+# GitHub API から tag_name を取得 (python3 の json.load で確実にパース)
+# 使い方: tag=$(fetch_latest_tag "$API_URL")
+fetch_latest_tag() {
+    local url="$1"
+    curl -fsSL --proto '=https' --tlsv1.2 "$url" \
+        | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d.get("tag_name", ""))' \
+        2>/dev/null || true
+}
+
+# 指定したファイル群を DL して SHA256SUMS で整合性検証する
+# 使い方: download_and_verify <base_url> <tmpdir> <file1> [<file2> ...]
+download_and_verify() {
+    local base_url="$1"
+    local tmpdir="$2"
+    shift 2
+    local f expected actual
+
+    # 本体ファイル群 + SHA256SUMS を DL
+    for f in "$@" SHA256SUMS; do
+        curl -fsSL --proto '=https' --tlsv1.2 \
+            -o "${tmpdir}/${f}" "${base_url}/${f}" \
+            || die "ダウンロード失敗: ${f}"
+    done
+
+    # SHA256 照合
+    for f in "$@"; do
+        expected=$(grep "  ${f}$" "${tmpdir}/SHA256SUMS" | awk '{print $1}')
+        [[ -n "$expected" ]] || die "SHA256SUMS に ${f} のエントリがありません"
+        actual=$(sha256sum "${tmpdir}/${f}" | awk '{print $1}')
+        if [[ "$expected" != "$actual" ]]; then
+            die "SHA256 不一致: ${f} (expected=${expected}, actual=${actual})"
+        fi
+    done
+}
+
 # --- 事前チェック ---
 [[ $EUID -eq 0 ]] || die "root で実行してください (sudo bash install.sh)"
 
@@ -109,9 +146,7 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     [[ -n "$CURRENT_VERSION" ]] || die ".version が空です"
 
     # 最新バージョンを取得 (--auto は常に /releases/latest = stable のみ)
-    LATEST_TAG=$(curl -fsSL --proto '=https' --tlsv1.2 "$AUTO_API_URL" \
-        | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
-        | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    LATEST_TAG=$(fetch_latest_tag "$AUTO_API_URL")
     [[ -n "$LATEST_TAG" ]] || die "GitHub API から latest tag を取得できません"
     LATEST_VERSION="${LATEST_TAG#v}"
 
@@ -190,8 +225,11 @@ try:
             buf += ch
         return buf
 
+    class RedisError(Exception):
+        """Redis -ERR 応答 (AUTH 失敗、コマンドエラー等)"""
+
     def read_resp():
-        """RESP 単一応答 (simple/error/bulk) を読む。配列等は未対応。"""
+        """RESP 単一応答 (simple string / error / bulk string) を読む。"""
         head = recv_until(b"\r\n")
         if not head:
             return None
@@ -200,7 +238,8 @@ try:
         if kind == b"+":
             return body.decode("utf-8", "replace")
         if kind == b"-":
-            raise RuntimeError(body.decode("utf-8", "replace"))
+            # -ERR / -WRONGPASS / -NOAUTH 等の Redis エラー応答
+            raise RedisError(body.decode("utf-8", "replace"))
         if kind == b"$":
             n = int(body)
             if n < 0:
@@ -213,7 +252,8 @@ try:
                     break
                 data += chunk
             return data[:-2].decode("utf-8", "replace")
-        return None  # ints 等は今回不要
+        # 整数 (":") 等は現状不要。未知の応答は None
+        return None
 
     def cmd(*args):
         buf = f"*{len(args)}\r\n".encode()
@@ -223,7 +263,13 @@ try:
         sock.sendall(buf)
         return read_resp()
 
-    cmd("AUTH", password)   # +OK 期待 (失敗時は例外)
+    # AUTH 失敗は RedisError になるので個別分岐してわかりやすいメッセージに
+    try:
+        cmd("AUTH", password)
+    except RedisError as e:
+        print(f"ERROR:AUTH_FAILED:{e}")
+        sys.exit(0)
+
     enabled   = cmd("GET", "swim:auto_update_enabled")
     whitelist = cmd("GET", "swim:auto_update_whitelist")
     sock.close()
@@ -249,6 +295,10 @@ PYEOF
                 ;;
             NOT_IN_WHITELIST:*)
                 log "staged rollout whitelist に含まれていない Worker: ${WORKER_NAME}、更新スキップ"
+                exit 0
+                ;;
+            ERROR:AUTH_FAILED:*)
+                warn "Redis 認証失敗 (${GUARD_RESULT#ERROR:AUTH_FAILED:}) — .env の REDIS_PASSWORD を確認。安全側で更新スキップ"
                 exit 0
                 ;;
             ERROR:*)
@@ -285,16 +335,8 @@ PYEOF
     # --- 新バイナリ DL + 検証 ---
     TMPDIR=$(mktemp -d)
     trap 'rm -rf "$TMPDIR"' EXIT
-
     # --auto は常に latest (stable) から DL
-    curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/${BINARY_NAME}" "${AUTO_BASE_URL}/${BINARY_NAME}"
-    curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/SHA256SUMS"      "${AUTO_BASE_URL}/SHA256SUMS"
-
-    expected=$(grep "  ${BINARY_NAME}$" "${TMPDIR}/SHA256SUMS" | awk '{print $1}')
-    actual=$(sha256sum "${TMPDIR}/${BINARY_NAME}" | awk '{print $1}')
-    if [[ -z "$expected" || "$expected" != "$actual" ]]; then
-        die "SHA256 不一致: expected=${expected}, actual=${actual}"
-    fi
+    download_and_verify "$AUTO_BASE_URL" "$TMPDIR" "$BINARY_NAME"
 
     # --- 旧バイナリをバックアップ → 新バイナリ配置 → restart ---
     cp -p "${INSTALL_DIR}/swim-worker" "${INSTALL_DIR}/swim-worker.old"
@@ -336,44 +378,20 @@ fi
 # ========================================================================
 log "アーキテクチャ: ${ARCH_RAW} → ${BINARY_NAME}"
 
-# --- ダウンロード ---
+# --- ダウンロード + 整合性検証 (ヘルパー関数で一括処理) ---
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-log "バイナリをダウンロード中..."
-curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/${BINARY_NAME}" \
-    "${BASE_URL}/${BINARY_NAME}"
-
-log "SHA256SUMS をダウンロード中..."
-curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/SHA256SUMS" \
-    "${BASE_URL}/SHA256SUMS"
-
-log "systemd unit / timer をダウンロード中..."
-curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/swim-worker.service" \
-    "${BASE_URL}/swim-worker.service"
-curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/swim-worker-update.service" \
-    "${BASE_URL}/swim-worker-update.service"
-curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/swim-worker-update.timer" \
-    "${BASE_URL}/swim-worker-update.timer"
-
-# --- 整合性検証 ---
-log "SHA256 を検証中..."
-cd "$TMPDIR"
-for f in "${BINARY_NAME}" swim-worker.service swim-worker-update.service swim-worker-update.timer; do
-    expected=$(grep "  ${f}$" SHA256SUMS | awk '{print $1}')
-    [[ -n "$expected" ]] || die "SHA256SUMS に ${f} のエントリがありません"
-    actual=$(sha256sum "$f" | awk '{print $1}')
-    if [[ "$expected" != "$actual" ]]; then
-        die "SHA256 不一致: ${f} (expected=${expected}, actual=${actual})"
-    fi
-done
+log "バイナリ / systemd unit / timer をダウンロード & SHA256 検証..."
+download_and_verify "$BASE_URL" "$TMPDIR" \
+    "$BINARY_NAME" \
+    swim-worker.service \
+    swim-worker-update.service \
+    swim-worker-update.timer
 log "整合性 OK"
-cd - >/dev/null
 
 # --- 最新バージョン取得 (.version 書き込み用) ---
-LATEST_TAG=$(curl -fsSL --proto '=https' --tlsv1.2 "$API_URL" \
-    | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
-    | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+LATEST_TAG=$(fetch_latest_tag "$API_URL")
 LATEST_VERSION="${LATEST_TAG#v}"
 
 # --- 専用ユーザー作成 ---
