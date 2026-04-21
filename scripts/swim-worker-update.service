@@ -1,0 +1,35 @@
+[Unit]
+Description=SWIM Worker Auto-Update Check
+Documentation=https://github.com/Meku-30/swim-worker
+# 本体が動いていないときに更新してもあまり意味がないので依存を明示
+After=swim-worker.service network-online.target
+
+[Service]
+Type=oneshot
+# install.sh を最新版から fresh DL → --auto モードで実行。
+# install.sh 自体にバグ修正が入っても次サイクルで自動的に新ロジックが使われる。
+#
+# install.sh --auto は以下を行う:
+#   1. GitHub /releases/latest と .version を比較 → 同じなら即 exit
+#   2. opt-out ファイル / Redis kill switch / whitelist / major-skip のガード
+#   3. 新バイナリ DL + SHA256 検証
+#   4. 旧バイナリをバックアップ → install → systemctl restart swim-worker
+#   5. 60秒後に is-active + NRestarts チェック、失敗ならロールバック
+ExecStart=/usr/bin/env bash -c '\
+    set -e; \
+    TMP=$(mktemp); \
+    trap "rm -f $TMP" EXIT; \
+    curl -fsSL --proto "=https" --tlsv1.2 \
+        -o "$TMP" \
+        https://github.com/Meku-30/swim-worker/releases/latest/download/install.sh; \
+    bash "$TMP" --auto \
+'
+
+# update 処理中のタイムアウト (DL + 60秒検証 + ロールバック余裕)
+TimeoutStartSec=600
+
+# 失敗しても swim-worker 本体の稼働は維持したい (exit 1 でも alarm 出さない)
+SuccessExitStatus=0 1
+
+[Install]
+# timer から呼ばれるだけなので WantedBy は不要

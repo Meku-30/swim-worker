@@ -1,0 +1,19 @@
+[Unit]
+Description=SWIM Worker Auto-Update Timer (6h interval, staged rollout)
+Documentation=https://github.com/Meku-30/swim-worker
+
+[Timer]
+# 起動 15分後に初回実行 (インストール直後の即更新を避けるため少し待つ)
+OnBootSec=15min
+# 前回の実行から 6時間ごと
+OnUnitActiveSec=6h
+# 全 Worker が同時に走ると SWIM 側で一斉アクセス検知されうるので
+# 最大 2時間ずらす (各 Worker の発火タイミングをランダム分散)
+RandomizedDelaySec=2h
+# timer unit が遅れて復帰した場合は即実行 (電源断復旧時など)
+Persistent=true
+# 時刻同期完了を待つ (Pi には RTC がない)
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

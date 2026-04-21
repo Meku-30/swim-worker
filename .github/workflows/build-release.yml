@@ -80,6 +80,8 @@ jobs:
           # .env を生成する。release には含めない。
           cp scripts/install.sh release/install.sh
           cp scripts/swim-worker.service release/swim-worker.service
+          cp scripts/swim-worker-update.service release/swim-worker-update.service
+          cp scripts/swim-worker-update.timer release/swim-worker-update.timer
           chmod +x release/install.sh
           ls -la release/
 
