@@ -26,14 +26,25 @@ class AlreadyRunning(RuntimeError):
 def get_lock_path() -> Path:
     """ロックファイルの配置場所。
 
-    PyInstaller の frozen 環境では exe と同じディレクトリ、
-    それ以外 (CLI/Docker) では cwd に置く。
+    install.sh 経由で systemd unit (ProtectSystem=strict) 配下で動く場合、
+    /opt/swim-worker/ は読み取り専用で /opt/swim-worker/data/ のみ書き込み可能。
+    そのため、`data/` サブディレクトリが存在すれば優先してそこに置く。
+
+    優先順:
+      1. PyInstaller frozen + exe 隣に data/ がある (install.sh 配置)
+         → {exe.parent}/data/swim-worker.lock
+      2. PyInstaller frozen で data/ がない (exe 単体配置)
+         → {exe.parent}/swim-worker.lock
+      3. それ以外 (CLI/Docker/開発)
+         → {cwd}/swim-worker.lock
     """
     if getattr(sys, "frozen", False):
         base = Path(sys.executable).parent
-    else:
-        base = Path.cwd()
-    return base / "swim-worker.lock"
+        data_dir = base / "data"
+        if data_dir.is_dir():
+            return data_dir / "swim-worker.lock"
+        return base / "swim-worker.lock"
+    return Path.cwd() / "swim-worker.lock"
 
 
 class LocalInstanceLock:
