@@ -79,17 +79,49 @@ else:
     # __main__.py は icon.py/gui.py をインポートしないので実行時に問題なし。
     print("Building swim-worker (CLI)...")
     cli_exclude_args = [
+        # GUI 関連
         "--exclude-module", "PIL",
         "--exclude-module", "pystray",
         "--exclude-module", "tkinter",
         "--exclude-module", "swim_worker.gui",
         "--exclude-module", "swim_worker.gui_main",
         "--exclude-module", "swim_worker.icon",
+        # 使っていない stdlib モジュール (bundle されると数百KB〜数MB を占める)
+        # メールプロトコル系 — 本 Worker は SWIM HTTPS + Redis TCP のみ
+        "--exclude-module", "smtplib",
+        "--exclude-module", "imaplib",
+        "--exclude-module", "poplib",
+        "--exclude-module", "mailbox",
+        "--exclude-module", "nntplib",
+        "--exclude-module", "telnetlib",
+        "--exclude-module", "ftplib",
+        # テスト / 開発
+        "--exclude-module", "unittest",
+        "--exclude-module", "doctest",
+        # 教育/GUI 用途
+        "--exclude-module", "turtle",
+        "--exclude-module", "turtledemo",
+        "--exclude-module", "idlelib",
+        "--exclude-module", "tkinter.tix",
+        # ターミナル UI
+        "--exclude-module", "curses",
+        "--exclude-module", "readline",
+        # その他
+        "--exclude-module", "webbrowser",
+        # 以下は exclude しない (依存チェーンで必要):
+        #   email, html — importlib.metadata が使う (redis から間接依存)
+        #   xml, pyexpat, xmlrpc — pydantic/依存が dynamic import する可能性
+        #   unicodedata, _decimal — pydantic が数値/文字列正規化で使う可能性
+        #   distutils, pydoc, pydoc_data — setuptools/importlib が参照する可能性
     ]
     PyInstaller.__main__.run([
         "swim_worker/__main__.py",
         "--onefile",
         "--name", "swim-worker",
+        # --strip: bundled shared libraries のデバッグシンボルを除去
+        # (libpython3.11.so, curl_cffi の .so 等)。機能影響なし、C レベルクラッシュ時の
+        # 関数名が出なくなるのみ。Python tracebacks には影響しない。
+        "--strip",
         *common_args,
         *cli_exclude_args,
     ])
