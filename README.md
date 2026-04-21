@@ -141,9 +141,27 @@ sudo systemctl status swim-worker
 ```bash
 sudo journalctl -u swim-worker -f     # ライブログ
 sudo systemctl stop swim-worker       # 停止
-sudo systemctl disable --now swim-worker && \
-  sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker.service && \
+sudo systemctl disable --now swim-worker swim-worker-update.timer && \
+  sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer} && \
   sudo userdel swim-worker            # 完全削除
+```
+
+### 自動更新について
+
+install.sh は `swim-worker-update.timer` (6時間間隔 + 最大2時間ランダム) を有効化します。
+管理者 (meku) が新バージョンを公開し、更新を許可すると、自動で:
+
+1. 新バイナリを DL + SHA256 検証
+2. 旧バイナリを `.old` として保持
+3. swim-worker を再起動
+4. 60秒後に動作検証 → 不調なら自動ロールバック
+
+**自動更新を止めたい場合** (Pi 管理者向け):
+
+```bash
+sudo touch /opt/swim-worker/.no-auto-update   # 個別 opt-out
+# または
+sudo systemctl disable --now swim-worker-update.timer  # timer 自体を無効化
 ```
 
 ### 手動インストールしたい場合 (install.sh を使わない方法)
