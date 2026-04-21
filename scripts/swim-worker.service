@@ -1,10 +1,14 @@
 [Unit]
 Description=SWIM Worker
 Documentation=https://github.com/Meku-30/swim-worker
-After=network-online.target
+After=network-online.target time-sync.target
 Wants=network-online.target
 # 起動失敗が続いても諦めない (SWIM メンテナンス等)
 StartLimitIntervalSec=0
+
+# Raspberry Pi は RTC がなく、NTP 同期前は時刻が不正で TLS 証明書検証が失敗する。
+# After=time-sync.target で systemd-timesyncd / chrony の同期完了を待つ。
+# 時刻同期サービスが稼働していない環境では即座に start されるので影響なし。
 
 [Service]
 Type=simple
