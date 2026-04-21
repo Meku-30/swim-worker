@@ -111,10 +111,21 @@ class TaskConsumer:
         )
 
     async def report_version(self) -> None:
-        """自身のバージョンをRedis hash worker_versions に保存する"""
+        """自身のバージョンと OS 情報を Redis に保存する。
+
+        - worker_versions: バージョン文字列のみ
+        - worker_platforms: "OS 種別 + バージョン + アーキ" 形式 (ダッシュボード表示用)
+        """
         try:
             await self._redis.hset("worker_versions", self._worker_name, __version__)
-            logger.info("Workerバージョン: v%s", __version__)
+            import platform as _platform
+            # 例: "Linux 6.1.0-rpi7 aarch64" / "Windows 11 AMD64" / "Darwin 24.1 arm64"
+            osname = _platform.system()
+            release = _platform.release()
+            machine = _platform.machine()
+            platform_str = f"{osname} {release} {machine}".strip()
+            await self._redis.hset("worker_platforms", self._worker_name, platform_str)
+            logger.info("Workerバージョン: v%s, platform: %s", __version__, platform_str)
         except Exception as e:
             logger.warning("バージョン登録エラー: %s", e)
 
