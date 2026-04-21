@@ -10,8 +10,13 @@
 #   sudo REDIS_HOST=... REDIS_PASSWORD=... SWIM_USERNAME=... SWIM_PASSWORD=... WORKER_NAME=... \
 #     bash install.sh
 #
+# 特定バージョンをインストール (検証/手動ロールバック用):
+#   sudo RELEASE_TAG=v1.0.0-rc1 bash install.sh
+#   (通常は省略して最新 stable を使う)
+#
 # 自動更新モード (systemd timer から呼ばれる):
 #   sudo bash install.sh --auto
+#   (常に /releases/latest = stable のみ追従、prerelease は拾わない)
 #
 # やること:
 #   - 対応アーキテクチャのバイナリを GitHub Releases からダウンロード
@@ -37,8 +42,21 @@ UPDATE_SERVICE_FILE="/etc/systemd/system/swim-worker-update.service"
 UPDATE_TIMER_FILE="/etc/systemd/system/swim-worker-update.timer"
 VERSION_FILE="${INSTALL_DIR}/.version"
 UPDATE_LOCK="/var/lock/swim-worker-update.lock"
-BASE_URL="https://github.com/${REPO}/releases/latest/download"
-API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+
+# 通常モード: RELEASE_TAG 環境変数で特定バージョンを強制可能 (検証/手動ロールバック用)。
+# 未設定なら /releases/latest (stable) を使う。
+# --auto モードは常に /releases/latest (stable のみ追従) を使う。
+REL_TAG="${RELEASE_TAG:-latest}"
+if [[ "$REL_TAG" == "latest" ]]; then
+    BASE_URL="https://github.com/${REPO}/releases/latest/download"
+    API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+else
+    BASE_URL="https://github.com/${REPO}/releases/download/${REL_TAG}"
+    API_URL="https://api.github.com/repos/${REPO}/releases/tags/${REL_TAG}"
+fi
+# --auto は常に latest 追従 (prerelease を拾わないようにするため)
+AUTO_BASE_URL="https://github.com/${REPO}/releases/latest/download"
+AUTO_API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 
 # --auto モード判定
 AUTO_MODE=0
@@ -90,8 +108,8 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     CURRENT_VERSION=$(cat "$VERSION_FILE")
     [[ -n "$CURRENT_VERSION" ]] || die ".version が空です"
 
-    # 最新バージョンを取得 (GitHub API は prerelease を除外する /releases/latest)
-    LATEST_TAG=$(curl -fsSL --proto '=https' --tlsv1.2 "$API_URL" \
+    # 最新バージョンを取得 (--auto は常に /releases/latest = stable のみ)
+    LATEST_TAG=$(curl -fsSL --proto '=https' --tlsv1.2 "$AUTO_API_URL" \
         | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"[^"]+"' \
         | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
     [[ -n "$LATEST_TAG" ]] || die "GitHub API から latest tag を取得できません"
@@ -99,6 +117,13 @@ if [[ $AUTO_MODE -eq 1 ]]; then
 
     if [[ "$CURRENT_VERSION" == "$LATEST_VERSION" ]]; then
         log "最新版です (v${CURRENT_VERSION})"
+        exit 0
+    fi
+
+    # ダウングレード防止: 現行 > latest なら skip (prerelease 検証中等の保護)
+    NEWER=$(printf '%s\n%s\n' "$CURRENT_VERSION" "$LATEST_VERSION" | sort -V | tail -1)
+    if [[ "$NEWER" == "$CURRENT_VERSION" && "$CURRENT_VERSION" != "$LATEST_VERSION" ]]; then
+        log "現行 (v${CURRENT_VERSION}) が latest (v${LATEST_VERSION}) より新しい、skip (prerelease 検証中等)"
         exit 0
     fi
 
@@ -261,8 +286,9 @@ PYEOF
     TMPDIR=$(mktemp -d)
     trap 'rm -rf "$TMPDIR"' EXIT
 
-    curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/${BINARY_NAME}" "${BASE_URL}/${BINARY_NAME}"
-    curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/SHA256SUMS"      "${BASE_URL}/SHA256SUMS"
+    # --auto は常に latest (stable) から DL
+    curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/${BINARY_NAME}" "${AUTO_BASE_URL}/${BINARY_NAME}"
+    curl -fsSL --proto '=https' --tlsv1.2 -o "${TMPDIR}/SHA256SUMS"      "${AUTO_BASE_URL}/SHA256SUMS"
 
     expected=$(grep "  ${BINARY_NAME}$" "${TMPDIR}/SHA256SUMS" | awk '{print $1}')
     actual=$(sha256sum "${TMPDIR}/${BINARY_NAME}" | awk '{print $1}')
