@@ -1,2 +1,2 @@
 """SWIM分散収集 Worker"""
-__version__ = "0.10.0rc2"
+__version__ = "1.0.0rc1"
