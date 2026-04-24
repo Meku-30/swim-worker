@@ -43,6 +43,8 @@ common_args = [
     "--hidden-import", "curl_cffi",
     "--hidden-import", "curl_cffi.requests",
     "--hidden-import", "_cffi_backend",
+    # zstandard も C拡張 (v1.0.1+ で結果圧縮に使用)
+    "--hidden-import", "zstandard",
     # PyInstallerがswim_worker.__init__.pyを確実に含めるため
     "--collect-submodules", "swim_worker",
 ]
