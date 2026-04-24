@@ -81,6 +81,37 @@ class TestTaskConsumer:
         assert result_data["status"] == "error"
         assert "API down" in result_data["error"]
 
+    async def test_heartbeat_loop_periodically_reports_version(self):
+        """_heartbeat_loop は _VERSION_CHECK_INTERVAL ごとに report_version を呼ぶ
+        (Redis 揮発時の worker_versions/platforms 自動復旧用)"""
+        mock_redis = AsyncMock()
+        mock_redis.sismember.return_value = True
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
+                                worker_name="test-worker", heartbeat_interval=30)
+        # counter を既に限界直前にして、1回のループで超えるように
+        consumer._version_check_counter = consumer._VERSION_CHECK_INTERVAL - 1
+        consumer._running = True
+
+        async def stop_after_one_iter():
+            await asyncio.sleep(0)
+            consumer._running = False
+
+        # _heartbeat_loop は無限ループなので、1イテレーション後に止める。
+        # sleep を短縮するため heartbeat_interval を 0 にしておくと即2周目だがキャンセルで抜ける
+        consumer._heartbeat_interval = 0
+        task = asyncio.create_task(consumer._heartbeat_loop())
+        await asyncio.sleep(0.1)
+        consumer._running = False
+        try:
+            await asyncio.wait_for(task, timeout=1)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            task.cancel()
+
+        # report_version が hset するのは worker_versions と worker_platforms の2種
+        keys_written = [c[0][0] for c in mock_redis.hset.call_args_list]
+        assert "worker_versions" in keys_written
+        assert "worker_platforms" in keys_written
+
     async def test_run_sets_client_name(self):
         mock_redis = AsyncMock()
         mock_redis.sismember.return_value = True
