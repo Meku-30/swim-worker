@@ -9,10 +9,12 @@ class TestSwimClient:
     async def test_login_success(self):
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"error_info": {"error_code": 0}}
+        mock_response.json.return_value = {"statusCode": 0, "datas": {}}
         mock_response.cookies = {"MSMSI": "val1", "MSMAI": "val2"}
 
-        with patch("swim_worker.auth.AsyncSession") as MockSession:
+        # 保存済み Cookie を強制的に無視し、新規ログインパスを確実に通す
+        with patch("swim_worker.auth.AsyncSession") as MockSession, \
+             patch.object(SwimClient, "_load_cookies", return_value=None):
             # tmpセッション（ログインフロー用、context manager）
             tmp_session = AsyncMock()
             tmp_session.post.return_value = mock_response
@@ -35,7 +37,8 @@ class TestSwimClient:
         mock_response = MagicMock()
         mock_response.status_code = 401
 
-        with patch("swim_worker.auth.AsyncSession") as MockSession:
+        with patch("swim_worker.auth.AsyncSession") as MockSession, \
+             patch.object(SwimClient, "_load_cookies", return_value=None):
             instance = AsyncMock()
             instance.post.return_value = mock_response
             instance.get.return_value = MagicMock(status_code=200)
