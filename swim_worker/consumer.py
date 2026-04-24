@@ -22,6 +22,22 @@ logger = logging.getLogger(__name__)
 RESULT_TTL = 3600  # 結果の有効期限（秒）
 HEARTBEAT_TTL_MULTIPLIER = 3
 
+
+def _startup_marker_path():
+    """起動成功マーカーのパス (GUI/CLI 両対応)。
+
+    PyInstaller frozen: exe 隣の data/.startup_ok
+    それ以外 (開発環境): cwd/data/.startup_ok
+    アップデート時のロールバック機構 (Phase 2) が参照する。
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    if getattr(_sys, "frozen", False):
+        base = _Path(_sys.executable).parent
+    else:
+        base = _Path.cwd()
+    return base / "data" / ".startup_ok"
+
 # Coordinator への結果送信を zstd で圧縮 (gzip より小さく速い)。
 # Coordinator 側は zstd/gzip/生JSON のいずれも解凍可能 (後方互換)。
 # level=6: gzip level 9 デフォルトに対して -5% 程度。
@@ -419,6 +435,15 @@ class TaskConsumer:
         await self.report_version()
         await self.check_latest_version()
         logger.info("Worker '%s' 起動", self._worker_name)
+        # 起動成功マーカー: GUI 版のアップデートヘルパーがこのファイルの
+        # 存在で「新 exe が正常起動したか」を判定する (Phase 2 ロールバック)。
+        # register + report_version が通過した = Redis 疎通確認済のタイミングで作成する。
+        try:
+            marker = _startup_marker_path()
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(__version__, encoding="utf-8")
+        except Exception as e:
+            logger.debug("startup marker 作成失敗 (無視): %s", e)
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         consume_task = asyncio.create_task(self._consume_loop())
         self._tasks = [heartbeat_task, consume_task]
