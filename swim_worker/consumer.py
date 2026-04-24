@@ -20,7 +20,7 @@ from swim_worker.auth import SwimClient
 logger = logging.getLogger(__name__)
 
 RESULT_TTL = 3600  # 結果の有効期限（秒）
-HEARTBEAT_TTL_MULTIPLIER = 3
+HEARTBEAT_TTL_MULTIPLIER = 2
 
 
 def _startup_marker_path():
