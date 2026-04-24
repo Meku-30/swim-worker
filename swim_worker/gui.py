@@ -159,6 +159,8 @@ class WorkerGUI:
         # GUI 設定 (auto_update 等) と snooze 情報を永続化
         self._gui_settings: dict = _load_json(GUI_SETTINGS_PATH)
         self._update_progress_dialog: UpdateProgressDialog | None = None
+        # Phase 2: 前回アップデートがロールバックされていたら通知 (起動後に表示)
+        self._check_rollback_marker_after_ready()
 
         self._tray_icon = None
         self._build_ui()
@@ -715,6 +717,33 @@ class WorkerGUI:
                 msg = f"● 接続中 (処理済 {total} 件)"
         self._root.after(0, lambda: self._status_var.set(msg))
 
+    def _check_rollback_marker_after_ready(self) -> None:
+        """前回アップデートがロールバックされた場合、ユーザーに通知する (起動 1 秒後)"""
+        marker = _get_base_dir() / "data" / ".update_rollback.json"
+        if not marker.exists():
+            return
+        try:
+            info = _load_json(marker)
+        except Exception:
+            info = {}
+        from_version = info.get("rolled_back_from", "?")
+
+        def notify():
+            try:
+                messagebox.showwarning(
+                    "前回のアップデートは失敗しました",
+                    f"{from_version} へのアップデートが起動確認に失敗したため、"
+                    f"自動的に前バージョンにロールバックされました。\n\n"
+                    f"詳細は swim-worker-update.log を確認してください。",
+                )
+            finally:
+                try:
+                    marker.unlink()
+                except Exception:
+                    pass
+
+        self._root.after(1000, notify)
+
     # --- 自動アップデート ---
     def _on_auto_update_toggle(self) -> None:
         """auto_update チェックボックスの状態を永続化。"""
@@ -1021,7 +1050,11 @@ class WorkerGUI:
             if sys.platform == "win32":
                 script_path = base / "swim-worker-update.bat"
                 log_path = base / "swim-worker-update.log"
+                old_exe = current_exe.with_suffix(current_exe.suffix + ".old")
+                startup_ok = base / "data" / ".startup_ok"
+                rollback_marker = base / "data" / ".update_rollback.json"
                 # move をリトライする (旧exeが解放されるまで最大30秒待機)
+                # Phase 2: .old バックアップ + 起動成功判定 + ロールバック
                 script = (
                     "@echo off\r\n"
                     f'echo [%DATE% %TIME%] update start > "{log_path}"\r\n'
@@ -1031,9 +1064,13 @@ class WorkerGUI:
                     f'echo [%DATE% %TIME%] attempt %COUNT% >> "{log_path}"\r\n'
                     "if %COUNT% gtr 30 goto fail\r\n"
                     "ping 127.0.0.1 -n 2 > nul\r\n"
+                    # Phase 2: 旧 exe を .old にバックアップ (失敗時のロールバック用)
+                    f'copy /Y "{current_exe}" "{old_exe}" >> "{log_path}" 2>&1\r\n'
                     f'move /Y "{new_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
                     "if errorlevel 1 goto retry\r\n"
                     f'echo [%DATE% %TIME%] move success >> "{log_path}"\r\n'
+                    # Phase 2: 前回の startup marker を削除 (新 exe の成功判定用)
+                    f'if exist "{startup_ok}" del "{startup_ok}" >> "{log_path}" 2>&1\r\n'
                     # ファイルシステム同期待ち
                     "ping 127.0.0.1 -n 2 > nul\r\n"
                     # PyInstaller 6.9+ の bootloader が _PYI_ARCHIVE_FILE を
@@ -1047,6 +1084,30 @@ class WorkerGUI:
                     'set "PYINSTALLER_RESET_ENVIRONMENT=1"\r\n'
                     f'start "" /D "{base}" "{current_exe}"\r\n'
                     f'echo [%DATE% %TIME%] new exe started >> "{log_path}"\r\n'
+                    # Phase 2: 起動成功判定ループ (最大30秒 startup_ok を待つ)
+                    "set /a WAIT=0\r\n"
+                    ":waitok\r\n"
+                    "set /a WAIT+=1\r\n"
+                    "if %WAIT% gtr 30 goto rollback\r\n"
+                    "ping 127.0.0.1 -n 2 > nul\r\n"
+                    f'if exist "{startup_ok}" goto success\r\n'
+                    "goto waitok\r\n"
+                    ":success\r\n"
+                    f'echo [%DATE% %TIME%] startup OK after %WAIT%s >> "{log_path}"\r\n'
+                    # 成功: .old を削除
+                    f'if exist "{old_exe}" del "{old_exe}" >> "{log_path}" 2>&1\r\n'
+                    'del "%~f0"\r\n'
+                    "exit /b 0\r\n"
+                    ":rollback\r\n"
+                    f'echo [%DATE% %TIME%] ROLLBACK: startup_ok not found in 60s >> "{log_path}"\r\n'
+                    # 新 exe を消して旧 exe を戻す (taskkill で走ってる新 exe を止める)
+                    f'taskkill /F /IM "{current_exe.name}" >> "{log_path}" 2>&1\r\n'
+                    "ping 127.0.0.1 -n 3 > nul\r\n"
+                    f'move /Y "{old_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
+                    # GUI 起動時にロールバック通知するためのマーカー書き込み (JSON)
+                    f'mkdir "{rollback_marker.parent}" 2>nul\r\n'
+                    f'echo {{"rolled_back_from":"v{new_version}"}} > "{rollback_marker}"\r\n'
+                    f'start "" /D "{base}" "{current_exe}"\r\n'
                     'del "%~f0"\r\n'
                     "exit /b 0\r\n"
                     ":fail\r\n"
@@ -1081,14 +1142,46 @@ class WorkerGUI:
                 )
             else:  # darwin
                 script_path = base / "swim-worker-update.sh"
-                script = (
-                    "#!/bin/bash\n"
-                    "sleep 3\n"
-                    f'mv "{new_exe}" "{current_exe}"\n'
-                    f'chmod +x "{current_exe}"\n'
-                    f'"{current_exe}" &\n'
-                    'rm "$0"\n'
-                )
+                old_exe = current_exe.with_suffix(current_exe.suffix + ".old")
+                startup_ok = base / "data" / ".startup_ok"
+                rollback_marker = base / "data" / ".update_rollback.json"
+                log_path = base / "swim-worker-update.log"
+                # Phase 2: .old バックアップ + 起動成功判定 + ロールバック
+                script = f"""#!/bin/bash
+set -u
+LOG="{log_path}"
+echo "[$(date)] update start" > "$LOG"
+sleep 3
+# 旧 exe をバックアップ
+cp "{current_exe}" "{old_exe}" >> "$LOG" 2>&1 || true
+mv "{new_exe}" "{current_exe}" >> "$LOG" 2>&1
+chmod +x "{current_exe}"
+# 前回の startup marker 削除
+rm -f "{startup_ok}"
+# 新 exe 起動
+"{current_exe}" &
+echo "[$(date)] new exe started" >> "$LOG"
+# 起動成功判定 (最大 60 秒)
+for i in $(seq 1 60); do
+    sleep 1
+    if [ -f "{startup_ok}" ]; then
+        echo "[$(date)] startup OK after ${{i}}s" >> "$LOG"
+        rm -f "{old_exe}"
+        rm -- "$0"
+        exit 0
+    fi
+done
+# ロールバック
+echo "[$(date)] ROLLBACK: startup_ok not found in 60s" >> "$LOG"
+pkill -f "{current_exe.name}" >> "$LOG" 2>&1 || true
+sleep 2
+mv "{old_exe}" "{current_exe}" >> "$LOG" 2>&1
+mkdir -p "{rollback_marker.parent}"
+echo '{{"rolled_back_from":"v{new_version}"}}' > "{rollback_marker}"
+"{current_exe}" &
+rm -- "$0"
+exit 0
+"""
                 script_path.write_text(script, encoding="utf-8")
                 os.chmod(script_path, 0o755)
                 subprocess.Popen(
