@@ -39,7 +39,16 @@ deploy_vultr() {
     scp -q "$SRC_REQUIREMENTS" "$VULTR_HOST:$VULTR_BASE/requirements.txt"
     ok "ファイルコピー完了"
 
-    echo "  サービス再起動 (sudoパスワードが求められます)..."
+    echo "  依存パッケージ更新 (sudoパスワードが求められます)..."
+    # Python 3.12+ は PEP 668 で外部環境を保護するため --break-system-packages が必要
+    if ssh -t "$VULTR_HOST" "cd $VULTR_BASE && sudo pip3 install -r requirements.txt --break-system-packages -q"; then
+        ok "依存パッケージ更新完了"
+    else
+        fail "pip install 失敗 — サービスは再起動しません"
+        return 1
+    fi
+
+    echo "  サービス再起動..."
     ssh -t "$VULTR_HOST" 'sudo systemctl restart swim-worker'
     if ssh "$VULTR_HOST" 'systemctl is-active swim-worker' 2>/dev/null | grep -q active; then
         ok "Vultr デプロイ完了"
@@ -55,6 +64,14 @@ deploy_oracle() {
     rsync -az --delete "$SRC_WORKER/" "$ORACLE_HOST:$ORACLE_BASE/swim_worker/"
     scp -q "$SRC_REQUIREMENTS" "$ORACLE_HOST:$ORACLE_BASE/requirements.txt"
     ok "ファイルコピー完了"
+
+    echo "  依存パッケージ更新..."
+    if ssh -t "$ORACLE_HOST" "cd $ORACLE_BASE && sudo pip3 install -r requirements.txt --break-system-packages -q"; then
+        ok "依存パッケージ更新完了"
+    else
+        fail "pip install 失敗 — サービスは再起動しません"
+        return 1
+    fi
 
     echo "  サービス再起動..."
     ssh "$ORACLE_HOST" 'sudo systemctl restart swim-worker'
