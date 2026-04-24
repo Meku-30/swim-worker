@@ -10,13 +10,29 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 
-def _parse_dt(s: str | None) -> datetime | None:
+def _parse_dt(s: str | None) -> str | None:
+    """YYYYMMDDhhmm 文字列を ISO 8601 (UTC) 文字列で返す (JSON-safe)"""
     if not s or len(s) < 12:
         return None
     try:
-        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]), int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc)
+        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]),
+                        int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc).isoformat()
     except (ValueError, IndexError):
         return None
+
+
+_DT_FIELDS = ("observed_at", "effective_end")
+
+
+def _coerce_dt(value):
+    if value is None or isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
 
 
 def parse(raw_data: dict) -> list[dict]:
@@ -71,6 +87,10 @@ async def store(session_factory, records: list[dict]) -> int:
         return 0
     from sqlalchemy import select
     from coordinator.db.models import Pirep
+    # JSON 経由で str になっている datetime を復元
+    for r in records:
+        for f in _DT_FIELDS:
+            r[f] = _coerce_dt(r.get(f))
     cns = [r["control_number"] for r in records]
     async with session_factory() as session:
         existing = await session.execute(
