@@ -12,7 +12,13 @@ logger = logging.getLogger(__name__)
 _DT_FORMATS = ["%Y/%m/%d %H:%M", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ", "%Y%m%d%H%M", "%y%m%d%H%M"]
 
 
-def _parse_dt(s: str | None) -> datetime | None:
+def _parse_dt(s: str | None) -> str | None:
+    """日時文字列を解析して ISO 8601 文字列 (UTC) で返す。
+
+    返り値を str にすることで parse() 全体の出力を JSON-safe にし、
+    Worker が parse() を呼んで結果を JSON で Coordinator に送れるようにする。
+    store() 側では冒頭で datetime.fromisoformat() で datetime に復元する。
+    """
     if not s or s == "PERM":
         return None
     s = s.replace("EST", "").strip()
@@ -21,7 +27,7 @@ def _parse_dt(s: str | None) -> datetime | None:
             dt = datetime.strptime(s, fmt)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return dt
+            return dt.isoformat()
         except ValueError:
             continue
     return None
@@ -55,11 +61,30 @@ def parse(raw_data: dict) -> list[dict]:
     return records
 
 
+_DT_FIELDS = ("valid_from", "valid_to")
+
+
+def _coerce_dt(value):
+    """parse() が返す ISO 文字列を datetime に復元 (None/既に datetime は素通し)"""
+    if value is None or isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
 async def store(session_factory, records: list[dict]) -> int:
     if not records:
         return 0
     from sqlalchemy import select
     from coordinator.db.models import Notam
+    # JSON 経由で parse 結果が str になっている場合は datetime に復元
+    for r in records:
+        for f in _DT_FIELDS:
+            r[f] = _coerce_dt(r.get(f))
     ids = [r["notam_id"] for r in records]
     async with session_factory() as session:
         existing = await session.execute(

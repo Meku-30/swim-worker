@@ -15,13 +15,29 @@ _CLOSE_ATIS_PATTERN = re.compile(
 )
 
 
-def _parse_dt(s: str | None) -> datetime | None:
+def _parse_dt(s: str | None) -> str | None:
+    """YYYYMMDDhhmm → ISO 8601 (UTC) 文字列 (JSON-safe)"""
     if not s or len(s) < 12:
         return None
     try:
-        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]), int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc)
+        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]),
+                        int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc).isoformat()
     except (ValueError, IndexError):
         return None
+
+
+_DT_FIELDS = ("observed_at", "issued_at")
+
+
+def _coerce_dt(value):
+    if value is None or isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _ensure_utc(dt: datetime | None) -> datetime | None:
@@ -182,6 +198,11 @@ async def store_pkg(session_factory, records: list[dict]) -> int:
     # Load existing keys for dedup
     from sqlalchemy import select
     from coordinator.db.models import Atis, RunwayInfo, Weather
+    # JSON 経由の str datetime を復元
+    for r in records:
+        for f in _DT_FIELDS:
+            if f in r:
+                r[f] = _coerce_dt(r.get(f))
     async with session_factory() as session:
         wx_rows = await session.execute(
             select(Weather.icao_code, Weather.type, Weather.observed_at).where(Weather.collected_at > cutoff))
