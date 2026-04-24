@@ -141,3 +141,64 @@ class TestTaskConsumer:
         except (asyncio.CancelledError, asyncio.TimeoutError):
             pass
         mock_redis.client_setname.assert_called_once_with("test-worker")
+
+    async def test_acquire_instance_lock_claims_orphan_when_token_matches(
+            self, tmp_path, monkeypatch):
+        """前回プロセスの token がファイルに残り、Redis 上の値と一致 → DEL してから取得"""
+        from swim_worker import consumer as _c
+        token_path = tmp_path / ".last_instance_token"
+        last_token = "old-token-uuid"
+        token_path.write_text(last_token)
+        monkeypatch.setattr(_c, "_last_instance_token_path", lambda: token_path)
+
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = last_token.encode()
+        # 1回目 SET NX (claim 後の取得) → 成功
+        mock_redis.set.return_value = True
+
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
+                                worker_name="test-worker", heartbeat_interval=30)
+        await consumer._acquire_instance_lock()
+
+        mock_redis.delete.assert_awaited_once_with("heartbeat:test-worker")
+        mock_redis.set.assert_awaited_once()
+        # 自分の token が永続化されている
+        assert token_path.read_text() == consumer._instance_token
+
+    async def test_acquire_instance_lock_does_not_claim_other_worker(
+            self, tmp_path, monkeypatch):
+        """ファイル token と Redis 値が不一致 (= 別マシン稼働中) → DEL せず通常フロー"""
+        from swim_worker import consumer as _c
+        token_path = tmp_path / ".last_instance_token"
+        token_path.write_text("my-old-token")
+        monkeypatch.setattr(_c, "_last_instance_token_path", lambda: token_path)
+
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = b"someone-elses-token"
+        mock_redis.set.return_value = True  # SET NX は成功する想定
+
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
+                                worker_name="test-worker", heartbeat_interval=30)
+        await consumer._acquire_instance_lock()
+
+        mock_redis.delete.assert_not_awaited()  # 別 Worker の lock は触らない
+
+    async def test_acquire_instance_lock_no_token_file_uses_default_flow(
+            self, tmp_path, monkeypatch):
+        """ファイル不在 → claim をスキップして通常通り SET NX"""
+        from swim_worker import consumer as _c
+        token_path = tmp_path / ".last_instance_token"  # 作成しない
+        monkeypatch.setattr(_c, "_last_instance_token_path", lambda: token_path)
+
+        mock_redis = AsyncMock()
+        mock_redis.set.return_value = True
+
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
+                                worker_name="test-worker", heartbeat_interval=30)
+        await consumer._acquire_instance_lock()
+
+        mock_redis.get.assert_not_awaited()
+        mock_redis.delete.assert_not_awaited()
+        # 成功時はファイルが作成される
+        assert token_path.exists()
+        assert token_path.read_text() == consumer._instance_token

@@ -38,6 +38,22 @@ def _startup_marker_path():
         base = _Path.cwd()
     return base / "data" / ".startup_ok"
 
+
+def _last_instance_token_path():
+    """前回プロセスの instance_token を保存するファイルパス。
+
+    GUI 自動アップデートで graceful shutdown を経ずに再起動した場合に、
+    新プロセスが「自分の前世代が残した heartbeat lock」を識別して奪うために使う。
+    別マシンで稼働中の同名 Worker の lock は token 不一致で奪わないので安全。
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    if getattr(_sys, "frozen", False):
+        base = _Path(_sys.executable).parent
+    else:
+        base = _Path.cwd()
+    return base / "data" / ".last_instance_token"
+
 # Coordinator への結果送信を zstd で圧縮 (gzip より小さく速い)。
 # Coordinator 側は zstd/gzip/生JSON のいずれも解凍可能 (後方互換)。
 # level=6: gzip level 9 デフォルトに対して -5% 程度。
@@ -215,21 +231,26 @@ class TaskConsumer:
     async def _acquire_instance_lock(self) -> None:
         """起動時に heartbeat キーを atomic に取得して重複起動を検知する。
 
+        - 自分の前世代 (= ファイルに保存された instance_token) が残した lock なら
+          即 DEL してから取り直す (Windows GUI 自動アップデートで graceful shutdown を
+          経ずに再起動した場合の救済)。token 一致確認なので別マシンの同名 Worker の
+          lock を奪うことは無い。
         - SET NX で heartbeat:{name} に自分の instance_token を登録
-        - 成功: 自分が唯一のワーカー
-        - 失敗: TTL 失効を最大90秒待ってリトライ（アップデート後の再起動に対応）
+        - 失敗: TTL 失効を最大90秒待ってリトライ
         - それでも失敗: DuplicateWorkerError を送出
-
-        ※ 他プロセスが graceful shutdown 時に DEL してくれば即再起動可能。
-           クラッシュ/アップデート時は TTL (heartbeat_interval × 3) 経過後に再起動可能。
         """
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
         key = f"heartbeat:{self._worker_name}"
+
+        # 前世代が残した lock なら奪う (token 一致時のみ)
+        await self._claim_orphaned_lock(key)
+
         acquired = await self._redis.set(key, self._instance_token, ex=ttl, nx=True)
         if acquired:
+            self._persist_instance_token()
             return
-        # TTL 失効を待ってリトライ（アップデート後の再起動等で旧プロセスの
-        # heartbeat が残っている場合に対応。最大 TTL + マージン 秒待つ）
+        # TTL 失効を待ってリトライ（claim でも回収できなかった = 別マシンで稼働中の
+        # 可能性、または token ファイル不在の旧バージョンからの更新等）
         max_wait = ttl + 10
         logger.info(
             "heartbeat キーが残存中。前プロセスの TTL 失効を最大%d秒待機します...", max_wait,
@@ -238,12 +259,54 @@ class TaskConsumer:
             await asyncio.sleep(5)
             acquired = await self._redis.set(key, self._instance_token, ex=ttl, nx=True)
             if acquired:
+                self._persist_instance_token()
                 logger.info("heartbeat キー取得成功（%d秒待機）", elapsed + 5)
                 return
         raise DuplicateWorkerError(
             f"worker_name '{self._worker_name}' は既に別プロセスで稼働中です。"
             f" 別の名前を使うか、もう一方を停止してください。"
         )
+
+    async def _claim_orphaned_lock(self, key: str) -> None:
+        """前回プロセスが残した orphan lock を奪う (token 一致時のみ DEL)。
+
+        ファイルに記録された前世代の instance_token と Redis 上の値が一致した時だけ
+        「自分の前世代が異常終了 (taskkill 等で graceful shutdown を経なかった)」と
+        判定して lock を解放する。一致しない場合は別マシンで稼働中なので何もしない。
+        """
+        path = _last_instance_token_path()
+        if not path.exists():
+            return
+        try:
+            last_token = path.read_text(encoding="utf-8").strip()
+        except Exception:
+            return
+        if not last_token:
+            return
+        try:
+            current_value = await self._redis.get(key)
+        except Exception:
+            return
+        if current_value is None:
+            return
+        current_str = (current_value.decode()
+                       if isinstance(current_value, bytes) else current_value)
+        if current_str != last_token:
+            return  # 別 Worker が今 lock を保持 → 触らない
+        try:
+            await self._redis.delete(key)
+            logger.info("前回プロセスの instance lock を解放 (token 一致)")
+        except Exception as e:
+            logger.debug("orphan lock 解放失敗 (無視): %s", e)
+
+    def _persist_instance_token(self) -> None:
+        """自分の instance_token をファイルに書き込み、次世代起動時の claim に備える"""
+        path = _last_instance_token_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(self._instance_token, encoding="utf-8")
+        except Exception as e:
+            logger.debug("instance token 永続化失敗 (無視): %s", e)
 
     async def send_heartbeat(self) -> None:
         """heartbeat を更新する。値は instance_token で所有者を識別する。
