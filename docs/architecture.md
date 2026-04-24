@@ -66,13 +66,20 @@ Worker → Coordinator の Redis 通信量を削減する機構。GCP Free Tier 
 
 `swim_worker/parsers/` 以下は `swim-coordinator/coordinator/parsers/` の完全コピー。`scripts/sync_parsers.sh` でコピー、`scripts/check_parsers_synced.sh` で差分検知。parse() 関数は DB 非依存、store() は関数内で sqlalchemy import されるため Worker 環境で呼ばない限り問題なし。
 
+### datetime の扱い (v1.0.2+)
+
+parse() 関数の返り値に含まれる日時フィールドは **ISO 8601 文字列 (UTC)** として返す。Python の `datetime` オブジェクトをそのまま返すと `json.dumps` でシリアライズエラー ("Object of type datetime is not JSON serializable") が発生するため。Coordinator 側の store() 関数が冒頭で `_coerce_dt()` により str → datetime に復元する。
+
+v1.0.1 は parse() が datetime を返していたため、pkg_weather 等 parsed 送信時に Worker が結果送信失敗 → Coordinator タイムアウト → 再配布多発の不具合あり。v1.0.2 で修正済み。
+
 ### 実測削減率 (48件サンプル + 実運用)
 
 | job_type | 従来 (gzip+raw) | 新 (zstd+parsed) | 削減率 |
 |---|---|---|---|
 | pkg_weather | 7 KB | 164 B | **約 98%** |
 | pirep | 13 KB | 15.5 KB (+17%) | ← 悪化、raw 維持 |
-| その他 | 未測定 | 未測定 | `result_size_logs` で継続観測中 |
+| notam | 平均 369 KB (観測中) | 未測定 | `result_size_logs` で蓄積中、将来 parse 候補 |
+| flight_foids | 平均 2.1 KB (観測中) | 未測定 | 低頻度 |
 
 ### Coordinator 側の互換性
 
