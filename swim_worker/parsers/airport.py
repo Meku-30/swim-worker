@@ -182,16 +182,28 @@ def _find_column_index(headers: list[str], keywords: list[str]) -> int | None:
     return None
 
 
-def _parse_date_string(value: str) -> datetime | None:
+def _parse_date_string(value: str) -> str | None:
+    """日付文字列を解析して ISO 8601 (UTC) 文字列で返す (JSON-safe)"""
     if not value:
         return None
     formats = ["%Y-%m-%d", "%d %b %Y", "%d %B %Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]
     for fmt in formats:
         try:
             dt = datetime.strptime(value.strip(), fmt)
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=timezone.utc).isoformat()
         except (ValueError, TypeError):
             continue
+    return None
+
+
+def _coerce_dt(value):
+    if value is None or isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
     return None
 
 
@@ -212,6 +224,10 @@ async def store_aip(session_factory, records: list[dict]) -> int:
         return 0
     from sqlalchemy import select
     from coordinator.db.models import AipEntry
+    # JSON 経由の str datetime を復元
+    for entry in records:
+        if "effective_date" in entry:
+            entry["effective_date"] = _coerce_dt(entry.get("effective_date"))
     saved = 0
     async with session_factory() as session:
         for entry in records:
