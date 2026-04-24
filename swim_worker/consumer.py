@@ -327,7 +327,8 @@ class TaskConsumer:
             if await parsers.supports(job_type, self._redis,
                                       worker_name=self._worker_name):
                 try:
-                    parsed = parsers.parse_for_job_type(job_type, data)
+                    parsed = parsers.parse_for_job_type(job_type, data,
+                                                        task_params=params)
                     result = {
                         "task_id": task_id, "worker_name": self._worker_name,
                         "status": "success", "format": "parsed",

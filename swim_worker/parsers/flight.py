@@ -34,23 +34,11 @@ def _coerce_dt(value):
     return None
 
 
-def parse_foids(raw_data: dict) -> list[dict]:
-    """FLV803レスポンスからfoid + 補完データを抽出"""
-    result = raw_data.get("flightInformationSearchResultsDTO") or {}
-    records = []
-    for flight in (result.get("arrivingFlights") or []) + (result.get("departingFlights") or []):
-        foid = flight.get("foid")
-        if not foid:
-            continue
-        records.append({"foid": foid, "flt_RULES": flight.get("flt_RULES") or "",
-            "opr": flight.get("opr") or ""})
-    return records
-
-
-def parse_foids_for_db(raw_data: dict, queried_airport: str) -> list[dict]:
+def parse_foids(raw_data: dict, queried_airport: str | None = None) -> list[dict]:
     """FLV803レスポンスからFlightDetail基本データを抽出 (Phase1即保存用)。
 
     queried_airport: このレスポンスの取得元空港ICAO。到着便ではdest_ad、出発便ではdep_adとなる。
+    指定しない場合は該当側が None になる (Phase3 で補完される前提)。
     rte/reg/滑走路/ssta/sstd はNULLのまま（Phase3で補完）。
     """
     result = raw_data.get("flightInformationSearchResultsDTO") or {}

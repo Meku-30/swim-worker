@@ -17,21 +17,15 @@ import time
 from . import airport, airspace, flight, notam, pirep, weather
 
 # job_type → parser callable
-# Coordinator の coordinator/result_handler.py:24-34 と必ず一致させる。
-# ただし実際にパースするかは Redis の whitelist で決まる (supports() 参照)。
-#
-# 【互換性注意】
-# `collect_flight_foids` は Coordinator 側 scheduler.py が `parse_foids_for_db`
-# (phase1 DB upsert 専用、より詳細な dict を返す) を使っているため、Worker 側で
-# `parse_foids` を呼んで送ると出力構造が合わず DB 保存が失敗する。
-# 従って flight_foids は whitelist に入れない運用とし、ここからも除外する。
+# Coordinator の coordinator/parsers/__init__.py の _PARSERS と完全一致させる。
+# 実際にパースするかは Redis の whitelist で決まる (supports() 参照)。
 _PARSERS = {
     "collect_notams": notam.parse,
     "collect_pireps": pirep.parse,
     "collect_pkg_weather": weather.parse_pkg,
     "collect_airspace_data": airspace.parse,
     "collect_airport_profiles": airport.parse_detail,
-    # "collect_flight_foids": flight.parse_foids,  ← 互換性のため除外 (上記コメント参照)
+    "collect_flight_foids": flight.parse_foids,
     "collect_flight_details": flight.parse_details,
     "collect_aip": airport.parse_aip,
     "collect_airports": airport.parse_list,
@@ -91,14 +85,27 @@ async def supports(job_type: str, redis_client=None,
     return job_type in _cache_enabled
 
 
-def parse_for_job_type(job_type: str, data: dict) -> list[dict]:
+def _extract_queried_airport(task_params: dict | None) -> str | None:
+    """collect_flight_foids 用: task body から対象空港 ICAO を取り出す"""
+    if not task_params:
+        return None
+    body = task_params.get("body") or {}
+    conds = body.get("flightInformationSearchConditionsDTO") or {}
+    return conds.get("airportCode")
+
+
+def parse_for_job_type(job_type: str, data: dict,
+                       task_params: dict | None = None) -> list[dict]:
     """job_type に対応する parser を呼んで結果を返す。
 
     SWIM API レスポンスの "ret" ラッパーがあれば剥がしてから parser に渡す
     (coordinator.result_handler._unwrap_ret と同じ挙動)。
+    collect_flight_foids は queried_airport が必要なため task_params から抽出して渡す。
     対応していない job_type で呼び出されると KeyError。
     """
     parser = _PARSERS[job_type]
     if isinstance(data, dict) and "ret" in data and isinstance(data["ret"], dict):
         data = data["ret"]
+    if job_type == "collect_flight_foids":
+        return parser(data, _extract_queried_airport(task_params))
     return parser(data)
