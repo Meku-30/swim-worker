@@ -9,13 +9,29 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 
-def _parse_dt(s: str | None) -> datetime | None:
+def _parse_dt(s: str | None) -> str | None:
+    """YYYYMMDDhhmm → ISO 8601 (UTC) 文字列 (JSON-safe)"""
     if not s or len(s) < 12:
         return None
     try:
-        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]), int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc)
+        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]),
+                        int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc).isoformat()
     except (ValueError, IndexError):
         return None
+
+
+_DT_FIELDS = ("eta", "ata", "atd", "eobt", "ssta", "sstd")
+
+
+def _coerce_dt(value):
+    if value is None or isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
 
 
 def parse_foids(raw_data: dict) -> list[dict]:
@@ -116,6 +132,11 @@ async def store_details(session_factory, records: list[dict]) -> int:
         return 0
     from sqlalchemy import select
     from coordinator.db.models import FlightDetail
+    # JSON 経由の str datetime を復元
+    for r in records:
+        for f in _DT_FIELDS:
+            if f in r:
+                r[f] = _coerce_dt(r.get(f))
     foids = [r["foid"] for r in records]
     async with session_factory() as session:
         existing = await session.execute(
