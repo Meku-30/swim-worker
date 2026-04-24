@@ -16,7 +16,7 @@ class TestTaskConsumer:
         mock_redis.setex.assert_called_once()
         args = mock_redis.setex.call_args[0]
         assert args[0] == "heartbeat:test-worker"
-        assert args[1] == 90
+        assert args[1] == 60  # heartbeat_interval(30) × HEARTBEAT_TTL_MULTIPLIER(2)
         # value は instance_token (UUID 文字列)
         assert isinstance(args[2], str) and len(args[2]) >= 32
 

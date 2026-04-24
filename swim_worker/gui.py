@@ -1135,11 +1135,14 @@ class WorkerGUI:
                     'set "PYINSTALLER_RESET_ENVIRONMENT=1"\r\n'
                     f'start "" /D "{base}" "{current_exe}"\r\n'
                     f'echo [%DATE% %TIME%] new exe started >> "{log_path}"\r\n'
-                    # Phase 2: 起動成功判定ループ (最大30秒 startup_ok を待つ)
+                    # Phase 2: 起動成功判定ループ (最大約120秒 startup_ok を待つ)
+                    # ping -n 2 が約1秒/反復のため、120 反復 ≈ 120 秒。
+                    # 旧 exe の Redis heartbeat TTL (heartbeat_interval × multiplier=2 の最大 60秒)
+                    # 失効を待つ余裕として、TTL の倍以上を確保する。
                     "set /a WAIT=0\r\n"
                     ":waitok\r\n"
                     "set /a WAIT+=1\r\n"
-                    "if %WAIT% gtr 30 goto rollback\r\n"
+                    "if %WAIT% gtr 120 goto rollback\r\n"
                     "ping 127.0.0.1 -n 2 > nul\r\n"
                     f'if exist "{startup_ok}" goto success\r\n'
                     "goto waitok\r\n"
@@ -1150,7 +1153,7 @@ class WorkerGUI:
                     'del "%~f0"\r\n'
                     "exit /b 0\r\n"
                     ":rollback\r\n"
-                    f'echo [%DATE% %TIME%] ROLLBACK: startup_ok not found in 60s >> "{log_path}"\r\n'
+                    f'echo [%DATE% %TIME%] ROLLBACK: startup_ok not found in 120s >> "{log_path}"\r\n'
                     # 新 exe を消して旧 exe を戻す (taskkill で走ってる新 exe を止める)
                     f'taskkill /F /IM "{current_exe.name}" >> "{log_path}" 2>&1\r\n'
                     "ping 127.0.0.1 -n 3 > nul\r\n"
@@ -1212,8 +1215,10 @@ rm -f "{startup_ok}"
 # 新 exe 起動
 "{current_exe}" &
 echo "[$(date)] new exe started" >> "$LOG"
-# 起動成功判定 (最大 60 秒)
-for i in $(seq 1 60); do
+# 起動成功判定 (最大 120 秒)
+# 旧 exe の Redis heartbeat TTL (heartbeat_interval × multiplier=2 の最大 60秒)
+# 失効を待つ余裕として TTL の倍以上を確保する。
+for i in $(seq 1 120); do
     sleep 1
     if [ -f "{startup_ok}" ]; then
         echo "[$(date)] startup OK after ${{i}}s" >> "$LOG"
@@ -1223,7 +1228,7 @@ for i in $(seq 1 60); do
     fi
 done
 # ロールバック
-echo "[$(date)] ROLLBACK: startup_ok not found in 60s" >> "$LOG"
+echo "[$(date)] ROLLBACK: startup_ok not found in 120s" >> "$LOG"
 pkill -f "{current_exe.name}" >> "$LOG" 2>&1 || true
 sleep 2
 mv "{old_exe}" "{current_exe}" >> "$LOG" 2>&1
