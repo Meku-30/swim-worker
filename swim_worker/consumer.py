@@ -321,9 +321,11 @@ class TaskConsumer:
 
             # Worker 側で parse まで行い、Coordinator には構造化データを送る
             # (帯域削減: 未使用フィールド/メタデータが落ちる)。
-            # 有効化する job_type は Redis whitelist `swim:parse_enabled` で動的制御。
+            # 有効化する job_type は Redis whitelist `swim:parse_enabled` で動的制御、
+            # さらに per-worker 除外 `swim:parse_disabled_workers:<job_type>` も考慮。
             # 未登録 or Redis 不通時は raw 送信 (現状維持 = 安全側)。
-            if await parsers.supports(job_type, self._redis):
+            if await parsers.supports(job_type, self._redis,
+                                      worker_name=self._worker_name):
                 try:
                     parsed = parsers.parse_for_job_type(job_type, data)
                     result = {

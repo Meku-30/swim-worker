@@ -42,6 +42,7 @@ class TestTaskConsumer:
         mock_swim.execute_api.return_value = {"weatherDTO": {}}
         mock_redis = AsyncMock()
         mock_redis.smembers.return_value = {b"collect_pkg_weather"}
+        mock_redis.sismember.return_value = False  # per-worker 個別無効化なし
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="test-worker", heartbeat_interval=30)
         task = {"task_id": "task-001", "job_type": "collect_pkg_weather", "params": {"url": "https://example.com/api", "body": {"airports": ["RJTT"]}}}
         await consumer.execute_task(task)
@@ -52,6 +53,23 @@ class TestTaskConsumer:
         assert result_data["format"] == "parsed"
         assert isinstance(result_data["data"], list)
 
+    async def test_execute_task_raw_when_worker_individually_disabled(self):
+        """global で enable されていても、per-worker 除外に入っていれば raw 送信"""
+        import swim_worker.parsers as _p
+        _p._cache_expires_at = 0.0
+        mock_swim = AsyncMock()
+        mock_swim.execute_api.return_value = {"weatherDTO": {}}
+        mock_redis = AsyncMock()
+        mock_redis.smembers.return_value = {b"collect_pkg_weather"}  # global enable
+        mock_redis.sismember.return_value = True  # この Worker は個別 disable
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="hyuga", heartbeat_interval=30)
+        task = {"task_id": "task-x", "job_type": "collect_pkg_weather", "params": {"url": "https://example.com/api", "body": {}}}
+        await consumer.execute_task(task)
+        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:task-x"]
+        result_data = json.loads(zstd.ZstdDecompressor().decompress(result_calls[0][0][2]))
+        assert "format" not in result_data  # 個別 disable → raw 送信
+        assert result_data["data"] == {"weatherDTO": {}}
+
     async def test_execute_task_raw_when_not_whitelisted(self):
         """Redis whitelist にない job_type は raw 送信 (現状維持)"""
         import swim_worker.parsers as _p
@@ -60,6 +78,7 @@ class TestTaskConsumer:
         mock_swim.execute_api.return_value = {"weatherDTO": {}}
         mock_redis = AsyncMock()
         mock_redis.smembers.return_value = set()  # whitelist 空
+        mock_redis.sismember.return_value = False
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="test-worker", heartbeat_interval=30)
         task = {"task_id": "task-002", "job_type": "collect_pkg_weather", "params": {"url": "https://example.com/api", "body": {}}}
         await consumer.execute_task(task)
