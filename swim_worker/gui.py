@@ -2,12 +2,14 @@
 import asyncio
 import base64
 import io
+import json
 import logging
 import os
 import subprocess
 import sys
 import threading
 import tkinter as tk
+from datetime import datetime, timedelta, timezone
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
@@ -35,6 +37,93 @@ def _get_base_dir() -> Path:
 
 ENV_PATH = _get_base_dir() / ".env"
 CA_CERT_PATH = _get_base_dir() / "ca.crt"
+GUI_SETTINGS_PATH = _get_base_dir() / "data" / "gui_settings.json"
+UPDATE_SNOOZE_PATH = _get_base_dir() / "data" / "update_snooze.json"
+SNOOZE_DURATION_HOURS = 24
+
+
+class UpdateProgressDialog:
+    """アップデート進捗ダイアログ (Toplevel + Progressbar + ステータス表示)"""
+
+    def __init__(self, parent: tk.Tk, title: str = "アップデート中"):
+        self._win = tk.Toplevel(parent)
+        self._win.title(title)
+        self._win.geometry("420x150")
+        self._win.resizable(False, False)
+        self._win.transient(parent)
+        # Xボタン無効化 (進行中はユーザーが閉じられないように)
+        self._win.protocol("WM_DELETE_WINDOW", lambda: None)
+        try:
+            self._win.grab_set()  # モーダル化
+        except tk.TclError:
+            pass
+
+        self._status_var = tk.StringVar(value="準備中...")
+        ttk.Label(self._win, textvariable=self._status_var,
+                  font=("", 10, "bold")).pack(pady=(20, 8))
+        self._progress = ttk.Progressbar(self._win, mode="determinate", length=380)
+        self._progress.pack(pady=8, padx=20)
+        self._detail_var = tk.StringVar(value="")
+        ttk.Label(self._win, textvariable=self._detail_var,
+                  font=("", 9)).pack(pady=(0, 10))
+        self._closed = False
+
+    def set_status(self, text: str) -> None:
+        if self._closed:
+            return
+        self._status_var.set(text)
+
+    def set_progress(self, percent: float, detail: str = "") -> None:
+        if self._closed:
+            return
+        self._progress.configure(mode="determinate")
+        self._progress["value"] = max(0, min(100, percent))
+        if detail:
+            self._detail_var.set(detail)
+
+    def set_indeterminate(self, detail: str = "") -> None:
+        if self._closed:
+            return
+        self._progress.configure(mode="indeterminate")
+        self._progress.start(20)
+        if detail:
+            self._detail_var.set(detail)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._progress.stop()
+        except Exception:
+            pass
+        try:
+            self._win.grab_release()
+        except Exception:
+            pass
+        try:
+            self._win.destroy()
+        except Exception:
+            pass
+
+
+def _load_json(path: Path) -> dict:
+    """JSON ファイル読み込み (存在しない/壊れていれば空 dict)"""
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logging.debug("設定ファイル読み込み失敗 %s: %s", path, e)
+        return {}
+
+
+def _save_json(path: Path, data: dict) -> None:
+    """JSON ファイル書き込み (親ディレクトリ作成込み)"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 class TextHandler(logging.Handler):
@@ -61,12 +150,15 @@ class WorkerGUI:
     def __init__(self):
         self._root = tk.Tk()
         self._root.title("SWIM Worker")
-        self._root.geometry("520x600")
+        self._root.geometry("520x640")
         self._root.resizable(False, False)
 
         self._worker_thread: threading.Thread | None = None
         self._worker_running = False
         self._consumer = None
+        # GUI 設定 (auto_update 等) と snooze 情報を永続化
+        self._gui_settings: dict = _load_json(GUI_SETTINGS_PATH)
+        self._update_progress_dialog: UpdateProgressDialog | None = None
 
         self._tray_icon = None
         self._build_ui()
@@ -145,6 +237,23 @@ class WorkerGUI:
                 variable=self._autostart_var, command=self._toggle_autostart,
             )
             autostart_cb.pack(side="right")
+
+        # --- 自動アップデート (Windows / macOS GUI 版のみ) ---
+        # Linux CLI 版は install.sh の systemd timer で完全自動化されているため、
+        # GUI 版にだけ「チェックボックスで自動適用を有効化」機能を提供する。
+        if sys.platform in ("win32", "darwin"):
+            opt_frame2 = ttk.Frame(root, padding=(10, 0))
+            opt_frame2.pack(fill="x", padx=10)
+            self._auto_update_var = tk.BooleanVar(
+                value=bool(self._gui_settings.get("auto_update", False))
+            )
+            auto_update_cb = ttk.Checkbutton(
+                opt_frame2,
+                text="アップデートを自動適用 (確認ダイアログなし、5秒カウントダウンのみ)",
+                variable=self._auto_update_var,
+                command=self._on_auto_update_toggle,
+            )
+            auto_update_cb.pack(side="left")
 
         # --- ログ ---
         log_frame = ttk.LabelFrame(root, text="ログ", padding=5)
@@ -607,19 +716,81 @@ class WorkerGUI:
         self._root.after(0, lambda: self._status_var.set(msg))
 
     # --- 自動アップデート ---
-    def _on_update_detected(self, new_version: str):
-        """Consumerから呼ばれる (別スレッド)。
+    def _on_auto_update_toggle(self) -> None:
+        """auto_update チェックボックスの状態を永続化。"""
+        self._gui_settings["auto_update"] = bool(self._auto_update_var.get())
+        try:
+            _save_json(GUI_SETTINGS_PATH, self._gui_settings)
+            state = "有効" if self._auto_update_var.get() else "無効"
+            logging.info("アップデート自動適用: %s", state)
+        except Exception as e:
+            logging.warning("GUI 設定保存失敗: %s", e)
 
-        アップデートボタンを表示 + 初回のみポップアップを出す。
-        ユーザーがキャンセルした場合もボタンは残るので、あとから再アップデート可能。
+    def _is_snoozed(self, version: str) -> bool:
+        """指定バージョンに対して現在 snooze 期間中かを返す。"""
+        snooze = _load_json(UPDATE_SNOOZE_PATH)
+        if snooze.get("version") != version:
+            return False
+        until_str = snooze.get("until")
+        if not until_str:
+            return False
+        try:
+            until = datetime.fromisoformat(until_str)
+        except ValueError:
+            return False
+        return datetime.now(timezone.utc) < until
+
+    def _set_snooze(self, version: str) -> None:
+        """「後で」選択時、このバージョンを一定時間スキップする。"""
+        until = datetime.now(timezone.utc) + timedelta(hours=SNOOZE_DURATION_HOURS)
+        data = {"version": version, "until": until.isoformat()}
+        try:
+            _save_json(UPDATE_SNOOZE_PATH, data)
+            logging.info(
+                "アップデート v%s を %d 時間スキップしました", version, SNOOZE_DURATION_HOURS
+            )
+        except Exception as e:
+            logging.debug("snooze 保存失敗 (無視): %s", e)
+
+    def _clear_snooze(self) -> None:
+        """snooze 情報を消去 (Yes 選択時や別バージョン検知時)。"""
+        try:
+            if UPDATE_SNOOZE_PATH.exists():
+                UPDATE_SNOOZE_PATH.unlink()
+        except Exception:
+            pass
+
+    def _is_auto_update_enabled(self) -> bool:
+        """auto_update 設定が有効か (Linux CLI 版では常に False = 従来挙動)。"""
+        return bool(getattr(self, "_auto_update_var", None)) and bool(
+            self._auto_update_var.get()
+        )
+
+    def _on_update_detected(self, new_version: str):
+        """Consumer から呼ばれる (別スレッド)。
+
+        - 常にアップデートボタンは表示する
+        - auto_update 有効: 5秒カウントダウン → 自動アップデート (キャンセル可)
+        - auto_update 無効: 従来通り確認ダイアログ
+        - snooze 中のバージョンはポップアップ/カウントダウンをスキップ (ボタンは残す)
         """
-        # UIスレッドに転送
+        # UI スレッドで "⬆ アップデート" ボタン表示
         self._root.after(0, lambda: self._show_update_button(new_version))
-        # 初回のみポップアップ表示 (ボタン追加後も Worker 再起動までは重複表示しない)
+
+        # 既にこのバージョンで重複プロンプトを抑制
         if getattr(self, "_update_prompted_version", None) == new_version:
             return
         self._update_prompted_version = new_version
-        self._root.after(0, lambda: self._prompt_update(new_version))
+
+        # snooze 期間中は静かにボタンだけ残す
+        if self._is_snoozed(new_version):
+            logging.info("アップデート v%s は snooze 期間中のためプロンプトを抑制", new_version)
+            return
+
+        if self._is_auto_update_enabled():
+            self._root.after(0, lambda: self._prompt_auto_update_countdown(new_version))
+        else:
+            self._root.after(0, lambda: self._prompt_update(new_version))
 
     def _show_update_button(self, new_version: str):
         """メインGUIにアップデートボタンを表示する"""
@@ -646,7 +817,11 @@ class WorkerGUI:
         return f"https://github.com/Meku-30/swim-worker/releases/download/v{version}/{asset}"
 
     def _prompt_update(self, new_version: str):
-        """新バージョン検知時の確認ダイアログ"""
+        """新バージョン検知時の確認ダイアログ (auto_update=OFF 用)。
+
+        「はい」→ アップデート開始
+        「いいえ」→ 24h snooze (ボタンからは後でも実行可能)
+        """
         download_url = self._get_download_url(new_version)
         if not download_url:
             logging.warning("このプラットフォームはアップデート非対応")
@@ -656,20 +831,144 @@ class WorkerGUI:
             f"新しいバージョン v{new_version} が利用可能です。\n"
             f"現在のバージョン: v{__version__}\n\n"
             f"今すぐアップデートしますか？\n"
-            f"（ダウンロード後、自動で再起動します）",
+            f"（ダウンロード後、自動で再起動します）\n\n"
+            f"「いいえ」を選ぶと {SNOOZE_DURATION_HOURS} 時間、確認ダイアログを表示しません\n"
+            f"（右上の「アップデート」ボタンからはいつでも実行できます）",
         )
         if not answer:
-            logging.info("アップデートはキャンセルされました")
+            self._set_snooze(new_version)
             return
-        # 別スレッドでダウンロード開始
+        self._clear_snooze()
+        self._start_update(new_version, download_url)
+
+    def _prompt_auto_update_countdown(self, new_version: str):
+        """auto_update=ON 時のカウントダウンダイアログ (5秒で自動実行、キャンセル可)。"""
+        download_url = self._get_download_url(new_version)
+        if not download_url:
+            logging.warning("このプラットフォームはアップデート非対応")
+            return
+
+        win = tk.Toplevel(self._root)
+        win.title("自動アップデート")
+        win.geometry("420x160")
+        win.resizable(False, False)
+        win.transient(self._root)
+        try:
+            win.grab_set()
+        except tk.TclError:
+            pass
+
+        countdown = [5]
+        cancelled = [False]
+
+        ttk.Label(
+            win,
+            text=f"新しいバージョン v{new_version} が利用可能です",
+            font=("", 10, "bold"),
+        ).pack(pady=(15, 4))
+        ttk.Label(
+            win,
+            text=f"現在: v{__version__}",
+            font=("", 9),
+        ).pack(pady=(0, 10))
+        msg_var = tk.StringVar(value=f"{countdown[0]} 秒後に自動でアップデートします...")
+        ttk.Label(win, textvariable=msg_var, font=("", 10)).pack(pady=(0, 8))
+
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(pady=(0, 10))
+
+        def do_now():
+            """即座にアップデート開始"""
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+            self._clear_snooze()
+            self._start_update(new_version, download_url)
+
+        def do_skip():
+            """今回はキャンセル (snooze)"""
+            cancelled[0] = True
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+            self._set_snooze(new_version)
+
+        ttk.Button(btn_frame, text="今すぐ", command=do_now).pack(side="left", padx=5)
+        ttk.Button(
+            btn_frame, text=f"スキップ ({SNOOZE_DURATION_HOURS}h)", command=do_skip
+        ).pack(side="left", padx=5)
+
+        def tick():
+            if cancelled[0]:
+                return
+            countdown[0] -= 1
+            if countdown[0] <= 0:
+                # 自動実行
+                try:
+                    win.grab_release()
+                except Exception:
+                    pass
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+                self._clear_snooze()
+                self._start_update(new_version, download_url)
+                return
+            msg_var.set(f"{countdown[0]} 秒後に自動でアップデートします...")
+            self._root.after(1000, tick)
+
+        self._root.after(1000, tick)
+
+    def _start_update(self, new_version: str, download_url: str) -> None:
+        """進捗ダイアログを表示してダウンロード開始 (UI スレッドから呼ぶ)。"""
+        if self._update_progress_dialog is not None:
+            logging.debug("既にアップデート進行中、重複起動をスキップ")
+            return
+        self._update_progress_dialog = UpdateProgressDialog(self._root)
+        self._update_progress_dialog.set_status("ダウンロードを準備中...")
+        # 別スレッドで実ダウンロード + 差し替え
         threading.Thread(
             target=self._do_update, args=(new_version, download_url), daemon=True,
         ).start()
+
+    def _update_dialog_status(self, text: str) -> None:
+        """_do_update スレッドから UI スレッド経由で進捗ダイアログのステータスを更新"""
+        dlg = self._update_progress_dialog
+        if dlg is None:
+            return
+        self._root.after(0, lambda: dlg.set_status(text))
+
+    def _update_dialog_progress(self, percent: float, detail: str = "") -> None:
+        dlg = self._update_progress_dialog
+        if dlg is None:
+            return
+        self._root.after(0, lambda: dlg.set_progress(percent, detail))
+
+    def _update_dialog_indeterminate(self, detail: str = "") -> None:
+        dlg = self._update_progress_dialog
+        if dlg is None:
+            return
+        self._root.after(0, lambda: dlg.set_indeterminate(detail))
+
+    def _close_update_dialog(self) -> None:
+        dlg = self._update_progress_dialog
+        self._update_progress_dialog = None
+        if dlg is None:
+            return
+        self._root.after(0, dlg.close)
 
     def _do_update(self, new_version: str, download_url: str):
         """新exeをダウンロードし、ヘルパースクリプト経由で置き換え → 再起動"""
         try:
             logging.info("アップデート v%s をダウンロード中...", new_version)
+            self._update_dialog_status("ダウンロード中...")
+            self._update_dialog_indeterminate("新しいバージョンを取得しています")
+
             # ダウンロード先 (exeと同じディレクトリ)
             base = _get_base_dir()
             if sys.platform == "win32":
@@ -690,17 +989,33 @@ class WorkerGUI:
                     f.write(content)
             size_mb = new_exe.stat().st_size / 1024 / 1024
             logging.info("ダウンロード完了: %s (%.1f MB)", new_exe, size_mb)
+            self._update_dialog_progress(100, f"ダウンロード完了 ({size_mb:.1f} MB)")
 
-            # Worker停止
+            # Worker停止 (停止処理自体を別スレッドに逃がし UI ブロックを回避)
             if self._worker_running:
-                self._root.after(0, self._on_stop)
+                self._update_dialog_status("Worker を停止中...")
+                stop_done = threading.Event()
+
+                def _stop_async():
+                    try:
+                        self._on_stop()
+                    except Exception as e:
+                        logging.debug("停止処理エラー (無視): %s", e)
+                    finally:
+                        stop_done.set()
+
+                threading.Thread(target=_stop_async, daemon=True).start()
+                # 最大 15 秒まで停止完了を待つ (進捗ダイアログが動き続ける)
+                stop_done.wait(timeout=15.0)
 
             # 現在のexeのパス
             if getattr(sys, 'frozen', False):
                 current_exe = Path(sys.executable)
             else:
                 logging.warning("開発環境ではアップデート不可")
+                self._close_update_dialog()
                 return
+            self._update_dialog_status("差し替えスクリプトを起動中...")
 
             # ヘルパースクリプト作成
             if sys.platform == "win32":
@@ -783,10 +1098,13 @@ class WorkerGUI:
                 )
 
             logging.info("アップデータを起動しました。まもなく再起動します")
+            self._update_dialog_status("再起動中...")
+            self._update_dialog_progress(100, "ヘルパースクリプトに引き継ぎました")
             # 1秒後に強制終了 → exe ファイルロック解放 → bat が move 成功
             self._root.after(1000, self._quit_for_update)
         except Exception as e:
             logging.exception("アップデート失敗")
+            self._close_update_dialog()
             self._root.after(0, lambda: messagebox.showerror(
                 "アップデート失敗", f"アップデートに失敗しました:\n{e}"
             ))
