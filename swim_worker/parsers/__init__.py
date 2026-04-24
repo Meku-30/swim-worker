@@ -19,13 +19,19 @@ from . import airport, airspace, flight, notam, pirep, weather
 # job_type → parser callable
 # Coordinator の coordinator/result_handler.py:24-34 と必ず一致させる。
 # ただし実際にパースするかは Redis の whitelist で決まる (supports() 参照)。
+#
+# 【互換性注意】
+# `collect_flight_foids` は Coordinator 側 scheduler.py が `parse_foids_for_db`
+# (phase1 DB upsert 専用、より詳細な dict を返す) を使っているため、Worker 側で
+# `parse_foids` を呼んで送ると出力構造が合わず DB 保存が失敗する。
+# 従って flight_foids は whitelist に入れない運用とし、ここからも除外する。
 _PARSERS = {
     "collect_notams": notam.parse,
     "collect_pireps": pirep.parse,
     "collect_pkg_weather": weather.parse_pkg,
     "collect_airspace_data": airspace.parse,
     "collect_airport_profiles": airport.parse_detail,
-    "collect_flight_foids": flight.parse_foids,
+    # "collect_flight_foids": flight.parse_foids,  ← 互換性のため除外 (上記コメント参照)
     "collect_flight_details": flight.parse_details,
     "collect_aip": airport.parse_aip,
     "collect_airports": airport.parse_list,
@@ -33,36 +39,55 @@ _PARSERS = {
 
 # Redis whitelist キー (Coordinator が管理)
 PARSE_ENABLED_KEY = "swim:parse_enabled"
+# Worker 単位で parse を無効化するための per-job set のプレフィックス
+# 例: `swim:parse_disabled_workers:collect_pkg_weather` = {"hyuga", "hyuga-main"}
+#     → 上記 2 Worker は global で parse ON でも個別に除外される
+PARSE_DISABLED_WORKERS_PREFIX = "swim:parse_disabled_workers"
 
 # Worker 内キャッシュ: (ttl_until, set[str])
 # Redis SISMEMBER を execute_task 毎に叩くと帯域を食うため、60 秒キャッシュする
 _cache_expires_at: float = 0.0
-_cache_enabled: set[str] = set()
+_cache_enabled: set[str] = set()  # global enabled minus per-worker disabled for this worker
 _CACHE_TTL = 60.0
 
 
-async def _refresh_cache(redis_client) -> None:
-    """Redis から whitelist を取得してキャッシュに反映"""
+async def _refresh_cache(redis_client, worker_name: str | None = None) -> None:
+    """Redis から whitelist + per-worker disable set を取得してキャッシュに反映。
+
+    有効 job = (global enabled) - (この Worker が個別 disable された job)
+    """
     global _cache_expires_at, _cache_enabled
     try:
         members = await redis_client.smembers(PARSE_ENABLED_KEY)
-        _cache_enabled = {m.decode() if isinstance(m, bytes) else m for m in (members or set())}
+        enabled = {m.decode() if isinstance(m, bytes) else m for m in (members or set())}
+        # Worker 個別除外の適用
+        if worker_name:
+            for jt in list(enabled):
+                key = f"{PARSE_DISABLED_WORKERS_PREFIX}:{jt}"
+                try:
+                    is_disabled = await redis_client.sismember(key, worker_name)
+                except Exception:
+                    is_disabled = False
+                if is_disabled:
+                    enabled.discard(jt)
+        _cache_enabled = enabled
     except Exception:
-        # Redis エラー時は前回値を維持 (失敗時は安全側に倒れる)
+        # Redis エラー時は前回値を維持 (安全側)
         pass
     _cache_expires_at = time.monotonic() + _CACHE_TTL
 
 
-async def supports(job_type: str, redis_client=None) -> bool:
+async def supports(job_type: str, redis_client=None,
+                   worker_name: str | None = None) -> bool:
     """この job_type を Worker 側でパースするか判定。
 
     redis_client=None の場合は常に False (raw 送信 = 現状維持、安全側)。
-    Redis whitelist に入っている job_type のみ True。
+    worker_name を渡すと per-worker 除外 (swim:parse_disabled_workers:...) も適用。
     """
     if redis_client is None:
         return False
     if time.monotonic() >= _cache_expires_at:
-        await _refresh_cache(redis_client)
+        await _refresh_cache(redis_client, worker_name=worker_name)
     return job_type in _cache_enabled
 
 
