@@ -363,6 +363,9 @@ class TaskConsumer:
                 if self._version_check_counter >= self._VERSION_CHECK_INTERVAL:
                     self._version_check_counter = 0
                     await self.check_latest_version(quiet=True)
+                    # Redis 揮発時の自動復旧を兼ねて worker_versions/platforms も再登録
+                    # (起動時のみだと Redis が空になった時に Worker 再起動まで復活しない)
+                    await self.report_version()
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
                 logger.warning("Redis接続エラー（ハートビート）、5秒後にリトライ: %s", e)
                 await asyncio.sleep(5)
