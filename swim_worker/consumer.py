@@ -4,7 +4,7 @@
 タスクを取得してSWIM APIを実行、結果をRedisに返す。
 """
 import asyncio
-import gzip
+import zstandard as zstd
 import json
 import logging
 import math
@@ -14,13 +14,25 @@ from datetime import datetime, timezone
 
 import redis.exceptions
 
-from swim_worker import __version__
+from swim_worker import __version__, parsers
 from swim_worker.auth import SwimClient
 
 logger = logging.getLogger(__name__)
 
 RESULT_TTL = 3600  # 結果の有効期限（秒）
 HEARTBEAT_TTL_MULTIPLIER = 3
+
+# Coordinator への結果送信を zstd で圧縮 (gzip より小さく速い)。
+# Coordinator 側は zstd/gzip/生JSON のいずれも解凍可能 (後方互換)。
+# level=6: gzip level 9 デフォルトに対して -5% 程度。
+# L3 だと実測で gzip L9 より僅かに悪化、L6 で逆転 (実測サンプル48件、pkg/pirep)。
+_zstd_compressor = zstd.ZstdCompressor(level=6)
+
+
+def _encode_result(result: dict) -> bytes:
+    """result を最小サイズの JSON にして zstd 圧縮する"""
+    payload = json.dumps(result, separators=(",", ":")).encode()
+    return _zstd_compressor.compress(payload)
 
 
 class DuplicateWorkerError(RuntimeError):
@@ -102,8 +114,7 @@ class TaskConsumer:
             "error": None,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
-        compressed = gzip.compress(json.dumps(result).encode())
-        await self._redis.setex(f"results:{task_id}", RESULT_TTL, compressed)
+        await self._redis.setex(f"results:{task_id}", RESULT_TTL, _encode_result(result))
         logger.info("capability_test 完了: %s (ok=%d, ng=%d)",
             task_id[:8],
             sum(1 for r in results.values() if r["ok"]),
@@ -291,11 +302,34 @@ class TaskConsumer:
             else:
                 body = params["body"]
                 data = await self._swim.execute_api(url, body)
-            result = {
-                "task_id": task_id, "worker_name": self._worker_name,
-                "status": "success", "data": data, "error": None,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            }
+
+            # Worker 側で parse まで行い、Coordinator には構造化データを送る
+            # (帯域削減: 未使用フィールド/メタデータが落ちる)。
+            # 有効化する job_type は Redis whitelist `swim:parse_enabled` で動的制御。
+            # 未登録 or Redis 不通時は raw 送信 (現状維持 = 安全側)。
+            if await parsers.supports(job_type, self._redis):
+                try:
+                    parsed = parsers.parse_for_job_type(job_type, data)
+                    result = {
+                        "task_id": task_id, "worker_name": self._worker_name,
+                        "status": "success", "format": "parsed",
+                        "data": parsed, "error": None,
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                except Exception as e:
+                    # パース失敗時は raw を送って Coordinator 側のフロー (parse → store) に任せる
+                    logger.warning("Worker パース失敗、raw 送信にフォールバック (%s): %s", job_type, e)
+                    result = {
+                        "task_id": task_id, "worker_name": self._worker_name,
+                        "status": "success", "data": data, "error": None,
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+            else:
+                result = {
+                    "task_id": task_id, "worker_name": self._worker_name,
+                    "status": "success", "data": data, "error": None,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
             logger.info("タスク成功: %s", task_id)
             success = True
         except Exception as e:
@@ -306,8 +340,7 @@ class TaskConsumer:
             }
             logger.error("タスク失敗: %s — %s", task_id, e)
 
-        compressed = gzip.compress(json.dumps(result).encode())
-        await self._redis.setex(f"results:{task_id}", RESULT_TTL, compressed)
+        await self._redis.setex(f"results:{task_id}", RESULT_TTL, _encode_result(result))
         self._task_total += 1
         if not success:
             self._task_errors += 1
