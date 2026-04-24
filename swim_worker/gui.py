@@ -283,10 +283,6 @@ class WorkerGUI:
             )
 
     # --- System tray ---
-    def _create_tray_icon(self, color="green"):
-        """トレイアイコン用レーダー画像を生成 (共通モジュール経由)"""
-        return create_icon(color=color, size=64)
-
     def _set_window_icon(self):
         """ウィンドウタイトルバー (Windows/Linux) と Dock (macOS) のアイコンを設定する。
 
@@ -315,7 +311,7 @@ class WorkerGUI:
             )
             self._tray_icon = pystray.Icon(
                 "swim-worker",
-                self._create_tray_icon("gray"),
+                create_icon(color="gray", size=64),
                 "SWIM Worker",
                 menu,
             )
@@ -464,7 +460,7 @@ class WorkerGUI:
 
         self._worker_running = True
         if _HAS_TRAY and self._tray_icon:
-            self._tray_icon.icon = self._create_tray_icon("green")
+            self._tray_icon.icon = create_icon(color="green", size=64)
         self._worker_thread = threading.Thread(target=self._run_worker, daemon=True)
         self._worker_thread.start()
 
@@ -474,7 +470,7 @@ class WorkerGUI:
         if self._consumer:
             self._consumer.stop()
         if _HAS_TRAY and self._tray_icon:
-            self._tray_icon.icon = self._create_tray_icon("gray")
+            self._tray_icon.icon = create_icon(color="gray", size=64)
         self._status_var.set("停止中")
         self._start_btn.configure(state="normal")
         self._stop_btn.configure(state="disabled")
@@ -576,7 +572,7 @@ class WorkerGUI:
                 self._root.after(0, lambda: self._stop_btn.configure(state="disabled"))
                 self._worker_running = False
                 if _HAS_TRAY and self._tray_icon:
-                    self._tray_icon.icon = self._create_tray_icon("red")
+                    self._tray_icon.icon = create_icon(color="red", size=64)
                 for entry in self._entries.values():
                     self._root.after(0, lambda e=entry: e.configure(state="normal"))
             except Exception as e:
