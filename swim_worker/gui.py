@@ -159,6 +159,8 @@ class WorkerGUI:
         # GUI 設定 (auto_update 等) と snooze 情報を永続化
         self._gui_settings: dict = _load_json(GUI_SETTINGS_PATH)
         self._update_progress_dialog: UpdateProgressDialog | None = None
+        # 古いアップデート関連ファイルを掃除 (3 日超過の .old / .new、期限切れ snooze)
+        self._cleanup_stale_update_files()
         # Phase 2: 前回アップデートがロールバックされていたら通知 (起動後に表示)
         self._check_rollback_marker_after_ready()
 
@@ -271,6 +273,14 @@ class WorkerGUI:
         logging.root.setLevel(logging.INFO)
 
         self._setup_tray()
+
+        # 起動時に運用者向けに現在の自動更新設定をログへ (トラブルシュート用)
+        if sys.platform in ("win32", "darwin"):
+            auto_state = "有効" if self._auto_update_var.get() else "無効"
+            logging.info(
+                "GUI 起動 (v%s) / アップデート自動適用: %s",
+                __version__, auto_state,
+            )
 
     # --- System tray ---
     def _create_tray_icon(self, color="green"):
@@ -718,7 +728,10 @@ class WorkerGUI:
         self._root.after(0, lambda: self._status_var.set(msg))
 
     def _check_rollback_marker_after_ready(self) -> None:
-        """前回アップデートがロールバックされた場合、ユーザーに通知する (起動 1 秒後)"""
+        """前回アップデートがロールバックされた場合、ユーザーに通知する。
+
+        autoconnect=True の場合は Worker 起動処理と重ならないよう 3 秒待つ。
+        """
         marker = _get_base_dir() / "data" / ".update_rollback.json"
         if not marker.exists():
             return
@@ -742,7 +755,36 @@ class WorkerGUI:
                 except Exception:
                     pass
 
-        self._root.after(1000, notify)
+        # autoconnect=True だと _on_start が先に走る。それと重ならない 3 秒遅延。
+        self._root.after(3000, notify)
+
+    def _cleanup_stale_update_files(self) -> None:
+        """古いアップデート関連ファイルを削除 (起動時の軽量ハウスキープ)。
+
+        - 3 日以上古い `*.old` / `*.new` / `*.new.exe` ファイルを削除
+        - 期限切れ の snooze ファイルを削除 (_is_snoozed で処理されるが念のため)
+        """
+        base = _get_base_dir()
+        now_ts = datetime.now().timestamp()
+        stale_after_sec = 3 * 24 * 3600  # 3 日
+        for pattern in ("*.old", "*.new", "*.new.exe"):
+            for f in base.glob(pattern):
+                try:
+                    if now_ts - f.stat().st_mtime > stale_after_sec:
+                        f.unlink()
+                        logging.debug("古いアップデートファイルを削除: %s", f.name)
+                except Exception:
+                    pass
+        # 期限切れ snooze も軽く掃除
+        snooze = _load_json(UPDATE_SNOOZE_PATH)
+        until_str = snooze.get("until") if snooze else None
+        if until_str:
+            try:
+                until = datetime.fromisoformat(until_str)
+                if datetime.now(timezone.utc) >= until:
+                    self._clear_snooze()
+            except ValueError:
+                self._clear_snooze()
 
     # --- 自動アップデート ---
     def _on_auto_update_toggle(self) -> None:
@@ -756,18 +798,31 @@ class WorkerGUI:
             logging.warning("GUI 設定保存失敗: %s", e)
 
     def _is_snoozed(self, version: str) -> bool:
-        """指定バージョンに対して現在 snooze 期間中かを返す。"""
+        """指定バージョンに対して現在 snooze 期間中かを返す。
+
+        別バージョンや期限切れの snooze ファイルが残っていれば自動削除 (ゴミ掃除)。
+        """
         snooze = _load_json(UPDATE_SNOOZE_PATH)
+        if not snooze:
+            return False
         if snooze.get("version") != version:
+            # 別バージョンの古い snooze が残っている → 削除
+            self._clear_snooze()
             return False
         until_str = snooze.get("until")
         if not until_str:
+            self._clear_snooze()
             return False
         try:
             until = datetime.fromisoformat(until_str)
         except ValueError:
+            self._clear_snooze()
             return False
-        return datetime.now(timezone.utc) < until
+        if datetime.now(timezone.utc) >= until:
+            # 期限切れ → 削除
+            self._clear_snooze()
+            return False
+        return True
 
     def _set_snooze(self, version: str) -> None:
         """「後で」選択時、このバージョンを一定時間スキップする。"""
