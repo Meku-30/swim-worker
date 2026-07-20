@@ -79,12 +79,17 @@ class TaskConsumer:
                  request_delay_p99: float = 15.0,
                  request_delay_clip_min: float = 1.5,
                  request_delay_clip_max: float = 25.0,
+                 task_hard_timeout: float = 300.0,
                  on_update_available=None,
                  on_task_state=None) -> None:
         self._redis = redis_client
         self._swim = swim_client
         self._worker_name = worker_name
         self._heartbeat_interval = heartbeat_interval
+        # execute_task がハングし続けても _consume_loop 自体は回復できるようにする
+        # 強制タイムアウト (2026-07-20 障害: heartbeatは生きたままタスク消費だけ
+        # 完全停止し、キューに230件超が溜まった事象の再発防止)
+        self._task_hard_timeout = task_hard_timeout
         # 対数正規分布パラメータ（人間のブラウジング間隔を再現）
         self._delay_mu = math.log(request_delay_median)
         self._delay_sigma = (math.log(request_delay_p99) - self._delay_mu) / 2.326
@@ -465,7 +470,13 @@ class TaskConsumer:
                     continue
                 _, raw = item
                 task = json.loads(raw)
-                await self.execute_task(task)
+                try:
+                    await asyncio.wait_for(self.execute_task(task), timeout=self._task_hard_timeout)
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "タスク強制タイムアウト (%.0f秒超過、consume_loop継続): %s",
+                        self._task_hard_timeout, task.get("task_id"),
+                    )
             except asyncio.CancelledError:
                 break
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:

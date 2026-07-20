@@ -30,3 +30,4 @@ class TestSettings:
         s = Settings()
         assert s.heartbeat_interval == 30
         assert s.redis_ca_cert == ""
+        assert s.task_hard_timeout == 300.0
