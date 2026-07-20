@@ -1,6 +1,17 @@
 #!/bin/bash
-# swim-worker デプロイスクリプト
-# Vultr / Oracle の2環境にWorkerを一括デプロイする
+# swim-worker デプロイスクリプト (2026-07-20時点: 実際の本番デプロイ方式と乖離あり、要注意)
+#
+# 【警告】Oracle/VultrのVPSは現在 /opt/swim-worker/ にinstall.sh経由でバイナリ配置
+# されており (systemd ExecStart=/opt/swim-worker/swim-worker)、このスクリプトが
+# 前提とするソースチェックアウト (ORACLE_BASE=/home/ubuntu/swim-worker 等) への
+# rsyncは実際の稼働プロセスに反映されない。
+#
+# 現在の正規デプロイ経路は「バージョンタグ push → CI release → 各Workerの
+# swim-worker-update.timer/systemd経由の自動更新」。即時反映したい場合は
+# `ssh <host> && sudo systemctl start swim-worker-update.service` を使うこと。
+# 詳細: docs/architecture.md § 配布と自動更新、swim-coordinator/docs/admin-runbook.md § 1.4
+#
+# Vultr / Oracle の2環境にWorkerを一括デプロイする (レガシー、上記警告参照)
 #
 # 使い方:
 #   ./deploy.sh          # 全環境にデプロイ
