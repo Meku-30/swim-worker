@@ -215,3 +215,28 @@ curl | bash install.sh
 更新時は旧バイナリを `swim-worker.old` として保持、60秒後に `is-active` + `NRestarts < 2` で検証、失敗すれば自動ロールバック。
 
 **kill switch / staged rollout の制御は管理者 (meku) が Coordinator 側 Redis で行う** (`swim-coordinator/scripts/swim-admin` ヘルパー参照)。詳細は `swim-coordinator/docs/admin-runbook.md`。
+
+### 特定Workerの更新チェックを今すぐ走らせたい場合
+
+`swim-worker-update.timer` の発火（6時間 + 最大2時間ランダム、起動直後は `OnBootSec=15min` + 同ランダム）を待たずに、タイマーが呼ぶ oneshot サービスを直接startすれば同じ処理が即座に走る（kill switch / whitelist 等のガードはそのまま評価される）。
+
+```bash
+ssh <worker-host>
+sudo systemctl start swim-worker-update.service
+# 結果確認
+sudo journalctl -u swim-worker-update.service --no-pager -n 15
+```
+
+次回の予定発火時刻は `systemctl list-timers swim-worker-update.timer` で確認できる。VPS再起動直後は `OnBootSec=15min` が優先されるため、6時間サイクルの途中で再起動しても最大8時間待つわけではなく、起動から15分〜2時間15分後には次のチェックが走る。
+
+### OS側の自動再起動 (unattended-upgrades)
+
+Worker を動かす VPS (Oracle / Vultr) では `unattended-upgrades` を有効化し、`Unattended-Upgrade::Automatic-Reboot "true"` + `Automatic-Reboot-Time` を明示設定している（Oracle: `06:00 America/New_York`、Vultr: `06:00 UTC`）。カーネル等の再起動必須パッチが入った場合、手動確認なしで指定時刻に自動再起動される。GCPも2026-07-20に同様の設定へ揃えた（それまでは `Automatic-Reboot` が無効で、`/var/run/reboot-required` が放置される状態だった）。
+
+`swim-worker.service` は `Restart=always` + `WantedBy=multi-user.target` なので、OS再起動時も自動的に起動し直す。Redisへの再接続もハートビート/コンシューマー双方のループが持つリトライロジックで自動的に回復する。
+
+### 既知の障害: consume_loop 停止 (v1.0.7以前, 2026-07-20)
+
+`execute_task()` 内の処理（SWIMへのHTTPリクエストが有力候補）がハングすると、`_consume_loop` 全体が `blpop` に戻れず永久停止する不具合があった。`_heartbeat_loop` は別の asyncio タスクなので生き続け、ダッシュボード上は `alive: true` のまま、タスクだけが `tasks:{worker_name}` キューに際限なく溜まり続けた（実際に230件超の滞留が発生）。
+
+v1.0.8で `_consume_loop` が `execute_task()` を `asyncio.wait_for(..., timeout=task_hard_timeout)` (デフォルト300秒、`TASK_HARD_TIMEOUT` 環境変数で調整可) で包むよう修正し、ハングしても強制的に打ち切って次のタスクへ戻れるようにした。合わせて Coordinator 側 `dispatcher.py` の `tasks:{worker}` キュー全体へのTTL設定 (Worker処理が少し遅れるだけで未処理タスクを巻き込んで消えるバグ) も撤去済み。詳細は `swim-coordinator` リポジトリのメモリ記録参照。
