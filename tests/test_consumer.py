@@ -87,6 +87,39 @@ class TestTaskConsumer:
         assert "format" not in result_data  # whitelist 外 → raw
         assert result_data["data"] == {"weatherDTO": {}}
 
+    async def test_consume_loop_recovers_from_stuck_execute_task(self):
+        """execute_task がハングしても _consume_loop 自体は打ち切って次のタスクへ戻れる
+
+        2026-07-20 障害: oracle-worker/GCP-worker/hyuga-main で execute_task が
+        (おそらくSWIMへのHTTP呼び出しが)ハングし、_consume_loop全体が永久停止。
+        heartbeat_loopは別タスクなので生き続け、alive=trueのままタスクだけ
+        230件以上溜まり続けた。強制タイムアウトで自己回復できるようにする。
+        """
+        mock_redis = AsyncMock()
+        task_json = json.dumps({"task_id": "stuck-1", "job_type": "collect_pireps",
+            "params": {"url": "https://example.com", "body": {}}})
+        call_count = {"n": 0}
+
+        async def fake_blpop(key, timeout):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return (key, task_json)
+            raise asyncio.CancelledError()  # 2周目でテスト用にループを止める
+
+        mock_redis.blpop.side_effect = fake_blpop
+
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
+            worker_name="test-worker", heartbeat_interval=30, task_hard_timeout=0.05)
+
+        async def hang_forever(task):
+            await asyncio.sleep(1000)
+        consumer.execute_task = hang_forever
+
+        consumer._running = True
+        # ハング後もループへ戻れなければこのwait_for自体がタイムアウトしてテスト失敗する
+        await asyncio.wait_for(consumer._consume_loop(), timeout=2.0)
+        assert call_count["n"] == 2  # 1周目のハングを乗り越え2周目のblpopに到達した
+
     async def test_execute_task_failure(self):
         mock_swim = AsyncMock()
         mock_swim.execute_api.side_effect = Exception("API down")

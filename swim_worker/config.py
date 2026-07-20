@@ -21,5 +21,6 @@ class Settings(BaseSettings):
     request_delay_p99: float = 15.0   # リクエスト前遅延の99パーセンタイル（秒）
     request_delay_clip_min: float = 1.5  # リクエスト前遅延の下限（秒）
     request_delay_clip_max: float = 25.0  # リクエスト前遅延の上限（秒）
+    task_hard_timeout: float = 300.0  # 1タスクの強制タイムアウト（秒、consume_loop自己回復用）
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
