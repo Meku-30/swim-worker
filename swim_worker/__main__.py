@@ -58,6 +58,7 @@ async def main() -> None:
         request_delay_p99=settings.request_delay_p99,
         request_delay_clip_min=settings.request_delay_clip_min,
         request_delay_clip_max=settings.request_delay_clip_max,
+        task_hard_timeout=settings.task_hard_timeout,
     )
 
     loop = asyncio.get_event_loop()
