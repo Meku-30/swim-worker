@@ -80,6 +80,7 @@ class TaskConsumer:
                  request_delay_clip_min: float = 1.5,
                  request_delay_clip_max: float = 25.0,
                  task_hard_timeout: float = 300.0,
+                 blpop_timeout: float = 30.0,
                  on_update_available=None,
                  on_task_state=None) -> None:
         self._redis = redis_client
@@ -90,6 +91,10 @@ class TaskConsumer:
         # 強制タイムアウト (2026-07-20 障害: heartbeatは生きたままタスク消費だけ
         # 完全停止し、キューに230件超が溜まった事象の再発防止)
         self._task_hard_timeout = task_hard_timeout
+        # blpopのブロッキング窓 (2026-07-21: redis-py非同期クライアントの累積タイムアウト
+        # 計算バグ(redis/redis-py#3454)への緩和策。旧5秒から30秒に緩和し、
+        # TLS越し・レイテンシのある経路で問題に当たる頻度自体を下げる)
+        self._blpop_timeout = blpop_timeout
         # 対数正規分布パラメータ（人間のブラウジング間隔を再現）
         self._delay_mu = math.log(request_delay_median)
         self._delay_sigma = (math.log(request_delay_p99) - self._delay_mu) / 2.326
@@ -465,7 +470,7 @@ class TaskConsumer:
         queue_key = f"tasks:{self._worker_name}"
         while self._running:
             try:
-                item = await self._redis.blpop(queue_key, timeout=5)
+                item = await self._redis.blpop(queue_key, timeout=self._blpop_timeout)
                 if item is None:
                     continue
                 _, raw = item
