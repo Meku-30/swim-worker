@@ -31,3 +31,5 @@ class TestSettings:
         assert s.heartbeat_interval == 30
         assert s.redis_ca_cert == ""
         assert s.task_hard_timeout == 300.0
+        assert s.redis_socket_timeout == 30.0
+        assert s.redis_blpop_timeout == 30.0

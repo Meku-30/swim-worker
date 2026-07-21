@@ -28,6 +28,7 @@ async def main() -> None:
         ssl=True,
         ssl_ca_certs=ca_cert,
         decode_responses=True,
+        socket_timeout=settings.redis_socket_timeout,
     )
 
     # Redis接続を指数バックオフでリトライ (最大10回)
@@ -59,6 +60,7 @@ async def main() -> None:
         request_delay_clip_min=settings.request_delay_clip_min,
         request_delay_clip_max=settings.request_delay_clip_max,
         task_hard_timeout=settings.task_hard_timeout,
+        blpop_timeout=settings.redis_blpop_timeout,
     )
 
     loop = asyncio.get_event_loop()
