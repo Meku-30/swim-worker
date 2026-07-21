@@ -151,7 +151,8 @@ class WorkerGUI:
         self._root = tk.Tk()
         self._root.title("SWIM Worker")
         self._root.geometry("520x640")
-        self._root.resizable(False, False)
+        self._root.minsize(420, 400)
+        self._root.resizable(True, True)
 
         self._worker_thread: threading.Thread | None = None
         self._worker_running = False
@@ -180,9 +181,18 @@ class WorkerGUI:
         self._status_label = ttk.Label(status_frame, textvariable=self._status_var, font=("", 12, "bold"))
         self._status_label.pack()
 
-        # --- 設定 ---
+        # --- 設定 (折りたたみ可能。初回設定後はあまり見ないため隠せるようにする) ---
+        settings_toggle_frame = ttk.Frame(root)
+        settings_toggle_frame.pack(fill="x", padx=10, pady=(5, 0))
+
+        self._settings_collapsed = bool(self._gui_settings.get("settings_collapsed", False))
+        self._settings_toggle_btn = ttk.Button(
+            settings_toggle_frame, command=self._toggle_settings_section,
+        )
+        self._settings_toggle_btn.pack(side="left")
+
         settings_frame = ttk.LabelFrame(root, text="設定", padding=10)
-        settings_frame.pack(fill="x", padx=10, pady=5)
+        self._settings_frame = settings_frame
 
         fields = [
             ("Redis ホスト:", "redis_host", False),
@@ -204,6 +214,10 @@ class WorkerGUI:
         # --- ボタン ---
         btn_frame = ttk.Frame(root, padding=10)
         btn_frame.pack(fill="x", padx=10)
+        self._btn_frame = btn_frame
+
+        # 設定欄の初期表示状態を反映 (トグルボタンのpack/pack_forgeもここで確定)
+        self._apply_settings_collapsed_state()
 
         self._start_btn = ttk.Button(btn_frame, text="▶ 起動", command=self._on_start)
         self._start_btn.pack(side="left", padx=(0, 5))
@@ -431,6 +445,29 @@ class WorkerGUI:
         ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
         state = "有効" if self._autoconnect_var.get() else "無効"
         logging.info("自動接続を%sにしました", state)
+
+    def _apply_settings_collapsed_state(self):
+        """self._settings_collapsed の値に合わせて設定欄の表示/非表示とボタン表記を更新する。
+
+        再展開時は before=self._btn_frame でボタン行の直前に挿入し直すことで、
+        pack順(状態→設定→ボタン→...→ログ)を維持する。
+        """
+        if self._settings_collapsed:
+            self._settings_frame.pack_forget()
+            self._settings_toggle_btn.configure(text="▶ 設定を表示")
+        else:
+            self._settings_frame.pack(fill="x", padx=10, pady=5, before=self._btn_frame)
+            self._settings_toggle_btn.configure(text="▼ 設定を隠す")
+
+    def _toggle_settings_section(self):
+        """設定欄の折りたたみボタン押下時: 開閉を切り替えて gui_settings.json に永続化する。"""
+        self._settings_collapsed = not self._settings_collapsed
+        self._apply_settings_collapsed_state()
+        self._gui_settings["settings_collapsed"] = self._settings_collapsed
+        try:
+            _save_json(GUI_SETTINGS_PATH, self._gui_settings)
+        except Exception as e:
+            logging.warning("GUI 設定保存失敗: %s", e)
 
     def _on_start(self):
         """Worker起動"""
