@@ -508,6 +508,7 @@ class WorkerGUI:
                     ssl=True,
                     ssl_ca_certs=ca_cert,
                     decode_responses=True,
+                    socket_timeout=settings.redis_socket_timeout,
                 )
 
                 # Redis接続を指数バックオフでリトライ (最大10回)
@@ -548,6 +549,7 @@ class WorkerGUI:
                     request_delay_clip_min=settings.request_delay_clip_min,
                     request_delay_clip_max=settings.request_delay_clip_max,
                     task_hard_timeout=settings.task_hard_timeout,
+                    blpop_timeout=settings.redis_blpop_timeout,
                     on_update_available=self._on_update_detected,
                     on_task_state=self._on_task_state_changed,
                 )
