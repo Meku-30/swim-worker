@@ -120,6 +120,45 @@ class TestTaskConsumer:
         await asyncio.wait_for(consumer._consume_loop(), timeout=2.0)
         assert call_count["n"] == 2  # 1周目のハングを乗り越え2周目のblpopに到達した
 
+    async def test_consume_loop_uses_configured_blpop_timeout(self):
+        """blpopのtimeoutはblpop_timeout引数で設定可能(デフォルト値のハードコードではない)
+
+        2026-07-21: redis-py非同期クライアントの累積タイムアウト計算バグ
+        (redis/redis-py#3454)により、TLS越し・レイテンシのある経路でblpopが
+        本来正常なはずのタイミングでも「Timeout reading from ...」エラーとして
+        接続を切断していた事象への緩和策。blpopのブロッキング窓を長くすることで
+        問題に当たる頻度自体を減らす。
+        """
+        mock_redis = AsyncMock()
+        mock_redis.blpop.side_effect = asyncio.CancelledError()
+
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
+            worker_name="test-worker", heartbeat_interval=30, blpop_timeout=45.0)
+
+        consumer._running = True
+        try:
+            await consumer._consume_loop()
+        except asyncio.CancelledError:
+            pass
+
+        mock_redis.blpop.assert_called_once_with("tasks:test-worker", timeout=45.0)
+
+    async def test_consume_loop_default_blpop_timeout_is_30(self):
+        """blpop_timeoutを明示しない場合のデフォルトは30秒(旧5秒から緩和)"""
+        mock_redis = AsyncMock()
+        mock_redis.blpop.side_effect = asyncio.CancelledError()
+
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
+            worker_name="test-worker", heartbeat_interval=30)
+
+        consumer._running = True
+        try:
+            await consumer._consume_loop()
+        except asyncio.CancelledError:
+            pass
+
+        mock_redis.blpop.assert_called_once_with("tasks:test-worker", timeout=30.0)
+
     async def test_execute_task_failure(self):
         mock_swim = AsyncMock()
         mock_swim.execute_api.side_effect = Exception("API down")
