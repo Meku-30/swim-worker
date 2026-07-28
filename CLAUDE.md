@@ -2,7 +2,7 @@
 
 SWIM 非公式 API の収集実行コンポーネント。Coordinator からジョブを受け取り、SWIM ポータルからデータを収集する。
 
-親ワークスペース `<HOME>/claude/CLAUDE.md` の作業ルールを継承する。全体像は `swim-api/CLAUDE.md` を参照。
+このリポジトリの親ワークスペース (ローカル環境) の `CLAUDE.md` に定義された作業ルールを継承する。全体像は `swim-api/CLAUDE.md` を参照。
 
 ## 公開設定
 
