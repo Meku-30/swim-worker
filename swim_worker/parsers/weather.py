@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 _JOB_TYPE = "collect_pkg_weather"
 _KNOWN_TOP_KEYS = {"weatherDTO"}
 _KNOWN_DTO_KEYS = {"metarSpeciInfoList", "tafInfoList", "atisInfoList", "useRunwayList"}
+_IGNORED_TOP_KEYS = {
+    "msgHeader", "ctrlInfo", "ctrlHeader", "errorInfoDTO",  # プロトコル用メタデータ
+    "shapeDisplayList",  # 地図表示用シンボル定義 (気象データではない)
+    # notamDTOList は実データだが collect_notams と重複疑いのため保留 (2026-07-29 調査中)
+}
 
 _CLOSE_ATIS_PATTERN = re.compile(
     r"ATIS\s+\w{4}(?:\s+[A-Z])?\s*\n\s*CLOSE\s*$", re.DOTALL
@@ -98,7 +103,7 @@ def _parse_rwy_info(plain_data: str) -> tuple[list[str], str | None, str | None,
 
 def parse_pkg(raw_data: dict) -> list[dict]:
     """PKG気象レスポンスからweather/atis/runway_infoレコードを生成"""
-    diagnostics.check_unknown_keys(_JOB_TYPE, raw_data, _KNOWN_TOP_KEYS)
+    diagnostics.check_unknown_keys(_JOB_TYPE, raw_data, _KNOWN_TOP_KEYS, _IGNORED_TOP_KEYS)
     records = []
     weather_dto = raw_data.get("weatherDTO") or {}
     diagnostics.check_unknown_keys(_JOB_TYPE, weather_dto, _KNOWN_DTO_KEYS)
