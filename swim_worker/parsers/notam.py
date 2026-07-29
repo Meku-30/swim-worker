@@ -7,7 +7,12 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+from . import diagnostics
+
 logger = logging.getLogger(__name__)
+
+_JOB_TYPE = "collect_notams"
+_KNOWN_KEYS = {"notamList", "locationInfoList"}
 
 _DT_FORMATS = ["%Y/%m/%d %H:%M", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ", "%Y%m%d%H%M", "%y%m%d%H%M"]
 
@@ -35,6 +40,7 @@ def _parse_dt(s: str | None) -> str | None:
 
 def parse(raw_data: dict) -> list[dict]:
     """SWIM NOTAM API生JSONからレコードリストを生成"""
+    diagnostics.check_unknown_keys(_JOB_TYPE, raw_data, _KNOWN_KEYS)
     records = []
     # Multiple response formats
     notam_list = raw_data.get("notamList") or []

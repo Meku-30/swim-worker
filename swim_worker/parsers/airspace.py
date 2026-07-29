@@ -7,7 +7,12 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+from . import diagnostics
+
 logger = logging.getLogger(__name__)
+
+_JOB_TYPE = "collect_airspace_data"
+_KNOWN_KEYS = {"airportWeatherConditionResult", "sigmetList"}
 
 
 def _parse_dt(s: str | None) -> str | None:
@@ -36,6 +41,7 @@ def _coerce_dt(value):
 
 
 def parse(raw_data: dict) -> list[dict]:
+    diagnostics.check_unknown_keys(_JOB_TYPE, raw_data, _KNOWN_KEYS)
     records = []
     # Weather conditions
     for cond in (raw_data.get("airportWeatherConditionResult") or []):
