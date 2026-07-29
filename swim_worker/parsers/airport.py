@@ -8,7 +8,20 @@ import re
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 
+from . import diagnostics
+
 logger = logging.getLogger(__name__)
+
+_JOB_TYPE_LIST = "collect_airports"
+_JOB_TYPE_DETAIL = "collect_airport_profiles"
+_JOB_TYPE_AIP = "collect_aip"
+_KNOWN_LIST_KEYS = {"locationInfoList"}
+_KNOWN_DETAIL_KEYS = {
+    "_icao_code", "ret", "serviceStartTime", "serviceEndTime", "sunriseTime", "sunsetTime",
+    "departureDelayTime", "arrivalDelayTime", "airportUsage", "airportUsageEn",
+    "runwayNoDep", "runwayNoLdg", "approach",
+}
+_KNOWN_AIP_KEYS = {"html"}
 
 
 # --- AIP HTMLパーサー ---
@@ -56,6 +69,7 @@ class _TableParser(HTMLParser):
 
 
 def parse_list(raw_data: dict) -> list[dict]:
+    diagnostics.check_unknown_keys(_JOB_TYPE_LIST, raw_data, _KNOWN_LIST_KEYS)
     records = []
     for item in (raw_data.get("locationInfoList") or []):
         icao = (item.get("id") or "").strip()
@@ -87,6 +101,7 @@ async def store_list(session_factory, records: list[dict]) -> int:
 
 def parse_detail(raw_data: dict) -> list[dict]:
     # raw_data contains icao_code from the task params + the API response
+    diagnostics.check_unknown_keys(_JOB_TYPE_DETAIL, raw_data, _KNOWN_DETAIL_KEYS)
     icao = raw_data.get("_icao_code", "")
     ret = raw_data.get("ret", raw_data)
     return [{
@@ -122,6 +137,7 @@ def parse_aip(raw_data: dict) -> list[dict]:
 
     raw_data には {"html": "<html>..."} の形式でHTMLが入る。
     """
+    diagnostics.check_unknown_keys(_JOB_TYPE_AIP, raw_data, _KNOWN_AIP_KEYS)
     html = raw_data.get("html", "")
     if not html:
         return []
