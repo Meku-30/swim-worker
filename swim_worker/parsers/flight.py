@@ -6,7 +6,14 @@ store_* のみ SQLAlchemy + models を関数内 import で使用する。
 import logging
 from datetime import datetime, timedelta, timezone
 
+from . import diagnostics
+
 logger = logging.getLogger(__name__)
+
+_JOB_TYPE_FOIDS = "collect_flight_foids"
+_JOB_TYPE_DETAILS = "collect_flight_details"
+_KNOWN_FOIDS_KEYS = {"flightInformationSearchResultsDTO"}
+_KNOWN_DETAILS_KEYS = {"flightDetailsSearchResultsDTO"}
 
 
 def _parse_dt(s: str | None) -> str | None:
@@ -34,6 +41,19 @@ def _coerce_dt(value):
     return None
 
 
+def coerce_dt_fields(record: dict) -> dict:
+    """record の datetime フィールド (ISO 文字列) を datetime オブジェクトに in-place 復元。
+
+    parse_foids / parse_details は JSON-safe な ISO 文字列を返すため、
+    DB 保存前に datetime オブジェクトへ戻す必要がある。
+    対象フィールド: _DT_FIELDS。同じ record を返す。
+    """
+    for f in _DT_FIELDS:
+        if f in record:
+            record[f] = _coerce_dt(record.get(f))
+    return record
+
+
 def parse_foids(raw_data: dict, queried_airport: str | None = None) -> list[dict]:
     """FLV803レスポンスからFlightDetail基本データを抽出 (Phase1即保存用)。
 
@@ -41,6 +61,7 @@ def parse_foids(raw_data: dict, queried_airport: str | None = None) -> list[dict
     指定しない場合は該当側が None になる (Phase3 で補完される前提)。
     rte/reg/滑走路/ssta/sstd はNULLのまま（Phase3で補完）。
     """
+    diagnostics.check_unknown_keys(_JOB_TYPE_FOIDS, raw_data, _KNOWN_FOIDS_KEYS)
     result = raw_data.get("flightInformationSearchResultsDTO") or {}
     records = []
 
@@ -88,6 +109,7 @@ async def store_foids(session_factory, records: list[dict]) -> int:
 
 def parse_details(raw_data: dict) -> list[dict]:
     """FLV911レスポンスからFlightDetailレコードを生成"""
+    diagnostics.check_unknown_keys(_JOB_TYPE_DETAILS, raw_data, _KNOWN_DETAILS_KEYS)
     result = raw_data.get("flightDetailsSearchResultsDTO") or {}
     fd = result.get("flightDetails") or {}
     if not fd:
@@ -122,9 +144,7 @@ async def store_details(session_factory, records: list[dict]) -> int:
     from coordinator.db.models import FlightDetail
     # JSON 経由の str datetime を復元
     for r in records:
-        for f in _DT_FIELDS:
-            if f in r:
-                r[f] = _coerce_dt(r.get(f))
+        coerce_dt_fields(r)
     foids = [r["foid"] for r in records]
     async with session_factory() as session:
         existing = await session.execute(
