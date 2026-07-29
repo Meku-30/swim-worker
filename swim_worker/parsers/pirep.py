@@ -7,7 +7,16 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+from . import diagnostics
+
 logger = logging.getLogger(__name__)
+
+_JOB_TYPE = "collect_pireps"
+_TURBULENCE_KEY_CANDIDATES = ["turbulenceList", "turbulencePirepList", "pirepList"]
+_IGNORED_KEYS = {
+    "msgHeader", "ctrlInfo", "ctrlHeader", "xmlBody", "errorInfoDTO",
+    "shapeDisplayList",  # 地図表示用シンボル定義 (PIREPデータではない)
+}
 
 
 def _parse_dt(s: str | None) -> str | None:
@@ -35,7 +44,14 @@ def _coerce_dt(value):
     return None
 
 
+_KNOWN_KEYS = {"turbulenceList", "turbulencePirepList", "pirepList", "airepSpecialList"}
+
+
 def parse(raw_data: dict) -> list[dict]:
+    # 一時診断 (2026-07-29 追加、調査後に削除予定): 未パースの生カテゴリ検出
+    diagnostics.check_unknown_keys(_JOB_TYPE, raw_data, _KNOWN_KEYS, _IGNORED_KEYS)
+    diagnostics.check_key_collision(_JOB_TYPE, raw_data, _TURBULENCE_KEY_CANDIDATES)
+
     records = []
     # Turbulence PIREPs
     for item in (raw_data.get("turbulenceList") or raw_data.get("turbulencePirepList") or raw_data.get("pirepList") or []):

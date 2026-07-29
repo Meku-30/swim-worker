@@ -13,7 +13,7 @@ if [[ ! -d "$src" ]]; then
 fi
 
 mismatch=0
-for f in notam.py pirep.py weather.py airspace.py airport.py flight.py; do
+for f in notam.py pirep.py weather.py airspace.py airport.py flight.py diagnostics.py; do
     if ! diff -q "$src/$f" "$dst/$f" > /dev/null; then
         echo "DIFF: $f"
         diff -u "$src/$f" "$dst/$f" | head -40
