@@ -110,10 +110,19 @@ async def store(session_factory, records: list[dict]) -> int:
     cns = [r["control_number"] for r in records]
     async with session_factory() as session:
         existing = await session.execute(
-            select(Pirep.control_number).where(Pirep.control_number.in_(cns))
+            select(Pirep.control_number, Pirep.observed_at).where(Pirep.control_number.in_(cns))
         )
-        existing_ids = {row[0] for row in existing.all()}
-    new_records = [r for r in records if r["control_number"] not in existing_ids]
+        # SWIMはcontrol_numberを使い回すため、control_number単体では重複判定できない。
+        # (control_number, observed_at) の組で判定する
+        # (2026-07-30、これが原因でSMTH/LGT系の新規データが誤って破棄され続けていたバグを修正)。
+        existing_pairs = {
+            (row[0], row[1].replace(tzinfo=timezone.utc) if row[1] and row[1].tzinfo is None else row[1])
+            for row in existing.all()
+        }
+    new_records = [
+        r for r in records
+        if (r["control_number"], r["observed_at"]) not in existing_pairs
+    ]
     if not new_records:
         return 0
     async with session_factory() as session:
