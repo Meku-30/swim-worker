@@ -98,7 +98,8 @@ Windows版と同様です。**管理者に「起動しました」と連絡**し
 ## Linux / Raspberry Pi の場合（CLI版）
 
 amd64 (x86_64) と arm64 (aarch64) の両方に対応しています。
-Raspberry Pi 4/5 + 64bit OS (Pi OS Bookworm 等) で動作確認済みです。
+Raspberry Pi 4/5 + 64bit OS (Pi OS Bookworm 等) での動作を想定していますが、
+実機での動作確認はまだ行っていません（CIではarm64バイナリのビルドのみ実施）。
 
 ### 推奨: ワンライナーインストール
 
