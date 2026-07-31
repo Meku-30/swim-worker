@@ -72,14 +72,19 @@ parse() 関数の返り値に含まれる日時フィールドは **ISO 8601 文
 
 v1.0.1 は parse() が datetime を返していたため、pkg_weather 等 parsed 送信時に Worker が結果送信失敗 → Coordinator タイムアウト → 再配布多発の不具合あり。v1.0.2 で修正済み。
 
-### 実測削減率 (48件サンプル + 実運用)
+### 実測削減率と確定運用 (2026-04-24確定、全 job_type 判定完了)
 
-| job_type | 従来 (gzip+raw) | 新 (zstd+parsed) | 削減率 |
-|---|---|---|---|
-| pkg_weather | 7 KB | 164 B | **約 98%** |
-| pirep | 13 KB | 15.5 KB (+17%) | ← 悪化、raw 維持 |
-| notam | 平均 369 KB (観測中) | 未測定 | `result_size_logs` で蓄積中、将来 parse 候補 |
-| flight_foids | 平均 2.1 KB (観測中) | 未測定 | 低頻度 |
+| job_type | 削減率 | 方針 |
+|---|---|---|
+| pkg_weather | -89〜92% | ★ parse (whitelist、稼働中) |
+| flight_details | -65% | ★ parse (whitelist、稼働中) |
+| flight_foids | -67% | ★ parse (whitelist、v1.0.5でblocklist解除、稼働中) |
+| notam | -1.79% | ✗ raw維持 (parseでほぼ効果なし) |
+| pirep | -21.5% | ✗ raw維持 (parseで逆効果) |
+
+notam/pirep が parse で悪化する理由: 各 parser が item ごとに `raw_data` フィールド (元 JSON のコピー) を保持する設計のため、parsed 出力に元データが分散して圧縮前の冗長度が上がり zstd の効きが悪くなる。
+
+判定用の `result_size_logs`/サンプル保存機構は判定完了により 2026-04-24 に撤去済み。将来新ジョブの parse 判定が必要になった場合は再実装する。現在の whitelist 状態は Coordinator 側で `swim-admin parse status` で確認できる。
 
 ### Coordinator 側の互換性
 
