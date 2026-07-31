@@ -14,6 +14,10 @@ _JOB_TYPE_FOIDS = "collect_flight_foids"
 _JOB_TYPE_DETAILS = "collect_flight_details"
 _KNOWN_FOIDS_KEYS = {"flightInformationSearchResultsDTO"}
 _KNOWN_DETAILS_KEYS = {"flightDetailsSearchResultsDTO"}
+_IGNORED_KEYS = {
+    "msgHeader", "ctrlInfo", "ctrlHeader", "errorInfoDTO",  # プロトコル処理結果メタデータ
+    "flightRemovalTriggerDTO",  # SWIM側のフライト除去タイマー設定 (静的値、フライトデータではない)
+}
 
 
 def _parse_dt(s: str | None) -> str | None:
@@ -61,7 +65,7 @@ def parse_foids(raw_data: dict, queried_airport: str | None = None) -> list[dict
     指定しない場合は該当側が None になる (Phase3 で補完される前提)。
     rte/reg/滑走路/ssta/sstd はNULLのまま（Phase3で補完）。
     """
-    diagnostics.check_unknown_keys(_JOB_TYPE_FOIDS, raw_data, _KNOWN_FOIDS_KEYS)
+    diagnostics.check_unknown_keys(_JOB_TYPE_FOIDS, raw_data, _KNOWN_FOIDS_KEYS, _IGNORED_KEYS)
     result = raw_data.get("flightInformationSearchResultsDTO") or {}
     records = []
 
@@ -109,7 +113,7 @@ async def store_foids(session_factory, records: list[dict]) -> int:
 
 def parse_details(raw_data: dict) -> list[dict]:
     """FLV911レスポンスからFlightDetailレコードを生成"""
-    diagnostics.check_unknown_keys(_JOB_TYPE_DETAILS, raw_data, _KNOWN_DETAILS_KEYS)
+    diagnostics.check_unknown_keys(_JOB_TYPE_DETAILS, raw_data, _KNOWN_DETAILS_KEYS, _IGNORED_KEYS)
     result = raw_data.get("flightDetailsSearchResultsDTO") or {}
     fd = result.get("flightDetails") or {}
     if not fd:
