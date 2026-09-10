@@ -48,7 +48,7 @@ NOTAM、気象情報 (METAR/TAF/ATIS)、PIREP、フライト詳細、空港情�
 
 ## 帯域削減機構 (v1.0.1+)
 
-Worker → Coordinator の Redis 通信量を削減する機構。GCP Free Tier (1GB/月 outbound) 等の帯域制約がある Worker でも余裕を持って稼働させるため。
+Worker → Coordinator の Redis 通信量を削減する機構。月あたりの outbound 帯域に上限がある環境 (無料枠の VPS 等) の Worker でも余裕を持って稼働させるため。
 
 ### 圧縮: zstandard level 6
 
@@ -58,7 +58,7 @@ Worker → Coordinator の Redis 通信量を削減する機構。GCP Free Tier 
 
 特定の job_type については Worker 側で Coordinator のパーサーを実行し、SWIM 生レスポンスではなく **パース済みリスト** を送る。未使用フィールドやメタデータが削減される。
 
-対応 job_type は Redis set `swim:parse_enabled` に登録されたもののみ (60秒キャッシュ)。空なら全 raw 送信。Coordinator 側の `swim-admin parse enable/disable <job_type>` で動的切替可能 = **Worker 側コード変更・タグ打ち不要**。
+対応 job_type は Coordinator が管理する許可リストに登録されたもののみ (60秒キャッシュ)。空なら全 raw 送信。Coordinator 側の管理コマンドで動的に切り替えられるため、**Worker 側のコード変更・タグ打ちは不要**。
 
 結果の JSON には `format: "parsed"` フラグが付く。旧 Coordinator は `format` 未設定を期待する既存フローにフォールバック (後方互換)。
 
@@ -84,7 +84,7 @@ v1.0.1 は parse() が datetime を返していたため、pkg_weather 等 parse
 
 notam/pirep が parse で悪化する理由: 各 parser が item ごとに `raw_data` フィールド (元 JSON のコピー) を保持する設計のため、parsed 出力に元データが分散して圧縮前の冗長度が上がり zstd の効きが悪くなる。
 
-判定用の `result_size_logs`/サンプル保存機構は判定完了により 2026-04-24 に撤去済み。将来新ジョブの parse 判定が必要になった場合は再実装する。現在の whitelist 状態は Coordinator 側で `swim-admin parse status` で確認できる。
+判定用の `result_size_logs`/サンプル保存機構は判定完了により 2026-04-24 に撤去済み。将来新ジョブの parse 判定が必要になった場合は再実装する。現在の whitelist 状態は Coordinator 側で確認できる。
 
 ### Coordinator 側の互換性
 
@@ -96,17 +96,17 @@ Coordinator は下記すべてを同時に受理可能 (Worker バージョン�
 
 ## HTTP クライアントの実装方針
 
-SWIMポータルはブラウザ（Chrome）での利用を前提に作られたSPAです。Worker はポータルが想定する通信手順に沿って動作するよう実装しています。
+SWIMポータルはブラウザ（Chrome）での利用を前提に作られた、jQuery と Angular が混在する SPA です。Worker は HTTP クライアントとして、ポータルが想定する通信手順に沿って動作するよう実装しています。
 
-### TLSフィンガープリント
+### TLS スタック
 
 一般的な Python HTTP クライアント（requests, httpx, aiohttp）は、TLS ハンドシェイクの Cipher Suite 順序や TLS 拡張がブラウザと異なります。
 
 本 Worker では [`curl_cffi`](https://github.com/lexiforest/curl_cffi) を使用し、Chrome と同一の TLS スタック・HTTP/2 設定で接続します。`User-Agent` や `Sec-Ch-Ua` 系ヘッダーは curl_cffi のデフォルトに任せ、クライアント全体として一貫した挙動になるようにしています。
 
-### HTTPヘッダーの再現
+### HTTPヘッダー
 
-SWIMポータルはjQueryとAngularが混在したSPAで、リクエスト種別によってヘッダーパターンが異なります。Playwrightで実際のChrome操作をキャプチャし、以下のパターンを特定・再現しています。
+SWIMポータルはリクエスト種別によってヘッダーパターンが異なります。Playwright で実際のブラウザ操作をキャプチャし、以下のパターンを特定して実装に反映しています。
 
 | パターン | 対象 | 特徴 |
 |---------|------|------|
@@ -115,9 +115,9 @@ SWIMポータルはjQueryとAngularが混在したSPAで、リクエスト種別
 | Angular resource | リソースバンドル | `Accept: */*` |
 | Angular API | データAPI POST | `Origin` 付き |
 
-### ログインフローの再現
+### ログインフロー
 
-実ブラウザのログイン操作を忠実に再現しています。
+ブラウザでのログイン操作と同じ順序でリクエストを送ります。
 
 1. トップページのGET（ナビゲーションヘッダー付き）
 2. ランダム待機（SPA読み込み時間）
@@ -128,38 +128,38 @@ SWIMポータルはjQueryとAngularが混在したSPAで、リクエスト種別
 
 ステップ5はサービスページのセッションを確立するために必要で、これを省略すると後続のAPI呼び出しが失敗することがあります。
 
-### SPA初期化の再現
+### SPA初期化
 
-実ブラウザでサービスページを開くと、API呼び出しの前にSPA初期化リクエスト（ライセンスPOST、設定ファイル群、リソースバンドル等）が自動発生します。Workerでもこれをセッション中にサービスごとに1回再現し、初期化後にデータAPI呼び出しを行います。
+ブラウザでサービスページを開くと、API呼び出しの前に SPA 初期化リクエスト（ライセンス POST、設定ファイル群、リソースバンドル等）が発生します。Worker でもセッション中にサービスごとに1回これを実行し、初期化後にデータAPI呼び出しを行います。
 
-### リクエスト遅延
+### リクエスト間隔
 
-ポータルへの負荷を抑えるため、対数正規分布に基づく待機を入れています。
+ポータルへの負荷を抑えるため、リクエストの間に待機を入れています。一定間隔での連続アクセスにならないよう、実際の利用間隔の分布として知られる対数正規分布を用いています。
 
 | 種類 | 分布 | 説明 |
 |------|------|------|
 | リクエスト前 | 対数正規分布 (中央値4秒) | 操作間隔に相当する待機 |
-| レスポンス後 | 指数分布 (~0.28秒) | ブラウザのDOM更新時間 |
-| エラー後 | 5-15秒 + 再ログイン | 即座のリトライ回避 |
+| レスポンス後 | 指数分布 (~0.28秒) | 後続処理までの待機 |
+| エラー後 | 5-15秒 + 再ログイン | 即座のリトライを避ける |
 
 対数正規分布の採用は Blenn & Van Mieghem (2016) "Are human interactivity times lognormal?" に基づいています。
 
 ### Cookie永続化
 
-ログイン成功後のセッションCookieをファイルに保存し、再起動時に復元します。有効なCookieがあればログインAPIを呼ばず、不要な再ログインによる異常パターンを防ぎます。
+ログイン成功後のセッションCookieをファイルに保存し、再起動時に復元します。有効なCookieがあればログインAPIを呼ばないため、ポータルへの認証リクエストを削減できます。
 
 ---
 
-## Coordinator側の制御
+## Coordinator側のアクセス制御
 
 Worker 単体の挙動に加えて、Coordinator 側でもポータルへのアクセス総量とタイミングを制御しています。
 
-| 対策 | 説明 |
+| 制御 | 説明 |
 |------|------|
-| **ジョブ開始ジッター** | 各ジョブの開始時にランダム遅延（最大30秒）。毎回同一タイミングでのアクセスを防止 |
-| **空港順序シャッフル** | 複数空港へのアクセス順序を毎回ランダム化 |
+| **ジョブ開始ジッター** | 各ジョブの開始時にランダム遅延（最大30秒）。同一時刻へのアクセス集中を防止 |
+| **空港順序シャッフル** | 複数空港へのアクセス順序を毎回ランダム化し、特定空港への偏りを避ける |
 | **深夜帯の間引き** | JST 1:00-6:00は航空閑散時間帯のため、NOTAM/PIREPの頻度を半減 |
-| **IP・アカウント分散** | 各Workerが異なるIP・異なるSWIMアカウントで接続。リクエスト負荷を自然に分散 |
+| **アカウント・回線の分散** | 各 Worker が自身の SWIM アカウント・自身の回線で接続するため、単一アカウント／単一 IP への負荷集中が起きない |
 | **応答速度スロットリング** | サーバー応答が遅い場合、自動でアクセス頻度を下げる |
 
 ---
@@ -213,13 +213,13 @@ curl | bash install.sh
 1. **バージョン比較**: 現行 == 最新なら service 無触で早期 exit
 2. **ダウングレード防止**: 現行 > 最新なら skip (prerelease 検証中の保護)
 3. **ローカル opt-out**: `/opt/swim-worker/.no-auto-update` があれば skip
-4. **Coordinator kill switch**: Redis キー `swim:auto_update_enabled` が `"true"` でなければ skip
-5. **Staged rollout whitelist**: Redis キー `swim:auto_update_whitelist` が空でなければ、含まれる worker_name のみ更新
+4. **Coordinator kill switch**: Coordinator 側で自動更新が有効化されていなければ skip
+5. **Staged rollout whitelist**: Coordinator 側に更新対象の whitelist が設定されている場合、含まれる worker_name のみ更新
 6. **Major version skip**: メジャーバージョン変更 (例: 0.x → 1.x) は自動更新しない (手動必須)
 
 更新時は旧バイナリを `swim-worker.old` として保持、60秒後に `is-active` + `NRestarts < 2` で検証、失敗すれば自動ロールバック。
 
-**kill switch / staged rollout の制御は管理者 (meku) が Coordinator 側 Redis で行う** (`swim-coordinator/scripts/swim-admin` ヘルパー参照)。詳細は `swim-coordinator/docs/admin-runbook.md`。
+**kill switch / staged rollout の制御は管理者が Coordinator 側で行う。** 手順は Coordinator 側の運用ドキュメント（非公開）を参照。
 
 ### 特定Workerの更新チェックを今すぐ走らせたい場合
 
@@ -232,11 +232,11 @@ sudo systemctl start swim-worker-update.service
 sudo journalctl -u swim-worker-update.service --no-pager -n 15
 ```
 
-次回の予定発火時刻は `systemctl list-timers swim-worker-update.timer` で確認できる。VPS再起動直後は `OnBootSec=15min` が優先されるため、6時間サイクルの途中で再起動しても最大8時間待つわけではなく、起動から15分〜2時間15分後には次のチェックが走る。
+次回の予定発火時刻は `systemctl list-timers swim-worker-update.timer` で確認できる。OS再起動直後は `OnBootSec=15min` が優先されるため、6時間サイクルの途中で再起動しても最大8時間待つわけではなく、起動から15分〜2時間15分後には次のチェックが走る。
 
 ### OS側の自動再起動 (unattended-upgrades)
 
-Worker を動かす VPS (Oracle / Vultr) では `unattended-upgrades` を有効化し、`Unattended-Upgrade::Automatic-Reboot "true"` + `Automatic-Reboot-Time` を明示設定している（Oracle: `06:00 America/New_York`、Vultr: `06:00 UTC`）。カーネル等の再起動必須パッチが入った場合、手動確認なしで指定時刻に自動再起動される。GCPも2026-07-20に同様の設定へ揃えた（それまでは `Automatic-Reboot` が無効で、`/var/run/reboot-required` が放置される状態だった）。
+常時稼働させる Linux Worker では `unattended-upgrades` を有効化し、`Unattended-Upgrade::Automatic-Reboot "true"` + `Automatic-Reboot-Time` を明示設定することを推奨する。カーネル等の再起動必須パッチが入った場合、手動確認なしで指定時刻に自動再起動される。設定しない場合は `/var/run/reboot-required` が放置され、更新が適用されないまま稼働し続けることになる。
 
 `swim-worker.service` は `Restart=always` + `WantedBy=multi-user.target` なので、OS再起動時も自動的に起動し直す。Redisへの再接続もハートビート/コンシューマー双方のループが持つリトライロジックで自動的に回復する。
 
@@ -244,4 +244,4 @@ Worker を動かす VPS (Oracle / Vultr) では `unattended-upgrades` を有効�
 
 `execute_task()` 内の処理（SWIMへのHTTPリクエストが有力候補）がハングすると、`_consume_loop` 全体が `blpop` に戻れず永久停止する不具合があった。`_heartbeat_loop` は別の asyncio タスクなので生き続け、ダッシュボード上は `alive: true` のまま、タスクだけが `tasks:{worker_name}` キューに際限なく溜まり続けた（実際に230件超の滞留が発生）。
 
-v1.0.8で `_consume_loop` が `execute_task()` を `asyncio.wait_for(..., timeout=task_hard_timeout)` (デフォルト300秒、`TASK_HARD_TIMEOUT` 環境変数で調整可) で包むよう修正し、ハングしても強制的に打ち切って次のタスクへ戻れるようにした。合わせて Coordinator 側 `dispatcher.py` の `tasks:{worker}` キュー全体へのTTL設定 (Worker処理が少し遅れるだけで未処理タスクを巻き込んで消えるバグ) も撤去済み。詳細は `swim-coordinator` リポジトリのメモリ記録参照。
+v1.0.8で `_consume_loop` が `execute_task()` を `asyncio.wait_for(..., timeout=task_hard_timeout)` (デフォルト300秒、`TASK_HARD_TIMEOUT` 環境変数で調整可) で包むよう修正し、ハングしても強制的に打ち切って次のタスクへ戻れるようにした。合わせて Coordinator 側のタスクキュー全体へのTTL設定 (Worker処理が少し遅れるだけで未処理タスクを巻き込んで消えるバグ) も撤去済み。
