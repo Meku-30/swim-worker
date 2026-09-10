@@ -15,3 +15,7 @@ scripts/header_capture_*.json
 
 # Claude Code ローカル設定・worktree
 .claude/
+
+# Public リポジトリに載せない内部ファイル (ローカルには保持)
+CLAUDE.md
+deploy.sh
