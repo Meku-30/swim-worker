@@ -1,5 +1,30 @@
 """Config テスト"""
 import pytest
+from pydantic import ValidationError
+
+from swim_worker.config import Settings, WORKER_NAME_RE, WORKER_NAME_RULE_MESSAGE
+
+
+def _settings_with_name(name: str) -> Settings:
+    return Settings(_env_file=None, redis_host="h", redis_password="p",
+                    swim_username="u", swim_password="p", worker_name=name)
+
+
+@pytest.mark.parametrize("name", ["GCP-worker", "hyuga_main", "w.1", "a", "x" * 32])
+def test_worker_name_accepts_ascii_names(name):
+    assert _settings_with_name(name).worker_name == name
+
+
+@pytest.mark.parametrize("name", ["Taro Yamada", "田中", "", "x" * 33, "a/b", "name\n"])
+def test_worker_name_rejects_invalid_names(name):
+    with pytest.raises(ValidationError) as ei:
+        _settings_with_name(name)
+    assert WORKER_NAME_RULE_MESSAGE in str(ei.value)
+
+
+def test_worker_name_re_matches_rule_message_examples():
+    assert WORKER_NAME_RE.fullmatch("abc-123_x.y")
+    assert not WORKER_NAME_RE.fullmatch("a b")
 
 
 class TestSettings:

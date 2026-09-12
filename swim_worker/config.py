@@ -1,5 +1,14 @@
 """Worker設定"""
+import re
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+# Worker 名は Redis CLIENT SETNAME (空白・制御文字不可) とキー名に使うため ASCII に限定する
+WORKER_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+WORKER_NAME_RULE_MESSAGE = (
+    "Worker 名は半角英数字・ピリオド・アンダースコア・ハイフンのみ (1〜32 文字) です"
+)
 
 
 class Settings(BaseSettings):
@@ -33,3 +42,10 @@ class Settings(BaseSettings):
     redis_blpop_timeout: float = 20.0   # consume_loopのblpopブロッキング窓(秒)
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    @field_validator("worker_name")
+    @classmethod
+    def _validate_worker_name(cls, v: str) -> str:
+        if not WORKER_NAME_RE.fullmatch(v or ""):
+            raise ValueError(WORKER_NAME_RULE_MESSAGE)
+        return v
