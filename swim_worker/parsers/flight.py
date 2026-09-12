@@ -59,11 +59,11 @@ def coerce_dt_fields(record: dict) -> dict:
 
 
 def parse_foids(raw_data: dict, queried_airport: str | None = None) -> list[dict]:
-    """FLV803レスポンスからFlightDetail基本データを抽出 (Phase1即保存用)。
+    """FLV803レスポンスからFlightDetail基本データを抽出 (list 即保存用)。
 
     queried_airport: このレスポンスの取得元空港ICAO。到着便ではdest_ad、出発便ではdep_adとなる。
-    指定しない場合は該当側が None になる (Phase3 で補完される前提)。
-    rte/reg/滑走路/ssta/sstd はNULLのまま（Phase3で補完）。
+    指定しない場合は該当側が None になる (enrich で補完される前提)。
+    rte/reg/滑走路/ssta/sstd はNULLのまま（enrich で補完）。
     """
     diagnostics.check_unknown_keys(_JOB_TYPE_FOIDS, raw_data, _KNOWN_FOIDS_KEYS, _IGNORED_KEYS)
     result = raw_data.get("flightInformationSearchResultsDTO") or {}
