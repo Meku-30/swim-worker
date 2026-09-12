@@ -18,7 +18,10 @@ _KNOWN_DTO_KEYS = {"metarSpeciInfoList", "tafInfoList", "atisInfoList", "useRunw
 _IGNORED_TOP_KEYS = {
     "msgHeader", "ctrlInfo", "ctrlHeader", "errorInfoDTO",  # プロトコル用メタデータ
     "shapeDisplayList",  # 地図表示用シンボル定義 (気象データではない)
-    # notamDTOList は実データだが collect_notams と重複疑いのため保留 (2026-07-29 調査中)
+    # 気象画面の地図に NOTAM 範囲を重ね描きするための NOTAM リスト。座標・半径・高度・本文は
+    # collect_notams (USV001) の raw_data に全件入っており重複。固有なのは drawInfo (変換済み座標)
+    # と lineDataList (面 NOTAM の多角形) のみで用途なし → 無視 (2026-09-12 決定、6,135 サンプル調査)
+    "notamDTOList",
 }
 
 _CLOSE_ATIS_PATTERN = re.compile(
