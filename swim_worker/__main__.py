@@ -73,6 +73,9 @@ if __name__ == "__main__":
     except AlreadyRunning as e:
         logger.error("%s", e)
         sys.exit(2)
+    except OSError as e:
+        logger.error("ロックファイルを作成できません: %s (%s)。書き込み可能なディレクトリで実行してください", _local_lock.path, e)
+        sys.exit(3)
     try:
         asyncio.run(main())
     finally:

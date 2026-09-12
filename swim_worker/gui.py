@@ -1293,8 +1293,9 @@ class WorkerGUI:
         except Exception as e:
             logging.exception("アップデート失敗")
             self._close_update_dialog()
-            self._root.after(0, lambda: messagebox.showerror(
-                "アップデート失敗", f"アップデートに失敗しました:\n{e}"
+            msg = str(e)
+            self._root.after(0, lambda m=msg: messagebox.showerror(
+                "アップデート失敗", f"アップデートに失敗しました:\n{m}"
             ))
 
     def _on_unmap(self, event=None):
