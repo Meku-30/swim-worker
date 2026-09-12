@@ -262,3 +262,4 @@ Worker は Redis 接続に `CLIENT SETNAME {worker_name}` で名前を付け、C
 - GUI の停止操作を asyncio ループのスレッドで実行 (`call_soon_threadsafe`)。UI スレッドから直接 `Task.cancel()` していたため停止が BLPOP 待ち分遅れることがあった
 - タスク強制タイムアウト時にも GUI へ idle を通知 (「処理中」表示のまま固まる問題)
 - `install.sh --auto` の kill switch 確認で Redis サーバー証明書を検証するようにした (上記)
+- SWIM ログイン失敗時に指数バックオフ (60 秒 → 最大 30 分) を入れ、認証情報が誤っている間はタスクごとにログイン API を叩かないようにした (アカウントロック予防)。保存済み Cookie での復元は抑制の対象外

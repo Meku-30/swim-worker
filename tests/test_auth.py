@@ -78,3 +78,74 @@ class TestSwimClient:
         result = await client.execute_api("https://example.com/api", {})
         assert result == {"data": "ok"}
         client._relogin.assert_called_once()
+
+
+@pytest.mark.asyncio
+class TestLoginBackoff:
+    """ログイン失敗時の指数バックオフ (認証情報誤り時に SWIM を叩き続けない)"""
+
+    @staticmethod
+    def _failing_session_patch():
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        instance = AsyncMock()
+        instance.post.return_value = mock_response
+        instance.get.return_value = MagicMock(status_code=200)
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+        return instance
+
+    async def test_second_login_is_suppressed_without_hitting_swim(self):
+        instance = self._failing_session_patch()
+        with patch("swim_worker.auth.AsyncSession", return_value=instance), \
+             patch.object(SwimClient, "_load_cookies", return_value=None), \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            client = SwimClient(username="user", password="pass")
+            with pytest.raises(SwimAuthError):
+                await client.login()
+            assert instance.post.await_count == 1
+            # 抑制中: SWIM へリクエストせず即エラー
+            with pytest.raises(SwimAuthError, match="抑制中"):
+                await client.login()
+            assert instance.post.await_count == 1
+
+    async def test_backoff_grows_exponentially_and_is_capped(self):
+        instance = self._failing_session_patch()
+        now = {"t": 1000.0}
+        with patch("swim_worker.auth.AsyncSession", return_value=instance), \
+             patch.object(SwimClient, "_load_cookies", return_value=None), \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()), \
+             patch("swim_worker.auth.time.monotonic", side_effect=lambda: now["t"]):
+            client = SwimClient(username="user", password="pass",
+                                login_backoff_base=60.0, login_backoff_max=300.0)
+            expected = [60.0, 120.0, 240.0, 300.0, 300.0]
+            for i, exp in enumerate(expected):
+                with pytest.raises(SwimAuthError):
+                    await client.login()
+                assert instance.post.await_count == i + 1
+                assert client._login_blocked_until - now["t"] == pytest.approx(exp)
+                now["t"] += exp  # 抑制期間を経過させて次の試行を許可
+
+    async def test_success_resets_backoff(self):
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+        ok_response.json.return_value = {"statusCode": 0, "datas": {}}
+        ok_response.cookies = {"MSMSI": "v"}
+        tmp = AsyncMock()
+        tmp.post.return_value = ok_response
+        tmp.get.return_value = MagicMock(status_code=200)
+        tmp.cookies = {"MSMSI": "v"}
+        tmp.__aenter__ = AsyncMock(return_value=tmp)
+        tmp.__aexit__ = AsyncMock(return_value=False)
+        persistent = AsyncMock()
+        persistent.cookies = MagicMock()
+        with patch("swim_worker.auth.AsyncSession", side_effect=[tmp, persistent]), \
+             patch.object(SwimClient, "_load_cookies", return_value=None), \
+             patch.object(SwimClient, "_save_cookies"), \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            client = SwimClient(username="user", password="pass")
+            client._login_failures = 3
+            client._login_blocked_until = 0.0
+            await client.login()
+            assert client._login_failures == 0
+            assert client._login_blocked_until == 0.0

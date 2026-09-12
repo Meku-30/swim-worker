@@ -176,13 +176,22 @@ class SwimAuthError(Exception):
 class SwimClient:
     """SWIM APIクライアント（Worker用）"""
 
-    def __init__(self, username: str, password: str, cookie_file: str = "") -> None:
+    def __init__(self, username: str, password: str, cookie_file: str = "",
+                 login_backoff_base: float = 60.0,
+                 login_backoff_max: float = 1800.0) -> None:
         self._username = username
         self._password = password
         self._cookie_file = _resolve_cookie_file(cookie_file)
         self._session: AsyncSession | None = None
         self._is_ready = False
         self._relogin_lock = asyncio.Lock()
+        # ログイン失敗時の指数バックオフ。認証情報が誤っている場合にタスクごとに
+        # ログイン API を叩き続けてアカウントロックを招かないよう、失敗が続く間は
+        # login() を SWIM へ到達させずに即エラーにする (base * 2^(n-1)、max で頭打ち)。
+        self._login_backoff_base = login_backoff_base
+        self._login_backoff_max = login_backoff_max
+        self._login_failures = 0
+        self._login_blocked_until = 0.0  # time.monotonic() 基準
         # 応答速度ベーススロットリング
         self._last_response_time: float = 0.0
         self._slow_threshold: float = 10.0  # 10秒以上で「遅い」判定
@@ -262,6 +271,12 @@ class SwimClient:
                 pass
             logger.info("保存済みCookie失効、再ログイン")
 
+        remaining = self._login_blocked_until - time.monotonic()
+        if remaining > 0:
+            raise SwimAuthError(
+                f"ログイン抑制中 (連続失敗 {self._login_failures} 回、残り {remaining:.0f} 秒)"
+            )
+
         logger.info("SWIMポータルにログイン開始")
         all_cookies: dict[str, str] = {}
         try:
@@ -315,9 +330,14 @@ class SwimClient:
                     all_cookies[name] = value
 
         except SwimAuthError:
+            self._record_login_failure()
             raise
         except Exception as e:
+            self._record_login_failure()
             raise SwimAuthError(f"ログインAPI呼び出しエラー: {e}") from e
+
+        self._login_failures = 0
+        self._login_blocked_until = 0.0
 
         if self._session is not None:
             await self._session.close()
@@ -335,6 +355,19 @@ class SwimClient:
         self._visited_pages.clear()
         self._save_cookies()
         logger.info("SWIMポータルにログイン成功")
+
+    def _record_login_failure(self) -> None:
+        """ログイン失敗を記録し、次回ログインを許可する時刻を指数的に延ばす"""
+        self._login_failures += 1
+        wait = min(
+            self._login_backoff_base * (2 ** (self._login_failures - 1)),
+            self._login_backoff_max,
+        )
+        self._login_blocked_until = time.monotonic() + wait
+        logger.warning(
+            "ログイン失敗 %d 回目、次回ログインを %.0f 秒抑制します",
+            self._login_failures, wait,
+        )
 
     async def _ensure_browse_page(self, api_url: str) -> None:
         """API URLに対応するサービスのSPA初期化+ブラウズ画面遷移を再現する。
