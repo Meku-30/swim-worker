@@ -14,6 +14,7 @@ from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
 from swim_worker import __version__
+from swim_worker.gui_helpers import next_rollback_state, write_startup_marker
 from swim_worker.icon import create_icon
 
 # System tray support (Windows + macOS)
@@ -739,6 +740,8 @@ class WorkerGUI:
             else:
                 logging.warning("自動接続: 設定が未入力のためスキップしました")
 
+        # 更新ヘルパーの起動確認: GUI が 2 秒生存したら成功マーカーを書く
+        self._root.after(2000, write_startup_marker)
         self._root.mainloop()
 
     # --- タスク状態更新 (Consumer から別スレッドで呼ばれる) ---
@@ -771,8 +774,10 @@ class WorkerGUI:
         self._root.after(0, lambda: self._status_var.set(msg))
 
     def _check_rollback_marker_after_ready(self) -> None:
-        """前回アップデートがロールバックされた場合、ユーザーに通知する。
+        """前回アップデートがロールバックされた場合、ユーザーに通知し再試行を抑止する。
 
+        - 同一バージョンを snooze (SNOOZE_DURATION_HOURS)
+        - 同一バージョンで ROLLBACK_DISABLE_THRESHOLD 回目なら auto_update を OFF にする
         autoconnect=True の場合は Worker 起動処理と重ならないよう 3 秒待つ。
         """
         marker = _get_base_dir() / "data" / ".update_rollback.json"
@@ -782,23 +787,36 @@ class WorkerGUI:
             info = _load_json(marker)
         except Exception:
             info = {}
-        from_version = info.get("rolled_back_from", "?")
+        from_version = str(info.get("rolled_back_from", "?")).lstrip("v")
+        reason = info.get("reason", "")
+
+        self._gui_settings, disabled = next_rollback_state(self._gui_settings, from_version)
+        try:
+            _save_json(GUI_SETTINGS_PATH, self._gui_settings)
+        except Exception as e:
+            logging.debug("GUI 設定保存失敗 (無視): %s", e)
+        if from_version != "?":
+            self._set_snooze(from_version)
 
         def notify():
             try:
-                messagebox.showwarning(
-                    "前回のアップデートは失敗しました",
-                    f"{from_version} へのアップデートが起動確認に失敗したため、"
-                    f"自動的に前バージョンにロールバックされました。\n\n"
-                    f"詳細は swim-worker-update.log を確認してください。",
-                )
+                if disabled and hasattr(self, "_auto_update_var"):
+                    self._auto_update_var.set(False)
+                text = (f"v{from_version} へのアップデートが起動確認に失敗したため、"
+                        f"自動的に前バージョンにロールバックされました。\n\n")
+                if reason == "move_failed":
+                    text += "原因: 新しい exe への置き換えに失敗しました (ウイルス対策ソフトのスキャン等)。\n\n"
+                if disabled:
+                    text += ("同じバージョンで 2 回失敗したため、自動更新を停止しました。\n"
+                             "設定で再度有効にするか、手動で更新してください。\n\n")
+                text += "詳細は swim-worker-update.log を確認してください。"
+                messagebox.showwarning("前回のアップデートは失敗しました", text)
             finally:
                 try:
                     marker.unlink()
                 except Exception:
                     pass
 
-        # autoconnect=True だと _on_start が先に走る。それと重ならない 3 秒遅延。
         self._root.after(3000, notify)
 
     def _cleanup_stale_update_files(self) -> None:
