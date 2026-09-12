@@ -1425,7 +1425,11 @@ def main():
     # 早期ファイルログ設定 (exe環境でも起動段階のエラーを追跡可能に)
     try:
         log_path = _get_base_dir() / "swim-worker.log"
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        # 5MB × 3 世代でローテーション (無制限に肥大化させない)
+        from logging.handlers import RotatingFileHandler
+        file_handler = RotatingFileHandler(
+            log_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8",
+        )
         file_handler.setFormatter(logging.Formatter(
             "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
         ))
