@@ -47,3 +47,35 @@ class TestParseForJobType:
     def test_unknown_job_type_raises(self):
         with pytest.raises(KeyError):
             parsers.parse_for_job_type("unknown_job", {})
+
+
+def test_parse_for_job_type_merges_underscore_task_params_into_data():
+    """Coordinator の raw 経路と同様、task params の _ 始まりキー (例 _icao_code) を data に加える"""
+    from swim_worker import parsers
+    captured = {}
+
+    def fake_parser(data):
+        captured.update(data)
+        return []
+
+    original = parsers._PARSERS["collect_airport_profiles"]
+    parsers._PARSERS["collect_airport_profiles"] = fake_parser
+    try:
+        parsers.parse_for_job_type("collect_airport_profiles", {"ret": {"x": 1}},
+                                   task_params={"url": "u", "_icao_code": "RJTT"})
+    finally:
+        parsers._PARSERS["collect_airport_profiles"] = original
+    assert captured == {"x": 1, "_icao_code": "RJTT"}
+
+
+def test_parse_for_job_type_does_not_override_existing_keys():
+    from swim_worker import parsers
+    captured = {}
+    original = parsers._PARSERS["collect_notams"]
+    parsers._PARSERS["collect_notams"] = lambda d: captured.update(d) or []
+    try:
+        parsers.parse_for_job_type("collect_notams", {"_icao_code": "KEEP"},
+                                   task_params={"_icao_code": "OTHER"})
+    finally:
+        parsers._PARSERS["collect_notams"] = original
+    assert captured["_icao_code"] == "KEEP"
