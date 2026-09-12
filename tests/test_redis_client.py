@@ -33,3 +33,23 @@ class TestCreateRedisClient:
         assert kwargs["socket_timeout"] == settings.redis_socket_timeout
         assert kwargs["ssl"] is True
         assert kwargs["ssl_ca_certs"] == "/tmp/ca.crt"
+
+    def test_uses_embedded_ca_data_when_no_external_cert(self, monkeypatch):
+        from swim_worker.redis_client import create_redis_client
+        from swim_worker.certs import CA_CERT_PEM
+        settings = _settings(monkeypatch)
+        settings = settings.model_copy(update={"redis_ca_cert": ""})
+        with patch("swim_worker.redis_client.aioredis.Redis") as mock_cls:
+            create_redis_client(settings)
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["ssl_ca_data"] == CA_CERT_PEM
+        assert "ssl_ca_certs" not in kwargs
+
+    def test_uses_external_cert_path_when_configured(self, monkeypatch):
+        from swim_worker.redis_client import create_redis_client
+        settings = _settings(monkeypatch)  # REDIS_CA_CERT=/tmp/ca.crt を設定している
+        with patch("swim_worker.redis_client.aioredis.Redis") as mock_cls:
+            create_redis_client(settings)
+        kwargs = mock_cls.call_args.kwargs
+        assert kwargs["ssl_ca_certs"] == "/tmp/ca.crt"
+        assert "ssl_ca_data" not in kwargs

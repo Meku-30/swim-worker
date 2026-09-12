@@ -28,22 +28,20 @@ def get_lock_path() -> Path:
 
     install.sh 経由で systemd unit (ProtectSystem=strict) 配下で動く場合、
     /opt/swim-worker/ は読み取り専用で /opt/swim-worker/data/ のみ書き込み可能。
-    そのため、`data/` サブディレクトリが存在すれば優先してそこに置く。
+    そのため、frozen 時は常に `data/` サブディレクトリに置く (無ければ作る)。
+    初回起動 (data/ 無し) と 2 回目でロックの場所が変わると多重起動を防げないため、
+    data/ の有無で分岐しない。
 
     優先順:
-      1. PyInstaller frozen + exe 隣に data/ がある (install.sh 配置)
-         → {exe.parent}/data/swim-worker.lock
-      2. PyInstaller frozen で data/ がない (exe 単体配置)
-         → {exe.parent}/swim-worker.lock
-      3. それ以外 (CLI/Docker/開発)
+      1. PyInstaller frozen (install.sh 配置 / exe 単体配置とも)
+         → {exe.parent}/data/swim-worker.lock (data/ が無ければ作る)
+      2. それ以外 (CLI/Docker/開発)
          → {cwd}/swim-worker.lock
     """
     if getattr(sys, "frozen", False):
-        base = Path(sys.executable).parent
-        data_dir = base / "data"
-        if data_dir.is_dir():
-            return data_dir / "swim-worker.lock"
-        return base / "swim-worker.lock"
+        data_dir = Path(sys.executable).parent / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir / "swim-worker.lock"
     return Path.cwd() / "swim-worker.lock"
 
 
