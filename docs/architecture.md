@@ -252,7 +252,7 @@ Worker は Redis 接続に `CLIENT SETNAME {worker_name}` で名前を付け、C
 
 加えて `redis_blpop_timeout` (30秒) が `redis_socket_timeout` (30秒) と同値だったため、サーバーの `BLPOP` nil 応答 (30秒 + RTT) より先にクライアント側の socket_timeout が発火し、毎サイクル `TimeoutError` → 再接続になっていた。redis-py 6 以降はデフォルトで 3 回まで無言でリトライするため警告ログには稀にしか出ないが、`CLIENT LIST` 上では `blpop` 接続の age が常に 30 秒未満で、接続の張り直しが継続的に起きていた。
 
-修正 (v1.1.0 の次のリリース):
+修正 (v1.1.1, 2026-09-12 リリース):
 - `aioredis.Redis(..., client_name=worker_name)` を指定し、redis-py が接続確立 (再接続含む) のたびに `CLIENT SETNAME` を送るようにした。実行時の `client_setname()` 呼び出しは削除。CLI / GUI ともに `swim_worker/redis_client.py` の共通ファクトリを使う (GUI が独自に生成していて設定漏れが起きていた)
 - `redis_blpop_timeout` のデフォルトを 20 秒に短縮 (`socket_timeout` より短くすること)。これにより定期的に出ていた `Redis接続エラー（コンシューマー）… Timeout reading from …` 警告 (≈6 分に 1 件) も解消される
 - `redis[hiredis]` を 8.x 系に固定 (CI build ごとに最新版の挙動変化を取り込まないため)
