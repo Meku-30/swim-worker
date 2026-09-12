@@ -170,7 +170,7 @@ Worker 単体の挙動に加えて、Coordinator 側でもポータルへのア�
 
 | プラットフォーム | 配布形態 | アーキ | 自動更新 |
 |----------------|---------|-------|---------|
-| Windows | `swim-worker-windows.exe` (PyInstaller GUI) | amd64 | GUI からポップアップ経由で更新 |
+| Windows | `swim-worker-windows.exe` (PyInstaller GUI) | amd64 | GUI からポップアップ経由で更新 (DL 後に同 release の `SHA256SUMS` で検証) |
 | macOS | `swim-worker-macos` (PyInstaller GUI) | x86_64 / arm64 | Windows と同様 |
 | Linux / Raspberry Pi | `swim-worker-linux-{amd64,arm64}` + `install.sh` + systemd unit | amd64 / arm64 | systemd timer による自動更新 |
 
@@ -213,7 +213,7 @@ curl | bash install.sh
 1. **バージョン比較**: 現行 == 最新なら service 無触で早期 exit
 2. **ダウングレード防止**: 現行 > 最新なら skip (prerelease 検証中の保護)
 3. **ローカル opt-out**: `/opt/swim-worker/.no-auto-update` があれば skip
-4. **Coordinator kill switch**: Coordinator 側で自動更新が有効化されていなければ skip
+4. **Coordinator kill switch**: Coordinator 側で自動更新が有効化されていなければ skip。この確認は Redis へ TLS 接続して行い、install.sh に埋め込んだ CA 証明書 (Worker 本体の `certs.py` と同一) でサーバー証明書を検証する (v1.1.0 以前は検証なしで AUTH を送っていた)
 5. **Staged rollout whitelist**: Coordinator 側に更新対象の whitelist が設定されている場合、含まれる worker_name のみ更新
 6. **Major version skip**: メジャーバージョン変更 (例: 0.x → 1.x) は自動更新しない (手動必須)
 
@@ -253,5 +253,12 @@ Worker は Redis 接続に `CLIENT SETNAME {worker_name}` で名前を付け、C
 加えて `redis_blpop_timeout` (30秒) が `redis_socket_timeout` (30秒) と同値だったため、サーバーの `BLPOP` nil 応答 (30秒 + RTT) より先にクライアント側の socket_timeout が発火し、毎サイクル `TimeoutError` → 再接続になっていた。redis-py 6 以降はデフォルトで 3 回まで無言でリトライするため警告ログには稀にしか出ないが、`CLIENT LIST` 上では `blpop` 接続の age が常に 30 秒未満で、接続の張り直しが継続的に起きていた。
 
 修正 (v1.1.0 の次のリリース):
-- `aioredis.Redis(..., client_name=worker_name)` を指定し、redis-py が接続確立 (再接続含む) のたびに `CLIENT SETNAME` を送るようにした。実行時の `client_setname()` 呼び出しは削除
-- `redis_blpop_timeout` のデフォルトを 20 秒に短縮 (`socket_timeout` より短くすること)
+- `aioredis.Redis(..., client_name=worker_name)` を指定し、redis-py が接続確立 (再接続含む) のたびに `CLIENT SETNAME` を送るようにした。実行時の `client_setname()` 呼び出しは削除。CLI / GUI ともに `swim_worker/redis_client.py` の共通ファクトリを使う (GUI が独自に生成していて設定漏れが起きていた)
+- `redis_blpop_timeout` のデフォルトを 20 秒に短縮 (`socket_timeout` より短くすること)。これにより定期的に出ていた `Redis接続エラー（コンシューマー）… Timeout reading from …` 警告 (≈6 分に 1 件) も解消される
+- `redis[hiredis]` を 8.x 系に固定 (CI build ごとに最新版の挙動変化を取り込まないため)
+
+同時に修正した関連事項:
+- GUI 自動更新: DL した exe を同 release の `SHA256SUMS` で検証してから差し替える (`swim_worker/update_verify.py`)
+- GUI の停止操作を asyncio ループのスレッドで実行 (`call_soon_threadsafe`)。UI スレッドから直接 `Task.cancel()` していたため停止が BLPOP 待ち分遅れることがあった
+- タスク強制タイムアウト時にも GUI へ idle を通知 (「処理中」表示のまま固まる問題)
+- `install.sh --auto` の kill switch 確認で Redis サーバー証明書を検証するようにした (上記)

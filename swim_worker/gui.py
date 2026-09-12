@@ -157,6 +157,8 @@ class WorkerGUI:
         self._worker_thread: threading.Thread | None = None
         self._worker_running = False
         self._consumer = None
+        # ワーカースレッドの asyncio ループ (停止要求をスレッドセーフに渡すため保持)
+        self._worker_loop: asyncio.AbstractEventLoop | None = None
         # GUI 設定 (auto_update 等) と snooze 情報を永続化
         self._gui_settings: dict = _load_json(GUI_SETTINGS_PATH)
         self._update_progress_dialog: UpdateProgressDialog | None = None
@@ -505,7 +507,14 @@ class WorkerGUI:
         """Worker停止"""
         self._worker_running = False
         if self._consumer:
-            self._consumer.stop()
+            # consumer.stop() は asyncio Task.cancel() を呼ぶ。asyncio はスレッドセーフで
+            # ないため、UI スレッドから直接呼ぶとループが次のイベント (BLPOP 待ち等) まで
+            # 起きず停止が遅れる。ループのスレッドで実行させる。
+            loop = self._worker_loop
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._consumer.stop)
+            else:
+                self._consumer.stop()
         if _HAS_TRAY and self._tray_icon:
             self._tray_icon.icon = create_icon(color="gray", size=64)
         self._status_var.set("停止中")
@@ -517,9 +526,8 @@ class WorkerGUI:
 
     def _run_worker(self):
         """ワーカーを別スレッドで実行"""
-        import redis.asyncio as aioredis
-        from swim_worker.certs import get_ca_cert_path
         from swim_worker.config import Settings
+        from swim_worker.redis_client import create_redis_client
         from swim_worker.auth import SwimClient
         from swim_worker.consumer import TaskConsumer, DuplicateWorkerError
 
@@ -536,17 +544,8 @@ class WorkerGUI:
                 os.environ["WORKER_NAME"] = ws["worker_name"]
 
                 settings = Settings()
-
-                ca_cert = get_ca_cert_path()
-                redis_client = aioredis.Redis(
-                    host=settings.redis_host,
-                    port=settings.redis_port,
-                    password=settings.redis_password,
-                    ssl=True,
-                    ssl_ca_certs=ca_cert,
-                    decode_responses=True,
-                    socket_timeout=settings.redis_socket_timeout,
-                )
+                # CLI と同じファクトリを使う (client_name 等の設定漏れ防止)
+                redis_client = create_redis_client(settings)
 
                 # Redis接続を指数バックオフでリトライ (最大10回)
                 delay = 1.0
@@ -625,11 +624,13 @@ class WorkerGUI:
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        self._worker_loop = loop
         try:
             loop.run_until_complete(_main())
         except Exception as e:
             logging.error("予期しないエラー: %s", e)
         finally:
+            self._worker_loop = None
             loop.close()
 
     # --- 自動起動 (Windows / macOS) ---
@@ -1097,6 +1098,9 @@ class WorkerGUI:
                 new_exe = base / "swim-worker.new"
 
             from curl_cffi.requests import Session, BrowserType
+            from swim_worker.update_verify import verify_sha256
+            asset_name = download_url.rsplit("/", 1)[-1]
+            sums_url = download_url.rsplit("/", 1)[0] + "/SHA256SUMS"
             with Session(impersonate=BrowserType.chrome136, timeout=120.0) as client:
                 # stream=False で全体をメモリに読み込む (curl_cffi では stream=True の扱いが不安定)
                 resp = client.get(download_url, allow_redirects=True)
@@ -1105,6 +1109,14 @@ class WorkerGUI:
                 content = resp.content
                 if not content or len(content) < 1024 * 1024:  # 1MB未満は異常
                     raise RuntimeError(f"ダウンロードサイズ異常: {len(content) if content else 0} bytes")
+                # 同じ release の SHA256SUMS で整合性検証 (install.sh と同等)。
+                # 破損・改竄された DL をそのまま exe として起動しないため必須。
+                self._update_dialog_indeterminate("整合性を検証しています")
+                sums_resp = client.get(sums_url, allow_redirects=True)
+                if sums_resp.status_code != 200:
+                    raise RuntimeError(f"SHA256SUMS 取得失敗: status={sums_resp.status_code}")
+                digest = verify_sha256(content, sums_resp.text, asset_name)
+                logging.info("SHA256 検証 OK: %s (%s…)", asset_name, digest[:16])
                 with new_exe.open("wb") as f:
                     f.write(content)
             size_mb = new_exe.stat().st_size / 1024 / 1024
