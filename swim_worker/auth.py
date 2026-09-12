@@ -472,8 +472,13 @@ class SwimClient:
         except Exception as e:
             logger.warning("ブラウズ画面ナビゲーション失敗: %s", e)
 
-    async def execute_api(self, url: str, body: dict, *, _retried: bool = False) -> dict:
-        """SWIM APIを実行する。403/HTTPエラー時は1回リトライする。"""
+    async def execute_api(self, url: str, body: dict, *,
+                          retry_on_auth_error: bool = True, _retried: bool = False) -> dict:
+        """SWIM APIを実行する。403/HTTPエラー時は1回リトライする。
+
+        capability テストは 403 を「未権限」として扱うため `retry_on_auth_error=False` で呼ぶ
+        (再ログインと Cookie 破棄を避ける)。
+        """
         if not self._is_ready or self._session is None:
             await self.login()
         assert self._session is not None
@@ -497,7 +502,7 @@ class SwimClient:
                 logger.warning("API HTTPエラー、%.0f秒待機後にリトライ: %s", delay, e)
                 await asyncio.sleep(delay)
                 await self._relogin()
-                return await self.execute_api(url, body, _retried=True)
+                return await self.execute_api(url, body, retry_on_auth_error=retry_on_auth_error, _retried=True)
             raise SwimAuthError(f"APIエラー: {e}") from e
         elapsed = time.monotonic() - start
         self._last_response_time = elapsed
@@ -510,12 +515,12 @@ class SwimClient:
             self._extra_delay = max(self._extra_delay - 0.5, 0.0)
 
         if resp.status_code in (401, 403):
-            if not _retried:
+            if retry_on_auth_error and not _retried:
                 delay = random.uniform(5, 15)
                 logger.warning("API %dエラー、%.0f秒待機後に再ログイン+リトライ", resp.status_code, delay)
                 await asyncio.sleep(delay)
                 await self._relogin(force=True)
-                return await self.execute_api(url, body, _retried=True)
+                return await self.execute_api(url, body, retry_on_auth_error=retry_on_auth_error, _retried=True)
             raise SwimAuthError(f"API {resp.status_code}エラー (body={resp.text[:500]})")
 
         if resp.status_code != 200:

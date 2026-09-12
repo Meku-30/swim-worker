@@ -142,7 +142,8 @@ class TaskConsumer:
             try:
                 # 各テスト間に短い遅延 (一気に叩かない)
                 await asyncio.sleep(random.uniform(1.0, 3.0))
-                await self._swim.execute_api(url, body)
+                # 403 は「未権限」として即返す (再ログイン・Cookie 破棄をしない)
+                await self._swim.execute_api(url, body, retry_on_auth_error=False)
                 results[jt] = {"ok": True, "error": None}
                 logger.info("capability OK: %s", jt)
             except Exception as e:
