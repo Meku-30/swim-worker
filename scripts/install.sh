@@ -199,6 +199,17 @@ if [[ $AUTO_MODE -eq 1 ]]; then
         exit 0
     fi
 
+    # --- ガード0: 前回この版でロールバックしていれば再試行しない (手動 install.sh で解除) ---
+    FAILED_VERSION_FILE="${INSTALL_DIR}/.failed-version"
+    if [[ -f "$FAILED_VERSION_FILE" ]]; then
+        FAILED_VERSION=$(cat "$FAILED_VERSION_FILE")
+        if [[ "$FAILED_VERSION" == "$LATEST_VERSION" ]]; then
+            log "v${LATEST_VERSION} は前回ロールバックした版のため skip (手動で install.sh を実行すると解除)"
+            exit 0
+        fi
+        rm -f "$FAILED_VERSION_FILE"   # より新しい版が出たので解除
+    fi
+
     # --- ガード1: ローカル opt-out ファイル ---
     if [[ -f "${INSTALL_DIR}/.no-auto-update" ]]; then
         log "自動更新が opt-out されています (${INSTALL_DIR}/.no-auto-update)"
@@ -411,6 +422,7 @@ PYEOF
     else
         die "ロールバックも失敗。手動調査が必要 (journalctl -u swim-worker -n 100)"
     fi
+    echo "$LATEST_VERSION" > "${INSTALL_DIR}/.failed-version"
     rm -f "${INSTALL_DIR}/swim-worker.old"
     exit 1
 fi
@@ -466,6 +478,7 @@ if [[ -n "$LATEST_VERSION" ]]; then
     chown "$SERVICE_USER:$SERVICE_USER" "$VERSION_FILE"
     chmod 0644 "$VERSION_FILE"
 fi
+rm -f "${INSTALL_DIR}/.failed-version"   # 手動インストール/アップグレードでロールバック済み扱いを解除
 
 # --- .env 作成 ---
 ENV_FILE="${INSTALL_DIR}/.env"
