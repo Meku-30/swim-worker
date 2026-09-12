@@ -43,6 +43,43 @@ UPDATE_TIMER_FILE="/etc/systemd/system/swim-worker-update.timer"
 VERSION_FILE="${INSTALL_DIR}/.version"
 UPDATE_LOCK="/var/lock/swim-worker-update.lock"
 
+# Redis TLS 用 CA 証明書 (swim_worker/certs.py の CA_CERT_PEM と同一。公開鍵なので秘匿不要)。
+# --auto の kill switch 確認で Redis に AUTH (パスワード送信) するため、
+# 証明書検証なし (CERT_NONE) では MITM でパスワードを窃取されうる。必ず検証する。
+# tests/test_install_sh.py が certs.py との一致を検証している。
+read -r -d '' REDIS_CA_PEM <<'CAEOF' || true
+-----BEGIN CERTIFICATE-----
+MIIFETCCAvmgAwIBAgIUa37Dpr6cCRedc6aFqB0Lxita18UwDQYJKoZIhvcNAQEL
+BQAwGDEWMBQGA1UEAwwNc3dpbS1yZWRpcy1jYTAeFw0yNjAzMzEyMTA2MzdaFw0z
+NjAzMjgyMTA2MzdaMBgxFjAUBgNVBAMMDXN3aW0tcmVkaXMtY2EwggIiMA0GCSqG
+SIb3DQEBAQUAA4ICDwAwggIKAoICAQCRhkoOXWg0ewc/HFxp59EO1nws/g6x+czH
+Vbclrwiu5rty1AYcZs7OggqDAi+Uju7eJTvQxhWE2uOk3yYYWT3VcJsD3nblZAuA
+i6gi6rIOM47fweVyUAyuFRdGibCTqqvvRye5SQxG6QJa4PZTl/GeAz90MqThES50
+jkhSe2esA5TRGNTJI8yshD/JVjCRdu6sPuzK1X9LwDcAJqKCTrPtnAxU0j53ub/r
+8gORWwgxFhiY8eRK5TMmENeqcplntx69DC4RenxqnxA8vaF3R40Vsqmufpfvvxph
+KlEtzWXCeXznnOTkTnVejVir0gvzQjETcnXp4oQJyEgvBv6DGGJojlbWhlcwMpnY
+aLsE74Uq+nS27vlvH1UZlyc++TACqbCvYm9bwVJkUeVcMJRqp3zzXHXmTDqWB7YY
+CbPQNuXIwjEiTpEm3SykqaFQhlxEFjpB0u6rQGfWEwB8pF5SiYOruam0rz8x2M6i
+jQ9KcOOeo8eKuV1UDwM7P9bCt0EMr3Vd51ttancdWk+GG4YmSf1gHZwmbJuJpBCB
+YAiHFptliSRT0IvQ0haILvCz7Fc06g5YSFYGtcFP4UBdbh2yTnsrw78qHnjeb9vi
+BszxexdElFAk5xaG1WKl0VYs1FrWdVcngi2BRkS/zSCjILOeBfSxLBGgEGgFv8Gd
+GUzuycDUnwIDAQABo1MwUTAdBgNVHQ4EFgQUngQHZ7JSi0eCv0gsvpKwu9p332Qw
+HwYDVR0jBBgwFoAUngQHZ7JSi0eCv0gsvpKwu9p332QwDwYDVR0TAQH/BAUwAwEB
+/zANBgkqhkiG9w0BAQsFAAOCAgEAEFRbB+Pe1CGzR1kNNgpw2j/OOitB5hm03GhH
+W6as1nEaizQxGX+GV5N70yvLYef+ig43iSq7ved04/mCQONCnMD3Og0OGExmOOJ/
+ffs0m8c5jLo3Zlvesk2O5iyQPqvYUYT2DnZvZTKc0MW+ab4vsIonpe2GlWZm2kOq
+7ryXA+xjuZNXJVeEj9XWnQ6ZxFdv1U2S7c44mGETk571At6qasa24DONNwC/9omB
+6cvdm1b28+sxVVZgFC4oZYQIKX0k9emGONcE47R7NKi3ku63vpzqV+uh6+94yzSt
+a8QzXEsp2W4bVdEJc6asAI6ATLVn2ULTWdcuJHURLeHj+hcR7N240Z0uMSKqriGx
+nnDgs6iUFEq3EGsxl90HqYO0KfabH8mFXVd2sXLBKJxb8Bq6+OcA9cFfgRaFxmrP
+y0sZG+mz7jURCrpoijb5qqMGKMwL5b82A9A8BNbuysoo5bICY50PVG4zwOvB6kBT
+Wzt7/195TDXVypH9M7DDnMD0XPrsrxQ1ce9Eg7jWdhMe7dPzz0lm9kJefFPyLgiO
+HY7SsUQX4NBMjof3S6Cg7+bzJtjiQazJNuJULHslGWd9gbwd9X3k0UGjgeMOMESj
+bmKpFYjCVWnobdviueeior9ma52p387KUSydPkArU3gY0UTVBNG/yk/1x1351Ql7
+U2NY60E=
+-----END CERTIFICATE-----
+CAEOF
+
 # 通常モード: RELEASE_TAG 環境変数で特定バージョンを強制可能 (検証/手動ロールバック用)。
 # 未設定なら /releases/latest (stable) を使う。
 # --auto モードは常に /releases/latest (stable のみ追従) を使う。
@@ -179,7 +216,7 @@ if [[ $AUTO_MODE -eq 1 ]]; then
             WORKER_NAME=$(grep -E "^WORKER_NAME=" "${INSTALL_DIR}/.env" 2>/dev/null \
                 | head -1 | sed "s/^WORKER_NAME=//; s/^'//; s/'$//" || true)
         fi
-        GUARD_RESULT=$(INSTALL_DIR="$INSTALL_DIR" python3 - <<'PYEOF' 2>/dev/null || echo "ERROR"
+        GUARD_RESULT=$(INSTALL_DIR="$INSTALL_DIR" SWIM_REDIS_CA_PEM="$REDIS_CA_PEM" python3 - <<'PYEOF' 2>/dev/null || echo "ERROR"
 import os, re, socket, ssl, sys
 
 # .env を読み込み (install.sh が書いた単引用符形式)
@@ -207,11 +244,16 @@ if not host:
     print("ERROR:no-host")
     sys.exit(0)
 
-# Redis TLS 接続 (kill switch 参照のみ。機密値は扱わないため CERT_NONE で許容)
+# Redis TLS 接続。AUTH でパスワードを送るため、埋め込み CA でサーバー証明書を
+# 検証する (Worker 本体 redis-py と同じ CA・同じ hostname/IP SAN 照合)。
+ca_pem = os.environ.get("SWIM_REDIS_CA_PEM", "")
+if not ca_pem.strip():
+    print("ERROR:no-ca-pem")
+    sys.exit(0)
 try:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    ctx = ssl.create_default_context(cadata=ca_pem)
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
     raw = socket.create_connection((host, port), timeout=5)
     sock = ctx.wrap_socket(raw, server_hostname=host)
     sock.settimeout(5)

@@ -80,7 +80,7 @@ class TaskConsumer:
                  request_delay_clip_min: float = 1.5,
                  request_delay_clip_max: float = 25.0,
                  task_hard_timeout: float = 300.0,
-                 blpop_timeout: float = 30.0,
+                 blpop_timeout: float = 20.0,
                  on_update_available=None,
                  on_task_state=None) -> None:
         self._redis = redis_client
@@ -91,9 +91,9 @@ class TaskConsumer:
         # 強制タイムアウト (2026-07-20 障害: heartbeatは生きたままタスク消費だけ
         # 完全停止し、キューに230件超が溜まった事象の再発防止)
         self._task_hard_timeout = task_hard_timeout
-        # blpopのブロッキング窓 (2026-07-21: redis-py非同期クライアントの累積タイムアウト
-        # 計算バグ(redis/redis-py#3454)への緩和策。旧5秒から30秒に緩和し、
-        # TLS越し・レイテンシのある経路で問題に当たる頻度自体を下げる)
+        # blpopのブロッキング窓。Redis クライアントの socket_timeout (既定 30 秒) より
+        # 短くすること。同値だとサーバーの nil 応答より先にクライアント側が切断し、
+        # 毎サイクル再接続になる (config.py 参照)
         self._blpop_timeout = blpop_timeout
         # 対数正規分布パラメータ（リクエスト間隔の待機に使用）
         self._delay_mu = math.log(request_delay_median)
@@ -246,7 +246,7 @@ class TaskConsumer:
           経ずに再起動した場合の救済)。token 一致確認なので別マシンの同名 Worker の
           lock を奪うことは無い。
         - SET NX で heartbeat:{name} に自分の instance_token を登録
-        - 失敗: TTL 失効を最大90秒待ってリトライ
+        - 失敗: TTL 失効を最大 TTL+10 秒 (既定 70 秒) 待ってリトライ
         - それでも失敗: DuplicateWorkerError を送出
         """
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
@@ -482,6 +482,11 @@ class TaskConsumer:
                         "タスク強制タイムアウト (%.0f秒超過、consume_loop継続): %s",
                         self._task_hard_timeout, task.get("task_id"),
                     )
+                    # execute_task 内の集計/通知には到達していないのでここで補う
+                    # (GUI が「処理中」のまま固まるのを防ぐ)
+                    self._task_total += 1
+                    self._task_errors += 1
+                    self._notify_state("idle")
             except asyncio.CancelledError:
                 break
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:

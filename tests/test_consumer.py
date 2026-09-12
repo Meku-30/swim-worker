@@ -143,8 +143,8 @@ class TestTaskConsumer:
 
         mock_redis.blpop.assert_called_once_with("tasks:test-worker", timeout=45.0)
 
-    async def test_consume_loop_default_blpop_timeout_is_30(self):
-        """blpop_timeoutを明示しない場合のデフォルトは30秒(旧5秒から緩和)"""
+    async def test_consume_loop_default_blpop_timeout_is_20(self):
+        """blpop_timeoutを明示しない場合のデフォルトは20秒 (Settings と同値、socket_timeout 30 未満)"""
         mock_redis = AsyncMock()
         mock_redis.blpop.side_effect = asyncio.CancelledError()
 
@@ -157,7 +157,42 @@ class TestTaskConsumer:
         except asyncio.CancelledError:
             pass
 
-        mock_redis.blpop.assert_called_once_with("tasks:test-worker", timeout=30.0)
+        mock_redis.blpop.assert_called_once_with("tasks:test-worker", timeout=20.0)
+
+    async def test_hard_timeout_notifies_idle_and_counts_error(self):
+        """強制タイムアウト時も GUI へ idle を通知し、集計に失敗として反映する
+
+        以前は wait_for の TimeoutError 経路で _notify_state("idle") が呼ばれず、
+        GUI のステータスが「処理中」のまま固まっていた。
+        """
+        states: list[tuple] = []
+        mock_redis = AsyncMock()
+        task = {"task_id": "t1", "job_type": "collect_notams", "params": {"url": "u", "body": {}}}
+        calls = {"n": 0}
+
+        async def blpop(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return ("tasks:test-worker", json.dumps(task))
+            raise asyncio.CancelledError()
+
+        mock_redis.blpop.side_effect = blpop
+        consumer = TaskConsumer(mock_redis, AsyncMock(), "test-worker",
+            task_hard_timeout=0.05,
+            on_task_state=lambda state, **kw: states.append((state, kw)))
+
+        async def hang(_task):
+            await asyncio.sleep(10)
+
+        consumer.execute_task = hang
+        consumer._running = True
+        try:
+            await asyncio.wait_for(consumer._consume_loop(), timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        assert states[-1][0] == "idle"
+        assert states[-1][1]["total"] == 1
+        assert states[-1][1]["errors"] == 1
 
     async def test_execute_task_failure(self):
         mock_swim = AsyncMock()

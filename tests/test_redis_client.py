@@ -1,4 +1,4 @@
-"""__main__ の Redis クライアント生成テスト"""
+"""Redis クライアント生成 (CLI / GUI 共通) のテスト"""
 from unittest.mock import patch, MagicMock
 
 from swim_worker.config import Settings
@@ -22,9 +22,9 @@ class TestCreateRedisClient:
         実行時に 1 回 client_setname() する方式だと再接続後に名前が消えるため、
         接続レベルで名前を付ける。
         """
-        from swim_worker.__main__ import create_redis_client
+        from swim_worker.redis_client import create_redis_client
         settings = _settings(monkeypatch)
-        with patch("swim_worker.__main__.aioredis.Redis") as mock_cls:
+        with patch("swim_worker.redis_client.aioredis.Redis") as mock_cls:
             mock_cls.return_value = MagicMock()
             create_redis_client(settings)
         kwargs = mock_cls.call_args.kwargs
