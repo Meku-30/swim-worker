@@ -27,5 +27,4 @@ def test_install_sh_records_failed_version_and_skips_it():
     rollback = text[text.index("# ロールバック"):]
     assert 'echo "$LATEST_VERSION" > "${INSTALL_DIR}/.failed-version"' in rollback
     # ガード評価の前でスキップ
-    guard = text[text.index("--- ガード1"):text.index("--- ガード2")]
     assert ".failed-version" in text[:text.index("--- ガード1")]
