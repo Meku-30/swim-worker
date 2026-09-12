@@ -1,5 +1,7 @@
 curl_cffi>=0.13.0
-redis[hiredis]>=5.0.0
+# 8.0 で RESP3 デフォルト化・リトライ既定値変更 (10 回) 等があり、メジャー更新は要動作確認。
+# 本番 v1.1.0 は 8.0.1 で build 済み。上限固定で CI build の挙動変化を防ぐ。
+redis[hiredis]>=8.0.1,<9
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
