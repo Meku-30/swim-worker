@@ -160,6 +160,8 @@ class WorkerGUI:
         self._consumer = None
         # ワーカースレッドの asyncio ループ (停止要求をスレッドセーフに渡すため保持)
         self._worker_loop: asyncio.AbstractEventLoop | None = None
+        # _main() を包む Task (停止時に call_soon_threadsafe(task.cancel) で中断する)
+        self._worker_task: asyncio.Task | None = None
         # GUI 設定 (auto_update 等) と snooze 情報を永続化
         self._gui_settings: dict = _load_json(GUI_SETTINGS_PATH)
         self._update_progress_dialog: UpdateProgressDialog | None = None
@@ -486,6 +488,11 @@ class WorkerGUI:
             messagebox.showerror("エラー", WORKER_NAME_RULE_MESSAGE)
             return
 
+        thread = self._worker_thread
+        if thread is not None and thread.is_alive():
+            messagebox.showinfo("停止処理中", "前回の停止処理が完了していません。しばらく待ってから再度押してください。")
+            return
+
         # 設定保存してから起動
         self._save_env()
 
@@ -511,22 +518,28 @@ class WorkerGUI:
         self._worker_thread.start()
 
     def _on_stop(self):
-        """Worker停止"""
+        """Worker停止 (consumer 生成前の Redis リトライ中でも中断できる)"""
         self._worker_running = False
-        if self._consumer:
-            # consumer.stop() は asyncio Task.cancel() を呼ぶ。asyncio はスレッドセーフで
-            # ないため、UI スレッドから直接呼ぶとループが次のイベント (BLPOP 待ち等) まで
-            # 起きず停止が遅れる。ループのスレッドで実行させる。
-            loop = self._worker_loop
-            if loop is not None and loop.is_running():
-                loop.call_soon_threadsafe(self._consumer.stop)
-            else:
-                self._consumer.stop()
+        loop = self._worker_loop
+        task = self._worker_task
+        if loop is not None and task is not None and loop.is_running():
+            # Task.cancel はスレッドセーフでないためループのスレッドで実行する。
+            # consumer.run() 内なら CancelledError で heartbeat/consume が止まり finally が走る
+            loop.call_soon_threadsafe(task.cancel)
         if _HAS_TRAY and self._tray_icon:
             self._tray_icon.icon = create_icon(color="gray", size=64)
+        self._status_var.set("停止処理中...")
+        self._stop_btn.configure(state="disabled")
+        self._root.after(500, self._poll_worker_stopped)
+
+    def _poll_worker_stopped(self):
+        """ワーカースレッドの終了を待ってから UI を起動可能に戻す"""
+        thread = self._worker_thread
+        if thread is not None and thread.is_alive():
+            self._root.after(500, self._poll_worker_stopped)
+            return
         self._status_var.set("停止中")
         self._start_btn.configure(state="normal")
-        self._stop_btn.configure(state="disabled")
         for entry in self._entries.values():
             entry.configure(state="normal")
         logging.info("Worker停止")
@@ -539,18 +552,18 @@ class WorkerGUI:
         from swim_worker.consumer import TaskConsumer, DuplicateWorkerError
 
         async def _main():
+            swim_client = None
+            redis_client = None
             try:
-                # UIスレッドでコピー済みの値を使用
+                # UIスレッドでコピー済みの値を使用 (os.environ には書かず直接構築する)
                 ws = self._worker_settings
-                os.environ["REDIS_HOST"] = ws["redis_host"]
-                os.environ["REDIS_PORT"] = "6380"
-                os.environ["REDIS_PASSWORD"] = ws["redis_password"]
-                os.environ["REDIS_CA_CERT"] = ""
-                os.environ["SWIM_USERNAME"] = ws["swim_username"]
-                os.environ["SWIM_PASSWORD"] = ws["swim_password"]
-                os.environ["WORKER_NAME"] = ws["worker_name"]
-
-                settings = Settings()
+                settings = Settings(
+                    _env_file=None,
+                    redis_host=ws["redis_host"], redis_port=6380,
+                    redis_password=ws["redis_password"], redis_ca_cert="",
+                    swim_username=ws["swim_username"], swim_password=ws["swim_password"],
+                    worker_name=ws["worker_name"],
+                )
                 # CLI と同じファクトリを使う (client_name 等の設定漏れ防止)
                 redis_client = create_redis_client(settings)
 
@@ -621,6 +634,9 @@ class WorkerGUI:
                     self._tray_icon.icon = create_icon(color="red", size=64)
                 for entry in self._entries.values():
                     self._root.after(0, lambda e=entry: e.configure(state="normal"))
+            except asyncio.CancelledError:
+                # _on_stop からの停止要求。UI の復帰は _poll_worker_stopped が行う
+                logging.info("Worker 停止要求を受け付けました")
             except Exception as e:
                 logging.error("エラー: %s", e)
                 self._root.after(0, lambda: self._status_var.set("エラー"))
@@ -628,16 +644,33 @@ class WorkerGUI:
                 self._root.after(0, lambda: self._stop_btn.configure(state="disabled"))
                 for entry in self._entries.values():
                     self._root.after(0, lambda e=entry: e.configure(state="normal"))
+            finally:
+                if swim_client is not None:
+                    try:
+                        await swim_client.close()
+                    except Exception as e:
+                        logging.debug("SwimClient close 失敗 (無視): %s", e)
+                if redis_client is not None:
+                    try:
+                        await redis_client.aclose()
+                    except Exception as e:
+                        logging.debug("Redis close 失敗 (無視): %s", e)
+                self._consumer = None
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._worker_loop = loop
         try:
-            loop.run_until_complete(_main())
+            self._worker_task = loop.create_task(_main())
+            loop.run_until_complete(self._worker_task)
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             logging.error("予期しないエラー: %s", e)
         finally:
-            self._worker_loop = None
+            self._worker_task = None
+            if self._worker_loop is loop:
+                self._worker_loop = None
             loop.close()
 
     # --- 自動起動 (Windows / macOS) ---
