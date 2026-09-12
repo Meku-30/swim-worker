@@ -269,3 +269,17 @@ Worker は Redis 接続に `CLIENT SETNAME {worker_name}` で名前を付け、C
 Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを検出すると `/app/data/{job_type}_unknown_samples/` に生レスポンスの断片を保存していた。このパスは Coordinator コンテナ用で、Worker では Windows GUI がシステムドライブ直下に `\app\data\…` を作成して書き続け、systemd (`ProtectSystem=strict`) の Linux ではディレクトリ作成に失敗して毎回スタックトレース付きの ERROR ログが出ていた。
 
 修正 (v1.1.2, 2026-09-12 リリース): 保存先を環境変数 `SWIM_PARSER_DIAG_DIR` による明示オプトインにし、未設定 (= Worker) では保存せず DEBUG ログのみとした。Worker の利用者に見せるログは、接続状態・タスクの開始/成功/失敗・バージョン通知など利用者が対処できる事象に限る方針。既に作成された `\app\data\*_unknown_samples\` は自動削除しないので、手動で削除する。
+
+### v1.1.3 での修正 (2026-09-12 レビュー)
+
+- 更新後の起動確認: `.startup_ok` を GUI が表示された時点 (2 秒生存) で書く。以前は Worker が Redis に接続した時にしか書かれず、「起動時に自動接続」OFF の利用者は更新のたびに 120 秒後にロールバックされていた
+- ロールバック後は同一バージョンを snooze し、2 回連続なら自動更新を OFF にして通知する
+- Windows ヘルパー: 新 exe への置き換えに失敗した場合も旧 exe を再起動する (`reason=move_failed`)
+- macOS ヘルパー: 停止は PID 指定 (`pkill -f` は自分自身を止めていた)、PyInstaller 環境変数のリセット、トレイはメインスレッドで実行。Apple Silicon のみ対応
+- Worker 名は `[A-Za-z0-9._-]{1,32}` に制限 (`CLIENT SETNAME` 失敗の予防)
+- GUI の停止は Redis 再試行中でも中断でき、停止完了までは再起動できない。停止時に SWIM/Redis クライアントを解放する
+- capability テストの 403 では再ログイン・Cookie 破棄をしない
+- GUI ログは 5MB × 3 世代でローテーション
+- ロックファイルは常に `data/swim-worker.lock`。埋め込み CA は一時ファイルを作らず渡す
+- Docker 経路 (上級者向け) がビルド・起動できるよう修正
+- `install.sh --auto` はロールバックした版を `.failed-version` に記録し再試行しない
