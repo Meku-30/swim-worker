@@ -163,7 +163,7 @@ Claude-Session: https://claude.ai/code/session_01HvJvyome4qYgikSoCTLSjT"
 
 - [ ] **Step 1: 失敗するテストを書く**
 
-`tests/test_gui_helpers.py` を新規作成。`gui.py` は import 時に tkinter を読むため、`import` を `pytest.importorskip("tkinter")` で保護する:
+`tests/test_gui_helpers.py` を新規作成 (`gui_helpers` だけを import し、tkinter 依存の `gui.py` は読まない):
 
 ```python
 """gui_helpers (tkinter 非依存) のテスト"""
