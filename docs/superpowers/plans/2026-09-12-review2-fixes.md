@@ -4,7 +4,7 @@
 
 **Goal:** GUI 自動更新のロールバック無限ループ (C-1/I-5)、Worker 名の検証 (I-1)、GUI 停止経路 (I-2/I-9/M-3/M-6)、capability テストの再ログイン抑止 (I-3)、更新ヘルパー (I-4/I-6)、ログローテ (I-7)、Worker パースの task params マージ (I-8)、Docker 経路 (I-10)、ロックパス (M-1)、CA 一時ファイル (M-2)、install.sh の失敗版再試行抑止 (M-8) を修正し v1.1.3 としてリリースする。
 
-**Architecture:** 変更はすべて既存モジュール内。GUI のロジックのうちテストしたいものは `gui.py` からモジュール関数に切り出す (`_pyinstaller_clean_env()`、`_build_windows_update_script()`、`_build_macos_update_script()`、`_next_rollback_state()`)。tkinter 依存のない関数だけをテストする。
+**Architecture:** 変更はほぼ既存モジュール内。GUI のロジックのうちテストしたいものは tkinter 非依存の新モジュール `swim_worker/gui_helpers.py` に置き (`pyinstaller_clean_env()`、`build_windows_update_script()`、`build_macos_update_script()`、`next_rollback_state()`、`write_startup_marker()`)、`gui.py` から import する。この開発環境には tkinter が無いため、`gui.py` 自体は import せずにテストする。
 
 **Tech Stack:** Python 3.12 / asyncio / tkinter + pystray / redis-py 8 / curl_cffi / pydantic-settings / PyInstaller / pytest + pytest-asyncio / bash (install.sh)
 
@@ -30,7 +30,8 @@
 | ファイル | 責務 | 変更 |
 |---------|------|------|
 | `swim_worker/config.py` | 設定 | `WORKER_NAME_RE` + validator (T1) |
-| `swim_worker/gui.py` | GUI | 起動マーカー・ロールバック抑止 (T2)、停止経路・Settings 直接構築 (T3)、ヘルパー生成関数化 (T5)、ログローテ (T6)、名前検証 (T1) |
+| `swim_worker/gui.py` | GUI (tkinter) | 起動マーカー・ロールバック抑止 (T2)、停止経路・Settings 直接構築 (T3)、ヘルパー生成の呼び出し (T5)、ログローテ (T6)、名前検証 (T1) |
+| `swim_worker/gui_helpers.py` | GUI の純粋関数 (tkinter 非依存、新規) | T2 / T5 |
 | `swim_worker/auth.py` | SWIM クライアント | `retry_on_auth_error` (T4) |
 | `swim_worker/consumer.py` | consumer | capability テストの呼び出し (T4) |
 | `swim_worker/parsers/__init__.py` | Worker 側 parse 入口 | task params マージ (T7) |
@@ -152,41 +153,39 @@ Claude-Session: https://claude.ai/code/session_01HvJvyome4qYgikSoCTLSjT"
 ### Task 2: 更新後の起動確認とロールバック抑止 (C-1, I-5)
 
 **Files:**
-- Modify: `swim_worker/gui.py` (`run()`、`_check_rollback_marker_after_ready()`、新規モジュール関数 `_next_rollback_state()`)
-- Test: `tests/test_gui_helpers.py` (新規、tkinter 非依存の関数のみ)
+- Create: `swim_worker/gui_helpers.py`
+- Modify: `swim_worker/gui.py` (`run()`、`_check_rollback_marker_after_ready()`)
+- Test: `tests/test_gui_helpers.py` (新規、`gui_helpers` のみ import)
 
 **Interfaces:**
-- Produces: `swim_worker.gui._next_rollback_state(gui_settings: dict, from_version: str) -> tuple[dict, bool]` — `rollback_count[from_version]` を +1 した新しい settings dict と、「自動更新を停止すべきか (2 回目以降)」を返す。純粋関数
-- `swim_worker.gui._write_startup_marker() -> None` — `consumer._startup_marker_path()` に `__version__` を書く (失敗は無視)
+- Produces: `swim_worker.gui_helpers.next_rollback_state(gui_settings: dict, from_version: str) -> tuple[dict, bool]` — `rollback_count[from_version]` を +1 した新しい settings dict と、「自動更新を停止すべきか (2 回目以降)」を返す。純粋関数。`ROLLBACK_DISABLE_THRESHOLD = 2`
+- `swim_worker.gui_helpers.write_startup_marker() -> None` — `consumer._startup_marker_path()` に `__version__` を書く (失敗は無視)
 
 - [ ] **Step 1: 失敗するテストを書く**
 
 `tests/test_gui_helpers.py` を新規作成。`gui.py` は import 時に tkinter を読むため、`import` を `pytest.importorskip("tkinter")` で保護する:
 
 ```python
-"""gui.py のうち tkinter 非依存の純粋関数のテスト"""
-import pytest
-
-pytest.importorskip("tkinter")
-from swim_worker import gui  # noqa: E402
+"""gui_helpers (tkinter 非依存) のテスト"""
+from swim_worker import gui_helpers as gui
 
 
 class TestNextRollbackState:
     def test_first_rollback_counts_but_keeps_auto_update(self):
-        new, disable = gui._next_rollback_state({"auto_update": True}, "1.1.3")
+        new, disable = gui.next_rollback_state({"auto_update": True}, "1.1.3")
         assert new["rollback_count"] == {"1.1.3": 1}
         assert new["auto_update"] is True
         assert disable is False
 
     def test_second_rollback_of_same_version_disables_auto_update(self):
-        new, disable = gui._next_rollback_state(
+        new, disable = gui.next_rollback_state(
             {"auto_update": True, "rollback_count": {"1.1.3": 1}}, "1.1.3")
         assert new["rollback_count"] == {"1.1.3": 2}
         assert new["auto_update"] is False
         assert disable is True
 
     def test_other_version_rollback_does_not_accumulate(self):
-        new, disable = gui._next_rollback_state(
+        new, disable = gui.next_rollback_state(
             {"auto_update": True, "rollback_count": {"1.1.3": 1}}, "1.1.4")
         assert new["rollback_count"] == {"1.1.3": 1, "1.1.4": 1}
         assert disable is False
@@ -196,24 +195,27 @@ class TestStartupMarker:
     def test_write_startup_marker_writes_version(self, tmp_path, monkeypatch):
         from swim_worker import consumer, __version__
         monkeypatch.setattr(consumer, "_startup_marker_path", lambda: tmp_path / "data" / ".startup_ok")
-        gui._write_startup_marker()
+        gui.write_startup_marker()
         assert (tmp_path / "data" / ".startup_ok").read_text(encoding="utf-8") == __version__
 ```
 
 - [ ] **Step 2: 失敗確認**
 
 Run: `python3 -m pytest tests/test_gui_helpers.py -q`
-Expected: `AttributeError: module 'swim_worker.gui' has no attribute '_next_rollback_state'` (tkinter が無い環境なら skip される — その場合は `sudo apt install python3-tk` 相当が必要。この環境にあるか `python3 -c "import tkinter"` で確認)
+Expected: `ModuleNotFoundError: No module named 'swim_worker.gui_helpers'`
 
 - [ ] **Step 3: 実装**
 
-`swim_worker/gui.py` のモジュールレベル (`_load_json` / `_save_json` の近く) に追加:
+`swim_worker/gui_helpers.py` を新規作成 (`import logging` のみ。tkinter を import しない):
 
 ```python
+"""GUI (gui.py) から使う tkinter 非依存のヘルパー。単体テスト可能にするため分離。"""
+import logging
+
 ROLLBACK_DISABLE_THRESHOLD = 2  # 同一バージョンでこの回数ロールバックしたら自動更新を止める
 
 
-def _next_rollback_state(gui_settings: dict, from_version: str) -> tuple[dict, bool]:
+def next_rollback_state(gui_settings: dict, from_version: str) -> tuple[dict, bool]:
     """ロールバック検知時の gui_settings 更新を計算する (純粋関数)。
 
     同一バージョンのロールバック回数を数え、閾値に達したら auto_update を False にする。
@@ -229,7 +231,7 @@ def _next_rollback_state(gui_settings: dict, from_version: str) -> tuple[dict, b
     return new, disable
 
 
-def _write_startup_marker() -> None:
+def write_startup_marker() -> None:
     """GUI が起動して生存したことをヘルパースクリプトに伝える (`data/.startup_ok`)。
 
     v1.1.2 以前は Worker が Redis に接続したときしか書かれず、「起動時に自動接続」OFF の
@@ -245,11 +247,11 @@ def _write_startup_marker() -> None:
         logging.debug("startup marker 作成失敗 (無視): %s", e)
 ```
 
-`WorkerGUI.run()` の `self._root.mainloop()` 直前に:
+`gui.py` 先頭で `from swim_worker.gui_helpers import next_rollback_state, write_startup_marker` を import。`WorkerGUI.run()` の `self._root.mainloop()` 直前に:
 
 ```python
         # 更新ヘルパーの起動確認: GUI が 2 秒生存したら成功マーカーを書く
-        self._root.after(2000, _write_startup_marker)
+        self._root.after(2000, write_startup_marker)
 ```
 
 `_check_rollback_marker_after_ready()` を以下に置き換える:
@@ -272,7 +274,7 @@ def _write_startup_marker() -> None:
         from_version = str(info.get("rolled_back_from", "?")).lstrip("v")
         reason = info.get("reason", "")
 
-        self._gui_settings, disabled = _next_rollback_state(self._gui_settings, from_version)
+        self._gui_settings, disabled = next_rollback_state(self._gui_settings, from_version)
         try:
             _save_json(GUI_SETTINGS_PATH, self._gui_settings)
         except Exception as e:
@@ -306,7 +308,7 @@ def _write_startup_marker() -> None:
 
 ```bash
 python3 -m pytest tests/ -q
-git add swim_worker/gui.py tests/test_gui_helpers.py
+git add swim_worker/gui.py swim_worker/gui_helpers.py tests/test_gui_helpers.py
 git commit -m "GUI 更新: 起動確認マーカーを GUI 表示時点で書き、同一版のロールバックが続いたら自動更新を停止
 
 - .startup_ok が Redis 接続後にしか書かれず、自動接続 OFF の利用者は更新のたびに
@@ -535,14 +537,14 @@ Claude-Session: https://claude.ai/code/session_01HvJvyome4qYgikSoCTLSjT"
 ### Task 5: 更新ヘルパーの修正 (I-4, I-6)
 
 **Files:**
-- Modify: `swim_worker/gui.py` (`_do_update` のスクリプト生成をモジュール関数へ切り出し、`_setup_tray`)
+- Modify: `swim_worker/gui_helpers.py` (3 関数を追加)、`swim_worker/gui.py` (`_do_update` から呼び出す、`_setup_tray`)
 - Test: `tests/test_gui_helpers.py`
 
 **Interfaces:**
-- Produces (モジュール関数、tkinter 非依存):
-  - `_pyinstaller_clean_env(base_env: dict) -> dict` — `_PYI_ARCHIVE_FILE` / `_PYI_APPLICATION_HOME_DIR` / `_PYI_PARENT_PROCESS_LEVEL` / `_MEIPASS2` を除去し `PYINSTALLER_RESET_ENVIRONMENT=1` を設定
-  - `_build_windows_update_script(*, base, current_exe, new_exe, old_exe, startup_ok, rollback_marker, log_path, new_version) -> str`
-  - `_build_macos_update_script(*, current_exe, new_exe, old_exe, startup_ok, rollback_marker, log_path, new_version) -> str`
+- Produces (`swim_worker.gui_helpers`、tkinter 非依存):
+  - `pyinstaller_clean_env(base_env: dict) -> dict` — `_PYI_ARCHIVE_FILE` / `_PYI_APPLICATION_HOME_DIR` / `_PYI_PARENT_PROCESS_LEVEL` / `_MEIPASS2` を除去し `PYINSTALLER_RESET_ENVIRONMENT=1` を設定
+  - `build_windows_update_script(*, base, current_exe, new_exe, old_exe, startup_ok, rollback_marker, log_path, new_version) -> str`
+  - `build_macos_update_script(*, current_exe, new_exe, old_exe, startup_ok, rollback_marker, log_path, new_version) -> str`
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -556,7 +558,7 @@ class TestPyinstallerCleanEnv:
     def test_removes_pyi_vars_and_sets_reset(self):
         env = {"_PYI_ARCHIVE_FILE": "x", "_PYI_APPLICATION_HOME_DIR": "y",
                "_PYI_PARENT_PROCESS_LEVEL": "1", "_MEIPASS2": "z", "PATH": "/bin"}
-        out = gui._pyinstaller_clean_env(env)
+        out = gui.pyinstaller_clean_env(env)
         assert "PATH" in out
         assert not any(k.startswith("_PYI_") for k in out)
         assert "_MEIPASS2" not in out
@@ -567,7 +569,7 @@ class TestPyinstallerCleanEnv:
 class TestWindowsUpdateScript:
     def _script(self):
         base = Path(r"C:\Users\test\swim")
-        return gui._build_windows_update_script(
+        return gui.build_windows_update_script(
             base=base, current_exe=base / "swim-worker-gui.exe",
             new_exe=base / "swim-worker-gui.new.exe", old_exe=base / "swim-worker-gui.exe.old",
             startup_ok=base / "data" / ".startup_ok",
@@ -590,7 +592,7 @@ class TestWindowsUpdateScript:
 class TestMacosUpdateScript:
     def _script(self):
         base = Path("/Applications/swim")
-        return gui._build_macos_update_script(
+        return gui.build_macos_update_script(
             current_exe=base / "swim-worker", new_exe=base / "swim-worker.new",
             old_exe=base / "swim-worker.old", startup_ok=base / "data" / ".startup_ok",
             rollback_marker=base / "data" / ".update_rollback.json",
@@ -607,7 +609,7 @@ class TestMacosUpdateScript:
 
 - [ ] **Step 3: 実装**
 
-`gui.py` モジュールレベルに 3 関数を追加。`_do_update` の Windows 分岐にある `script = ("@echo off\r\n" ... )` の全文を `_build_windows_update_script(...)` の本体に移し (引数を f-string で使う)、`:fail` ブロックを以下に置き換える:
+`gui_helpers.py` に 3 関数を追加し、`gui.py` で import する。`_do_update` の Windows 分岐にある `script = ("@echo off\r\n" ... )` の全文を `build_windows_update_script(...)` の本体に移し (引数を f-string で使う)、`:fail` ブロックを以下に置き換える:
 
 ```python
             ":fail\r\n"
@@ -619,16 +621,16 @@ class TestMacosUpdateScript:
             "exit /b 1\r\n"
 ```
 
-macOS 分岐の `script = f"""#!/bin/bash ..."""` を `_build_macos_update_script(...)` に移し、`"{current_exe}" &` → `"{current_exe}" &\nNEW_PID=$!`、`pkill -f "{current_exe.name}" >> "$LOG" 2>&1 || true` → `kill "$NEW_PID" >> "$LOG" 2>&1 || true`。
+macOS 分岐の `script = f"""#!/bin/bash ..."""` を `build_macos_update_script(...)` に移し、`"{current_exe}" &` → `"{current_exe}" &\nNEW_PID=$!`、`pkill -f "{current_exe.name}" >> "$LOG" 2>&1 || true` → `kill "$NEW_PID" >> "$LOG" 2>&1 || true`。
 
-`_pyinstaller_clean_env`:
+`pyinstaller_clean_env` (`gui_helpers.py`):
 
 ```python
 _PYI_ENV_KEYS = ("_PYI_ARCHIVE_FILE", "_PYI_APPLICATION_HOME_DIR",
                  "_PYI_PARENT_PROCESS_LEVEL", "_MEIPASS2")
 
 
-def _pyinstaller_clean_env(base_env: dict) -> dict:
+def pyinstaller_clean_env(base_env: dict) -> dict:
     """PyInstaller onefile の子プロセス判定用環境変数を除去した環境を返す。
 
     ヘルパー経由で再起動する新 exe がこれらを継承すると、既に消えた _MEI ディレクトリから
@@ -639,7 +641,7 @@ def _pyinstaller_clean_env(base_env: dict) -> dict:
     return env
 ```
 
-`_do_update` の Windows 分岐の `clean_env = os.environ.copy(); for k in (...): clean_env.pop(k, None); clean_env[...] = "1"` を `clean_env = _pyinstaller_clean_env(os.environ)` に。macOS 分岐の `subprocess.Popen(["bash", str(script_path)], start_new_session=True, close_fds=True)` に `env=_pyinstaller_clean_env(os.environ)` を追加。
+`_do_update` の Windows 分岐の `clean_env = os.environ.copy(); for k in (...): clean_env.pop(k, None); clean_env[...] = "1"` を `clean_env = pyinstaller_clean_env(os.environ)` に。macOS 分岐の `subprocess.Popen(["bash", str(script_path)], start_new_session=True, close_fds=True)` に `env=pyinstaller_clean_env(os.environ)` を追加。
 
 `_setup_tray`: スレッド起動部分を
 
@@ -656,7 +658,7 @@ def _pyinstaller_clean_env(base_env: dict) -> dict:
 
 ```bash
 python3 -m pytest tests/ -q
-git add swim_worker/gui.py tests/test_gui_helpers.py
+git add swim_worker/gui.py swim_worker/gui_helpers.py tests/test_gui_helpers.py
 git commit -m "更新ヘルパー: Windows の置換失敗時に旧 exe を再起動、macOS は PID で停止・環境変数リセット・トレイをメインスレッドで実行
 
 - .bat の :fail で reason=move_failed のマーカーを書いて旧 exe を起動 (Worker が黙って消えない)
@@ -1139,4 +1141,4 @@ git push origin master && git push origin v1.1.3
 
 **Placeholder scan:** T3 は tkinter 依存でテストなし (静的確認で代替) と明記。T8 Step 1 のテストは既存挙動でも PASS することを明記 (メッセージ化は手動確認)。T12 Step 3 は人の判断ステップ。TBD/TODO なし。
 
-**Type consistency:** `_next_rollback_state(dict, str) -> (dict, bool)` を T2 の実装・テストで一致。`_build_windows_update_script` / `_build_macos_update_script` のキーワード引数名を T5 のテストと実装で一致。`create_redis_client` の `ssl_ca_data` / `ssl_ca_certs` 分岐を T9 のテストと一致。`execute_api(..., retry_on_auth_error=False)` を T4 の consumer 呼び出しとテストで一致。
+**Type consistency:** `gui_helpers.next_rollback_state(dict, str) -> (dict, bool)` を T2 の実装・テストで一致。`gui_helpers.build_windows_update_script` / `build_macos_update_script` のキーワード引数名を T5 のテストと実装で一致。`gui.py` は `gui_helpers` から import するだけで、テストは `gui.py` を import しない (tkinter 不要)。`create_redis_client` の `ssl_ca_data` / `ssl_ca_certs` 分岐を T9 のテストと一致。`execute_api(..., retry_on_auth_error=False)` を T4 の consumer 呼び出しとテストで一致。
