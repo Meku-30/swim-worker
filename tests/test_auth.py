@@ -79,6 +79,19 @@ class TestSwimClient:
         assert result == {"data": "ok"}
         client._relogin.assert_called_once()
 
+    async def test_execute_api_no_relogin_on_403_when_retry_disabled(self):
+        client = SwimClient(username="user", password="pass")
+        client._is_ready = True
+        session = AsyncMock()
+        session.post.return_value = MagicMock(status_code=403, text="forbidden")
+        client._session = session
+        client._relogin = AsyncMock()
+        with patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            with pytest.raises(SwimAuthError, match="403"):
+                await client.execute_api("https://example/api", {}, retry_on_auth_error=False)
+        client._relogin.assert_not_called()
+        assert session.post.await_count == 1
+
 
 @pytest.mark.asyncio
 class TestLoginBackoff:

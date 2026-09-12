@@ -3,7 +3,7 @@ import asyncio
 import zstandard as zstd
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from swim_worker.consumer import TaskConsumer
 
 
@@ -316,3 +316,11 @@ class TestTaskConsumer:
         # 成功時はファイルが作成される
         assert token_path.exists()
         assert token_path.read_text() == consumer._instance_token
+
+    async def test_capability_test_calls_execute_api_without_auth_retry(self):
+        mock_redis = AsyncMock()
+        swim = AsyncMock()
+        consumer = TaskConsumer(mock_redis, swim, "test-worker")
+        with patch("swim_worker.consumer.asyncio.sleep", new=AsyncMock()):
+            await consumer._run_capability_test("t1", {"tests": [{"job_type": "collect_notams", "url": "u", "body": {}}]})
+        swim.execute_api.assert_awaited_once_with("u", {}, retry_on_auth_error=False)
