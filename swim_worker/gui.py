@@ -14,7 +14,13 @@ from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
 from swim_worker import __version__
-from swim_worker.gui_helpers import next_rollback_state, write_startup_marker
+from swim_worker.gui_helpers import (
+    build_macos_update_script,
+    build_windows_update_script,
+    next_rollback_state,
+    pyinstaller_clean_env,
+    write_startup_marker,
+)
 from swim_worker.icon import create_icon
 
 # System tray support (Windows + macOS)
@@ -335,10 +341,12 @@ class WorkerGUI:
                 menu,
             )
             # 起動時にトレイアイコンを常駐開始 (最小化時に即反応できるように)
-            self._tray_thread = threading.Thread(
-                target=self._tray_icon.run, daemon=True,
-            )
-            self._tray_thread.start()
+            if sys.platform == "darwin":
+                # AppKit はメインスレッド必須。pystray の tkinter 併用向け API を使う
+                self._tray_icon.run_detached()
+            else:
+                self._tray_thread = threading.Thread(target=self._tray_icon.run, daemon=True)
+                self._tray_thread.start()
         except Exception as e:
             logging.warning("システムトレイ初期化失敗（トレイ機能を無効化）: %s", e)
             self._tray_icon = None
@@ -1230,80 +1238,17 @@ class WorkerGUI:
                 old_exe = current_exe.with_suffix(current_exe.suffix + ".old")
                 startup_ok = base / "data" / ".startup_ok"
                 rollback_marker = base / "data" / ".update_rollback.json"
-                # move をリトライする (旧exeが解放されるまで最大30秒待機)
-                # Phase 2: .old バックアップ + 起動成功判定 + ロールバック
-                script = (
-                    "@echo off\r\n"
-                    f'echo [%DATE% %TIME%] update start > "{log_path}"\r\n'
-                    "set /a COUNT=0\r\n"
-                    ":retry\r\n"
-                    "set /a COUNT+=1\r\n"
-                    f'echo [%DATE% %TIME%] attempt %COUNT% >> "{log_path}"\r\n'
-                    "if %COUNT% gtr 30 goto fail\r\n"
-                    "ping 127.0.0.1 -n 2 > nul\r\n"
-                    # Phase 2: 旧 exe を .old にバックアップ (失敗時のロールバック用)
-                    f'copy /Y "{current_exe}" "{old_exe}" >> "{log_path}" 2>&1\r\n'
-                    f'move /Y "{new_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
-                    "if errorlevel 1 goto retry\r\n"
-                    f'echo [%DATE% %TIME%] move success >> "{log_path}"\r\n'
-                    # Phase 2: 前回の startup marker を削除 (新 exe の成功判定用)
-                    f'if exist "{startup_ok}" del "{startup_ok}" >> "{log_path}" 2>&1\r\n'
-                    # ファイルシステム同期待ち
-                    "ping 127.0.0.1 -n 2 > nul\r\n"
-                    # PyInstaller 6.9+ の bootloader が _PYI_ARCHIVE_FILE を
-                    # 継承していると onefile 展開をスキップして python DLL 読み込み失敗する
-                    # (親exeが終了して _MEI tmpdir が消えているため)
-                    # 公式対応: PYINSTALLER_RESET_ENVIRONMENT=1 + 関連envを削除
-                    'set "_PYI_ARCHIVE_FILE="\r\n'
-                    'set "_PYI_APPLICATION_HOME_DIR="\r\n'
-                    'set "_PYI_PARENT_PROCESS_LEVEL="\r\n'
-                    'set "_MEIPASS2="\r\n'
-                    'set "PYINSTALLER_RESET_ENVIRONMENT=1"\r\n'
-                    f'start "" /D "{base}" "{current_exe}"\r\n'
-                    f'echo [%DATE% %TIME%] new exe started >> "{log_path}"\r\n'
-                    # Phase 2: 起動成功判定ループ (最大約120秒 startup_ok を待つ)
-                    # ping -n 2 が約1秒/反復のため、120 反復 ≈ 120 秒。
-                    # 旧 exe の Redis heartbeat TTL (heartbeat_interval × multiplier=2 の最大 60秒)
-                    # 失効を待つ余裕として、TTL の倍以上を確保する。
-                    "set /a WAIT=0\r\n"
-                    ":waitok\r\n"
-                    "set /a WAIT+=1\r\n"
-                    "if %WAIT% gtr 120 goto rollback\r\n"
-                    "ping 127.0.0.1 -n 2 > nul\r\n"
-                    f'if exist "{startup_ok}" goto success\r\n'
-                    "goto waitok\r\n"
-                    ":success\r\n"
-                    f'echo [%DATE% %TIME%] startup OK after %WAIT%s >> "{log_path}"\r\n'
-                    # 成功: .old を削除
-                    f'if exist "{old_exe}" del "{old_exe}" >> "{log_path}" 2>&1\r\n'
-                    'del "%~f0"\r\n'
-                    "exit /b 0\r\n"
-                    ":rollback\r\n"
-                    f'echo [%DATE% %TIME%] ROLLBACK: startup_ok not found in 120s >> "{log_path}"\r\n'
-                    # 新 exe を消して旧 exe を戻す (taskkill で走ってる新 exe を止める)
-                    f'taskkill /F /IM "{current_exe.name}" >> "{log_path}" 2>&1\r\n'
-                    "ping 127.0.0.1 -n 3 > nul\r\n"
-                    f'move /Y "{old_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
-                    # GUI 起動時にロールバック通知するためのマーカー書き込み (JSON)
-                    f'mkdir "{rollback_marker.parent}" 2>nul\r\n'
-                    f'echo {{"rolled_back_from":"v{new_version}"}} > "{rollback_marker}"\r\n'
-                    f'start "" /D "{base}" "{current_exe}"\r\n'
-                    'del "%~f0"\r\n'
-                    "exit /b 0\r\n"
-                    ":fail\r\n"
-                    f'echo [%DATE% %TIME%] FAILED after %COUNT% attempts >> "{log_path}"\r\n'
-                    "exit /b 1\r\n"
+                script = build_windows_update_script(
+                    base=base, current_exe=current_exe, new_exe=new_exe, old_exe=old_exe,
+                    startup_ok=startup_ok, rollback_marker=rollback_marker,
+                    log_path=log_path, new_version=new_version,
                 )
                 # パスに日本語が含まれる場合に備えて mbcs (システム ANSI) で書き込む
                 script_path.write_bytes(script.encode("mbcs", errors="replace"))
                 # PyInstaller 6.9+ の "Failed to load Python DLL" 対策として
                 # 子プロセスの環境変数から _PYI_* を除去し、PYINSTALLER_RESET_ENVIRONMENT を設定
                 # 参考: https://pyinstaller.org/en/stable/runtime-information.html
-                clean_env = os.environ.copy()
-                for k in ("_PYI_ARCHIVE_FILE", "_PYI_APPLICATION_HOME_DIR",
-                          "_PYI_PARENT_PROCESS_LEVEL", "_MEIPASS2"):
-                    clean_env.pop(k, None)
-                clean_env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+                clean_env = pyinstaller_clean_env(os.environ)
                 # CREATE_NO_WINDOW: コンソールは持つが非表示
                 CREATE_NO_WINDOW = 0x08000000
                 CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -1326,48 +1271,16 @@ class WorkerGUI:
                 startup_ok = base / "data" / ".startup_ok"
                 rollback_marker = base / "data" / ".update_rollback.json"
                 log_path = base / "swim-worker-update.log"
-                # Phase 2: .old バックアップ + 起動成功判定 + ロールバック
-                script = f"""#!/bin/bash
-set -u
-LOG="{log_path}"
-echo "[$(date)] update start" > "$LOG"
-sleep 3
-# 旧 exe をバックアップ
-cp "{current_exe}" "{old_exe}" >> "$LOG" 2>&1 || true
-mv "{new_exe}" "{current_exe}" >> "$LOG" 2>&1
-chmod +x "{current_exe}"
-# 前回の startup marker 削除
-rm -f "{startup_ok}"
-# 新 exe 起動
-"{current_exe}" &
-echo "[$(date)] new exe started" >> "$LOG"
-# 起動成功判定 (最大 120 秒)
-# 旧 exe の Redis heartbeat TTL (heartbeat_interval × multiplier=2 の最大 60秒)
-# 失効を待つ余裕として TTL の倍以上を確保する。
-for i in $(seq 1 120); do
-    sleep 1
-    if [ -f "{startup_ok}" ]; then
-        echo "[$(date)] startup OK after ${{i}}s" >> "$LOG"
-        rm -f "{old_exe}"
-        rm -- "$0"
-        exit 0
-    fi
-done
-# ロールバック
-echo "[$(date)] ROLLBACK: startup_ok not found in 120s" >> "$LOG"
-pkill -f "{current_exe.name}" >> "$LOG" 2>&1 || true
-sleep 2
-mv "{old_exe}" "{current_exe}" >> "$LOG" 2>&1
-mkdir -p "{rollback_marker.parent}"
-echo '{{"rolled_back_from":"v{new_version}"}}' > "{rollback_marker}"
-"{current_exe}" &
-rm -- "$0"
-exit 0
-"""
+                script = build_macos_update_script(
+                    current_exe=current_exe, new_exe=new_exe, old_exe=old_exe,
+                    startup_ok=startup_ok, rollback_marker=rollback_marker,
+                    log_path=log_path, new_version=new_version,
+                )
                 script_path.write_text(script, encoding="utf-8")
                 os.chmod(script_path, 0o755)
                 subprocess.Popen(
                     ["bash", str(script_path)],
+                    env=pyinstaller_clean_env(os.environ),
                     start_new_session=True,
                     close_fds=True,
                 )
