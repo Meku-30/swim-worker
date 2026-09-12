@@ -479,6 +479,12 @@ class WorkerGUI:
                 messagebox.showerror("エラー", f"{key} が空です。設定を記入してください。")
                 return
 
+        from swim_worker.config import WORKER_NAME_RE, WORKER_NAME_RULE_MESSAGE
+        name = self._entries["worker_name"].get().strip()
+        if not WORKER_NAME_RE.fullmatch(name):
+            messagebox.showerror("エラー", WORKER_NAME_RULE_MESSAGE)
+            return
+
         # 設定保存してから起動
         self._save_env()
 
