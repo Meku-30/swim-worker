@@ -18,3 +18,14 @@ def test_install_sh_helper_verifies_tls():
     text = INSTALL_SH.read_text(encoding="utf-8")
     assert "ssl.CERT_NONE" not in text, "Redis AUTH を送る接続で証明書検証を無効化してはいけない"
     assert "ssl.create_default_context(cadata=ca_pem)" in text
+
+
+def test_install_sh_records_failed_version_and_skips_it():
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    assert ".failed-version" in text
+    # ロールバック時に記録
+    rollback = text[text.index("# ロールバック"):]
+    assert 'echo "$LATEST_VERSION" > "${INSTALL_DIR}/.failed-version"' in rollback
+    # ガード評価の前でスキップ
+    guard = text[text.index("--- ガード1"):text.index("--- ガード2")]
+    assert ".failed-version" in text[:text.index("--- ガード1")]
