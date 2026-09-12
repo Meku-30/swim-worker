@@ -263,3 +263,9 @@ Worker は Redis 接続に `CLIENT SETNAME {worker_name}` で名前を付け、C
 - タスク強制タイムアウト時にも GUI へ idle を通知 (「処理中」表示のまま固まる問題)
 - `install.sh --auto` の kill switch 確認で Redis サーバー証明書を検証するようにした (上記)
 - SWIM ログイン失敗時に指数バックオフ (60 秒 → 最大 30 分) を入れ、認証情報が誤っている間はタスクごとにログイン API を叩かないようにした (アカウントロック予防)。保存済み Cookie での復元は抑制の対象外
+
+### 既知の障害: パーサー診断が Worker 側でファイルを書いていた (v1.1.1以前, 2026-09-12)
+
+Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを検出すると `/app/data/{job_type}_unknown_samples/` に生レスポンスの断片を保存していた。このパスは Coordinator コンテナ用で、Worker では Windows GUI がシステムドライブ直下に `\app\data\…` を作成して書き続け、systemd (`ProtectSystem=strict`) の Linux ではディレクトリ作成に失敗して毎回スタックトレース付きの ERROR ログが出ていた。
+
+修正 (v1.1.1 の次のリリース): 保存先を環境変数 `SWIM_PARSER_DIAG_DIR` による明示オプトインにし、未設定 (= Worker) では保存せず DEBUG ログのみとした。Worker の利用者に見せるログは、接続状態・タスクの開始/成功/失敗・バージョン通知など利用者が対処できる事象に限る方針。既に作成された `\app\data\*_unknown_samples\` は自動削除しないので、手動で削除する。
