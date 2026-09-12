@@ -19,3 +19,4 @@ scripts/header_capture_*.json
 # Public リポジトリに載せない内部ファイル (ローカルには保持)
 CLAUDE.md
 deploy.sh
+.superpowers/
