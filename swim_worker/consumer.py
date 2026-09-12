@@ -509,10 +509,8 @@ class TaskConsumer:
                 logger.info("起動時に古いタスクキューをクリアしました")
         except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
             logger.warning("起動時キュークリア失敗（続行）: %s", e)
-        try:
-            await self._redis.client_setname(self._worker_name)
-        except Exception as e:
-            logger.warning("CLIENT SETNAME 失敗: %s", e)
+        # CLIENT SETNAME は接続単位で redis-py が送る (__main__ の client_name= 指定)。
+        # ここで 1 回だけ呼ぶと再接続後に名前が消えるため実行時には行わない。
         await self.register()
         await self.report_version()
         await self.check_latest_version()

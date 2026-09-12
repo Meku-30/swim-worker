@@ -32,4 +32,7 @@ class TestSettings:
         assert s.redis_ca_cert == ""
         assert s.task_hard_timeout == 300.0
         assert s.redis_socket_timeout == 30.0
-        assert s.redis_blpop_timeout == 30.0
+        # blpop 窓は socket_timeout より短くないと、サーバーの nil 応答 (blpop_timeout + RTT)
+        # より先にクライアント側 socket_timeout が発火して毎サイクル再接続になる
+        assert s.redis_blpop_timeout == 20.0
+        assert s.redis_blpop_timeout < s.redis_socket_timeout

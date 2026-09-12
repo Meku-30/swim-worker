@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # 明示的にsocket_timeoutを設定しないと、TLS越し・レイテンシのある経路でblpopの
     # 正常な待機ですら「Timeout reading from ...」として接続切断される頻度が上がる。
     redis_socket_timeout: float = 30.0  # Redisクライアントのsocket_timeout(秒)
-    redis_blpop_timeout: float = 30.0   # consume_loopのblpopブロッキング窓(秒)。長くして問題に当たる頻度を下げる
+    # blpop 窓は socket_timeout より短くすること。同値だとサーバーの nil 応答
+    # (blpop_timeout + RTT) より先にクライアント側 socket_timeout が発火し、
+    # 毎サイクル TimeoutError → 再接続になる (redis-py>=6 は 3 回まで無言でリトライ
+    # するため警告には稀にしか出ないが、接続は約 30 秒ごとに張り直されていた)。
+    redis_blpop_timeout: float = 20.0   # consume_loopのblpopブロッキング窓(秒)
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
