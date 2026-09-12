@@ -100,12 +100,20 @@ def parse_for_job_type(job_type: str, data: dict,
 
     SWIM API レスポンスの "ret" ラッパーがあれば剥がしてから parser に渡す
     (coordinator.result_handler._unwrap_ret と同じ挙動)。
+    task_params の "_" 始まりキー (例: _icao_code) は Coordinator の raw 経路と同じく
+    data にマージする (既存キーは上書きしない)。
     collect_flight_foids は queried_airport が必要なため task_params から抽出して渡す。
     対応していない job_type で呼び出されると KeyError。
     """
     parser = _PARSERS[job_type]
     if isinstance(data, dict) and "ret" in data and isinstance(data["ret"], dict):
         data = data["ret"]
+    # Coordinator の raw 経路 (result_handler) と同じく、task params の "_" 始まりキーを
+    # data にマージする (例: collect_airport_profiles の _icao_code)。既存キーは上書きしない
+    if task_params and isinstance(data, dict):
+        for k, v in task_params.items():
+            if k.startswith("_"):
+                data.setdefault(k, v)
     if job_type == "collect_flight_foids":
         return parser(data, _extract_queried_airport(task_params))
     return parser(data)
