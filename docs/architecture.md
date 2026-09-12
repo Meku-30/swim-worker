@@ -268,4 +268,4 @@ Worker は Redis 接続に `CLIENT SETNAME {worker_name}` で名前を付け、C
 
 Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを検出すると `/app/data/{job_type}_unknown_samples/` に生レスポンスの断片を保存していた。このパスは Coordinator コンテナ用で、Worker では Windows GUI がシステムドライブ直下に `\app\data\…` を作成して書き続け、systemd (`ProtectSystem=strict`) の Linux ではディレクトリ作成に失敗して毎回スタックトレース付きの ERROR ログが出ていた。
 
-修正 (v1.1.1 の次のリリース): 保存先を環境変数 `SWIM_PARSER_DIAG_DIR` による明示オプトインにし、未設定 (= Worker) では保存せず DEBUG ログのみとした。Worker の利用者に見せるログは、接続状態・タスクの開始/成功/失敗・バージョン通知など利用者が対処できる事象に限る方針。既に作成された `\app\data\*_unknown_samples\` は自動削除しないので、手動で削除する。
+修正 (v1.1.2, 2026-09-12 リリース): 保存先を環境変数 `SWIM_PARSER_DIAG_DIR` による明示オプトインにし、未設定 (= Worker) では保存せず DEBUG ログのみとした。Worker の利用者に見せるログは、接続状態・タスクの開始/成功/失敗・バージョン通知など利用者が対処できる事象に限る方針。既に作成された `\app\data\*_unknown_samples\` は自動削除しないので、手動で削除する。
