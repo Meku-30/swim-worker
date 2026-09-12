@@ -519,18 +519,29 @@ class WorkerGUI:
 
     def _on_stop(self):
         """Worker停止 (consumer 生成前の Redis リトライ中でも中断できる)"""
+        # 先にフラグを落とす。_run_worker 側は create_task 直後にこのフラグを見て、
+        # ループ/Task ができる前に停止が押されていた場合は自分で cancel する (両側で競合を閉じる)
         self._worker_running = False
         loop = self._worker_loop
-        task = self._worker_task
-        if loop is not None and task is not None and loop.is_running():
+        if loop is not None and not loop.is_closed():
             # Task.cancel はスレッドセーフでないためループのスレッドで実行する。
+            # まだ run_until_complete 前でもキューに積まれ、ループ開始時に処理される。
             # consumer.run() 内なら CancelledError で heartbeat/consume が止まり finally が走る
-            loop.call_soon_threadsafe(task.cancel)
+            try:
+                loop.call_soon_threadsafe(self._cancel_worker_task)
+            except RuntimeError:
+                pass  # ループ終了済み
         if _HAS_TRAY and self._tray_icon:
             self._tray_icon.icon = create_icon(color="gray", size=64)
         self._status_var.set("停止処理中...")
         self._stop_btn.configure(state="disabled")
         self._root.after(500, self._poll_worker_stopped)
+
+    def _cancel_worker_task(self):
+        """ワーカー Task をキャンセルする (ループのスレッドで実行される)"""
+        t = self._worker_task
+        if t is not None and not t.done():
+            t.cancel()
 
     def _poll_worker_stopped(self):
         """ワーカースレッドの終了を待ってから UI を起動可能に戻す"""
@@ -659,9 +670,14 @@ class WorkerGUI:
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        self._worker_loop = loop
+        self._worker_loop = loop  # _on_stop から見えるよう create_task より前に公開する
         try:
             self._worker_task = loop.create_task(_main())
+            # _on_stop は _worker_running を落としてから call_soon_threadsafe するので、
+            # ここでフラグが False なら「Task 生成前に停止が押された」と判断して自分で cancel する
+            # (_on_stop 側の call_soon_threadsafe と合わせ、どちらのタイミングでも取りこぼさない)
+            if not self._worker_running:
+                self._worker_task.cancel()  # 起動前に停止が押された場合
             loop.run_until_complete(self._worker_task)
         except asyncio.CancelledError:
             pass
@@ -1187,7 +1203,8 @@ class WorkerGUI:
 
                 def _stop_async():
                     try:
-                        self._on_stop()
+                        # ウィジェット更新と after(500, ...) の予約は Tk スレッドで行う
+                        self._root.after(0, self._on_stop)
                     except Exception as e:
                         logging.debug("停止処理エラー (無視): %s", e)
                     finally:
