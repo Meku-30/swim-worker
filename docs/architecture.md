@@ -171,7 +171,7 @@ Worker 単体の挙動に加えて、Coordinator 側でもポータルへのア�
 | プラットフォーム | 配布形態 | アーキ | 自動更新 |
 |----------------|---------|-------|---------|
 | Windows | `swim-worker-windows.exe` (PyInstaller GUI) | amd64 | GUI からポップアップ経由で更新 (DL 後に同 release の `SHA256SUMS` で検証) |
-| macOS | `swim-worker-macos` (PyInstaller GUI) | x86_64 / arm64 | Windows と同様 |
+| macOS | `swim-worker-macos` (PyInstaller GUI) | arm64 (Apple Silicon) のみ | Windows と同様 |
 | Linux / Raspberry Pi | `swim-worker-linux-{amd64,arm64}` + `install.sh` + systemd unit | amd64 / arm64 | systemd timer による自動更新 |
 
 Linux CLI バイナリは glibc 2.35+ 互換 (`ubuntu-22.04` runner でビルド) で、Pi OS Bookworm / Debian 12 / Ubuntu 22.04+ / Fedora / RHEL 系で動作します。

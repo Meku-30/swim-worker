@@ -14,8 +14,14 @@ def test_frozen_lock_path_is_always_under_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "executable", str(tmp_path / "swim-worker.exe"))
     first = single_instance.get_lock_path()
     assert first == tmp_path / "data" / "swim-worker.lock"
-    assert (tmp_path / "data").is_dir()  # 無ければ作る
     assert single_instance.get_lock_path() == first
+
+    lock = LocalInstanceLock(first)
+    lock.acquire()
+    try:
+        assert (tmp_path / "data").is_dir()  # acquire() 時に作られる
+    finally:
+        lock.release()
 
 
 def test_acquire_raises_oserror_when_dir_not_writable(tmp_path):
