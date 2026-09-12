@@ -203,7 +203,14 @@ class TestTaskConsumer:
         assert "worker_versions" in keys_written
         assert "worker_platforms" in keys_written
 
-    async def test_run_sets_client_name(self):
+    async def test_run_does_not_call_client_setname_at_runtime(self):
+        """CLIENT SETNAME は接続単位で redis-py が送る (client_name= 指定) ので run() では呼ばない。
+
+        2026-09-11: 実行時に 1 回だけ client_setname() すると、プール内の 1 本にしか
+        名前が付かず、その接続がタイムアウトで張り直された時点で名前が消えていた
+        (Coordinator は CLIENT LIST の name= で Worker IP を取るため、ダッシュボードの
+        IP/状態テーブルから Worker が消える)。
+        """
         mock_redis = AsyncMock()
         mock_redis.sismember.return_value = True
         mock_redis.blpop.side_effect = asyncio.CancelledError()
@@ -212,7 +219,7 @@ class TestTaskConsumer:
             await asyncio.wait_for(consumer.run(), timeout=3)
         except (asyncio.CancelledError, asyncio.TimeoutError):
             pass
-        mock_redis.client_setname.assert_called_once_with("test-worker")
+        mock_redis.client_setname.assert_not_called()
 
     async def test_acquire_instance_lock_claims_orphan_when_token_matches(
             self, tmp_path, monkeypatch):

@@ -245,3 +245,13 @@ sudo journalctl -u swim-worker-update.service --no-pager -n 15
 `execute_task()` 内の処理（SWIMへのHTTPリクエストが有力候補）がハングすると、`_consume_loop` 全体が `blpop` に戻れず永久停止する不具合があった。`_heartbeat_loop` は別の asyncio タスクなので生き続け、ダッシュボード上は `alive: true` のまま、タスクだけが `tasks:{worker_name}` キューに際限なく溜まり続けた（実際に230件超の滞留が発生）。
 
 v1.0.8で `_consume_loop` が `execute_task()` を `asyncio.wait_for(..., timeout=task_hard_timeout)` (デフォルト300秒、`TASK_HARD_TIMEOUT` 環境変数で調整可) で包むよう修正し、ハングしても強制的に打ち切って次のタスクへ戻れるようにした。合わせて Coordinator 側のタスクキュー全体へのTTL設定 (Worker処理が少し遅れるだけで未処理タスクを巻き込んで消えるバグ) も撤去済み。
+
+### 既知の障害: ダッシュボードの IP/状態テーブルから Worker が消える (v1.1.0以前, 2026-09-11)
+
+Worker は Redis 接続に `CLIENT SETNAME {worker_name}` で名前を付け、Coordinator は `CLIENT LIST` の `name=` から Worker の接続元 IP を取得してダッシュボードに表示する。v1.1.0 以前は `run()` 開始時に `client_setname()` を 1 回呼ぶだけだったため、コネクションプール内の 1 本にしか名前が付かず、その接続がタイムアウト等で張り直された時点で名前が消えていた。ハートビート自体は別の接続で届き続けるので `alive` 判定は正常なのに、IP/状態テーブルには行が出ない（またはオフライン表示になる）状態になる。Redis から遠い (レイテンシの大きい) 環境ほど発生しやすい。
+
+加えて `redis_blpop_timeout` (30秒) が `redis_socket_timeout` (30秒) と同値だったため、サーバーの `BLPOP` nil 応答 (30秒 + RTT) より先にクライアント側の socket_timeout が発火し、毎サイクル `TimeoutError` → 再接続になっていた。redis-py 6 以降はデフォルトで 3 回まで無言でリトライするため警告ログには稀にしか出ないが、`CLIENT LIST` 上では `blpop` 接続の age が常に 30 秒未満で、接続の張り直しが継続的に起きていた。
+
+修正 (v1.1.0 の次のリリース):
+- `aioredis.Redis(..., client_name=worker_name)` を指定し、redis-py が接続確立 (再接続含む) のたびに `CLIENT SETNAME` を送るようにした。実行時の `client_setname()` 呼び出しは削除
+- `redis_blpop_timeout` のデフォルトを 20 秒に短縮 (`socket_timeout` より短くすること)
