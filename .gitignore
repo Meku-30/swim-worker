@@ -20,3 +20,5 @@ scripts/header_capture_*.json
 CLAUDE.md
 deploy.sh
 .superpowers/
+# 設計書・計画は非公開リポ (swim-coordinator/docs/superpowers/worker/) で管理
+docs/superpowers/
