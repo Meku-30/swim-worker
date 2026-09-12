@@ -42,6 +42,17 @@ U2NY60E=
 _temp_cert_path: str | None = None
 
 
+def _remove_temp_cert() -> None:
+    """プロセス終了時に書き出した一時 CA ファイルを削除する (atexit 用)"""
+    global _temp_cert_path
+    if _temp_cert_path:
+        try:
+            os.remove(_temp_cert_path)
+        except OSError:
+            pass
+        _temp_cert_path = None
+
+
 def get_ca_cert_path() -> str:
     """CA証明書のファイルパスを返す。
 
@@ -63,4 +74,6 @@ def get_ca_cert_path() -> str:
     with os.fdopen(fd, "w") as f:
         f.write(CA_CERT_PEM)
     _temp_cert_path = path
+    import atexit
+    atexit.register(_remove_temp_cert)
     return path
