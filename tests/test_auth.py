@@ -92,6 +92,33 @@ class TestSwimClient:
         client._relogin.assert_not_called()
         assert session.post.await_count == 1
 
+    async def test_execute_api_raises_unauthorized_subclass_on_403(self):
+        from swim_worker.auth import SwimUnauthorizedError
+        client = SwimClient(username="user", password="pass")
+        client._is_ready = True
+        session = AsyncMock()
+        session.post.return_value = MagicMock(status_code=403, text="forbidden")
+        client._session = session
+        client._relogin = AsyncMock()
+        with patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            with pytest.raises(SwimUnauthorizedError) as ei:
+                await client.execute_api("https://example/api", {}, retry_on_auth_error=False)
+        assert ei.value.status_code == 403
+        assert isinstance(ei.value, SwimAuthError)
+
+    async def test_execute_api_raises_unauthorized_after_retry_still_403(self):
+        from swim_worker.auth import SwimUnauthorizedError
+        client = SwimClient(username="user", password="pass")
+        client._is_ready = True
+        session = AsyncMock()
+        session.post.return_value = MagicMock(status_code=401, text="nope")
+        client._session = session
+        client._relogin = AsyncMock()
+        with patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            with pytest.raises(SwimUnauthorizedError):
+                await client.execute_api("https://example/api", {})
+        client._relogin.assert_awaited_once()
+
 
 @pytest.mark.asyncio
 class TestLoginBackoff:

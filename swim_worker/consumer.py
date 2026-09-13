@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import redis.exceptions
 
 from swim_worker import __version__, parsers
-from swim_worker.auth import SwimClient
+from swim_worker.auth import SwimClient, SwimUnauthorizedError
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ class TaskConsumer:
         """capability_test ジョブ: 複数のテストリクエストを実行して結果を返す。
 
         params: {"tests": [{"job_type": str, "url": str, "body": dict}, ...]}
-        返却: {job_type: {"ok": bool, "error": str | None}, ...}
+        返却: {job_type: {"ok": bool, "error": str | None, "reason": None | "unauthorized" | "transient"}, ...}
         """
         tests = params.get("tests") or []
         results: dict[str, dict] = {}
@@ -144,11 +144,16 @@ class TaskConsumer:
                 await asyncio.sleep(random.uniform(1.0, 3.0))
                 # 403 は「未権限」として即返す (再ログイン・Cookie 破棄をしない)
                 await self._swim.execute_api(url, body, retry_on_auth_error=False)
-                results[jt] = {"ok": True, "error": None}
+                results[jt] = {"ok": True, "error": None, "reason": None}
                 logger.info("capability OK: %s", jt)
+            except SwimUnauthorizedError as e:
+                # 未権限 (401/403) — Coordinator はこの job_type を非対応として記録する
+                results[jt] = {"ok": False, "error": str(e)[:300], "reason": "unauthorized"}
+                logger.info("capability NG (未権限): %s — %s", jt, e)
             except Exception as e:
-                results[jt] = {"ok": False, "error": str(e)[:300]}
-                logger.warning("capability NG: %s — %s", jt, e)
+                # 一時障害 (5xx/タイムアウト/接続/セッション失効等) — Coordinator は前回結果を維持する
+                results[jt] = {"ok": False, "error": str(e)[:300], "reason": "transient"}
+                logger.warning("capability 一時障害: %s — %s", jt, e)
         result = {
             "task_id": task_id,
             "worker_name": self._worker_name,
