@@ -279,6 +279,7 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 - Worker 名は `[A-Za-z0-9._-]{1,32}` に制限 (`CLIENT SETNAME` 失敗の予防)
 - GUI の停止は Redis 再試行中でも中断でき、停止完了までは再起動できない。停止時に SWIM/Redis クライアントを解放する
 - capability テストの 403 では再ログイン・Cookie 破棄をしない
+- capability テストの結果には `reason` (`unauthorized` = 401/403、`transient` = それ以外の失敗) が付き、Coordinator は `transient` を判定不能として前回結果を維持する
 - GUI ログは 5MB × 3 世代でローテーション
 - ロックファイルは常に `data/swim-worker.lock`。埋め込み CA は一時ファイルを作らず渡す
 - Docker 経路 (上級者向け) がビルド・起動できるよう修正

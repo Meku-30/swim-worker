@@ -324,3 +324,29 @@ class TestTaskConsumer:
         with patch("swim_worker.consumer.asyncio.sleep", new=AsyncMock()):
             await consumer._run_capability_test("t1", {"tests": [{"job_type": "collect_notams", "url": "u", "body": {}}]})
         swim.execute_api.assert_awaited_once_with("u", {}, retry_on_auth_error=False)
+
+    async def test_capability_test_classifies_reasons(self):
+        from swim_worker.auth import SwimUnauthorizedError
+        mock_redis = AsyncMock()
+        swim = AsyncMock()
+        async def fake_execute(url, body, **kw):
+            if url == "ok":
+                return {}
+            if url == "forbidden":
+                raise SwimUnauthorizedError("API 403エラー", status_code=403)
+            raise RuntimeError("connection reset")
+        swim.execute_api.side_effect = fake_execute
+        consumer = TaskConsumer(mock_redis, swim, "test-worker")
+        with patch("swim_worker.consumer.asyncio.sleep", new=AsyncMock()):
+            await consumer._run_capability_test("t1", {"tests": [
+                {"job_type": "a", "url": "ok", "body": {}},
+                {"job_type": "b", "url": "forbidden", "body": {}},
+                {"job_type": "c", "url": "boom", "body": {}},
+            ]})
+        stored = mock_redis.setex.call_args.args[2]
+        import zstandard as zstd, json
+        payload = json.loads(zstd.ZstdDecompressor().decompress(stored))
+        caps = payload["data"]["capabilities"]
+        assert caps["a"] == {"ok": True, "error": None, "reason": None}
+        assert caps["b"]["ok"] is False and caps["b"]["reason"] == "unauthorized"
+        assert caps["c"]["ok"] is False and caps["c"]["reason"] == "transient"
