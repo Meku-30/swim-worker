@@ -173,6 +173,14 @@ class SwimAuthError(Exception):
     """SWIM認証エラー"""
 
 
+class SwimUnauthorizedError(SwimAuthError):
+    """401/403 (未権限・未認証) で確定した失敗。capability テストは一時障害と区別するために使う"""
+
+    def __init__(self, message: str, *, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class SwimClient:
     """SWIM APIクライアント（Worker用）"""
 
@@ -521,7 +529,7 @@ class SwimClient:
                 await asyncio.sleep(delay)
                 await self._relogin(force=True)
                 return await self.execute_api(url, body, retry_on_auth_error=retry_on_auth_error, _retried=True)
-            raise SwimAuthError(f"API {resp.status_code}エラー (body={resp.text[:500]})")
+            raise SwimUnauthorizedError(f"API {resp.status_code}エラー (body={resp.text[:500]})", status_code=resp.status_code)
 
         if resp.status_code != 200:
             raise SwimAuthError(f"APIエラー (status={resp.status_code})")
