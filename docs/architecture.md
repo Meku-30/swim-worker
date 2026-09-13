@@ -270,6 +270,11 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 
 修正 (v1.1.2, 2026-09-12 リリース): 保存先を環境変数 `SWIM_PARSER_DIAG_DIR` による明示オプトインにし、未設定 (= Worker) では保存せず DEBUG ログのみとした。Worker の利用者に見せるログは、接続状態・タスクの開始/成功/失敗・バージョン通知など利用者が対処できる事象に限る方針。既に作成された `\app\data\*_unknown_samples\` は自動削除しないので、手動で削除する。
 
+### v1.1.4 での修正 (2026-09-13)
+
+- capability テストの結果には `reason` (`unauthorized` = 401/403、`transient` = それ以外の失敗) が付き、Coordinator は `transient` を判定不能として前回結果を維持する
+  それまでは SWIM の 5xx・セッション失効・ネットワーク断でも「非対応」として 23 時間記録されていた
+
 ### v1.1.3 での修正 (2026-09-12 レビュー)
 
 - 更新後の起動確認: `.startup_ok` を GUI が表示された時点 (2 秒生存) で書く。以前は Worker が Redis に接続した時にしか書かれず、「起動時に自動接続」OFF の利用者は更新のたびに 120 秒後にロールバックされていた
@@ -279,7 +284,6 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 - Worker 名は `[A-Za-z0-9._-]{1,32}` に制限 (`CLIENT SETNAME` 失敗の予防)
 - GUI の停止は Redis 再試行中でも中断でき、停止完了までは再起動できない。停止時に SWIM/Redis クライアントを解放する
 - capability テストの 403 では再ログイン・Cookie 破棄をしない
-- capability テストの結果には `reason` (`unauthorized` = 401/403、`transient` = それ以外の失敗) が付き、Coordinator は `transient` を判定不能として前回結果を維持する
 - GUI ログは 5MB × 3 世代でローテーション
 - ロックファイルは常に `data/swim-worker.lock`。埋め込み CA は一時ファイルを作らず渡す
 - Docker 経路 (上級者向け) がビルド・起動できるよう修正
