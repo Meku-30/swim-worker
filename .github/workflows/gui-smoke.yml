@@ -1,0 +1,40 @@
+name: GUI Smoke Test
+
+# GUI (tkinter) は画面が要るので Windows / macOS の runner で起動確認する。
+# Linux のテストはヘッドレスなので GUI のテストは skip される。
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'swim_worker/gui.py'
+      - 'swim_worker/config.py'
+      - 'tests/test_gui_smoke.py'
+      - '.github/workflows/gui-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gui-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Install tkinter (macOS)
+        if: runner.os == 'macOS'
+        run: brew install python-tk@3.11
+
+      - name: Run GUI smoke test
+        run: python -m pytest -v -rs tests/test_gui_smoke.py
