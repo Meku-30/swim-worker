@@ -22,6 +22,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -37,4 +38,4 @@ jobs:
         run: brew install python-tk@3.11
 
       - name: Run GUI smoke test
-        run: python -m pytest -v -rs tests/test_gui_smoke.py
+        run: python -m pytest -v -rs -o faulthandler_timeout=60 tests/test_gui_smoke.py
