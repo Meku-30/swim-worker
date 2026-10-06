@@ -270,6 +270,12 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 
 修正 (v1.1.2, 2026-09-12 リリース): 保存先を環境変数 `SWIM_PARSER_DIAG_DIR` による明示オプトインにし、未設定 (= Worker) では保存せず DEBUG ログのみとした。Worker の利用者に見せるログは、接続状態・タスクの開始/成功/失敗・バージョン通知など利用者が対処できる事象に限る方針。既に作成された `\app\data\*_unknown_samples\` は自動削除しないので、手動で削除する。
 
+### v1.2.0 での変更 (2026-10-06)
+
+- Redis にユーザー名付きで接続できる (`REDIS_USERNAME`、GUI 版は設定欄「Redis ユーザー名」)。空なら従来どおり。管理者が Worker ごとにユーザーを発行し、各 Worker が触れる範囲を自分の分だけに絞るため
+- タスク結果の保存先を Worker 名ごとに分けた (上と同じ理由。Coordinator は配布先の名前で結果を受け取る)
+- Redis の権限不足エラーは 60 秒おきに再試行し、設定の確認を促すログを出す
+
 ### v1.1.4 での修正 (2026-09-13)
 
 - capability テストの結果には `reason` (`unauthorized` = 401/403、`transient` = それ以外の失敗) が付き、Coordinator は `transient` を判定不能として前回結果を維持する
