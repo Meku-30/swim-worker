@@ -72,3 +72,32 @@ def test_gui_start_accepts_empty_or_set_username(gui, monkeypatch, username):
         assert app._worker_settings["redis_username"] == username
     finally:
         app._root.destroy()
+
+
+def test_gui_checks_github_when_redis_auth_fails(gui, monkeypatch):
+    """Redis の認証に失敗したら GitHub で最新版を確かめる (自動更新を止めない)"""
+    import redis.exceptions
+    _write_env(gui, "worker-tester")
+    monkeypatch.setattr(gui.threading, "Thread", _NoThread)
+
+    class _AuthFailRedis:
+        async def ping(self):
+            raise redis.exceptions.AuthenticationError("WRONGPASS invalid username-password pair")
+
+        async def aclose(self):
+            pass
+
+    import swim_worker.redis_client as rc
+    monkeypatch.setattr(rc, "create_redis_client", lambda settings: _AuthFailRedis())
+    calls = []
+    monkeypatch.setattr(gui, "check_update_without_redis",
+                        lambda current, notify: calls.append((current, notify)))
+    app = gui.WorkerGUI()
+    try:
+        app._on_start()          # 設定を _worker_settings に写す (スレッドは起動しない)
+        app._run_worker()        # このスレッドで同期実行
+        assert len(calls) == 1
+        assert calls[0][0] == gui.__version__
+        assert calls[0][1] == app._on_update_detected
+    finally:
+        app._root.destroy()
