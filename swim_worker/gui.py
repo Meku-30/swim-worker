@@ -13,7 +13,10 @@ from datetime import datetime, timedelta, timezone
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
+import redis.exceptions
+
 from swim_worker import __version__
+from swim_worker.update_check import check_update_without_redis
 from swim_worker.gui_helpers import (
     build_macos_update_script,
     build_windows_update_script,
@@ -605,7 +608,8 @@ class WorkerGUI:
                         connected = True
                         break
                     except Exception as e:
-                        if attempt == 10:
+                        # 認証の失敗は待っても直らないので再試行しない (下の except で GitHub の最新版を確認)
+                        if attempt == 10 or isinstance(e, redis.exceptions.AuthenticationError):
                             raise
                         logging.warning("Redis接続失敗 (%d/10)、%.1f秒後にリトライ: %s",
                             attempt, delay, e)
@@ -667,7 +671,17 @@ class WorkerGUI:
                 logging.info("Worker 停止要求を受け付けました")
             except Exception as e:
                 logging.error("エラー: %s", e)
-                self._root.after(0, lambda: self._status_var.set("エラー"))
+                auth_failed = isinstance(
+                    e, (redis.exceptions.AuthenticationError, redis.exceptions.NoPermissionError))
+                status = "Redis 認証エラー (設定欄のユーザー名・パスワードを確認)" if auth_failed else "エラー"
+                self._root.after(0, lambda s=status: self._status_var.set(s))
+                if auth_failed:
+                    # Redis に入れないと Coordinator 経由の更新通知が届かないので、GitHub で確かめる
+                    try:
+                        await asyncio.to_thread(
+                            check_update_without_redis, __version__, self._on_update_detected)
+                    except Exception as ue:
+                        logging.warning("GitHub での更新確認に失敗: %s", ue)
                 self._root.after(0, lambda: self._start_btn.configure(state="normal"))
                 self._root.after(0, lambda: self._stop_btn.configure(state="disabled"))
                 for entry in self._entries.values():

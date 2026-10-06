@@ -39,3 +39,15 @@ def test_install_sh_guard_authenticates_with_acl_username():
     assert 'cmd("AUTH", password)' in guard
     # 新規インストールの .env にも書く
     assert "REDIS_USERNAME='${REDIS_USERNAME}'" in text
+
+
+def test_install_sh_guard_falls_back_to_github_on_auth_failure():
+    """認証失敗・権限不足では自動更新を止めず (GitHub の最新版で更新)、届かない時だけ止める"""
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    assert 'print(f"AUTH_FALLBACK:{e}")' in text
+    assert "ERROR:AUTH_FAILED" not in text
+    branch = text[text.index("AUTH_FALLBACK:*)"):]
+    branch = branch[:branch.index(";;")]
+    assert "exit 0" not in branch  # 更新を続ける
+    error_branch = text[text.index("            ERROR:*)"):]
+    assert "exit 0" in error_branch[:error_branch.index(";;")]  # 疎通できない時は止める

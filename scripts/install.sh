@@ -317,18 +317,26 @@ try:
         sock.sendall(buf)
         return read_resp()
 
-    # AUTH 失敗は RedisError になるので個別分岐してわかりやすいメッセージに
+    # 認証の失敗・権限不足 (パスワードの作り直し・入力ミス・古い .env) は AUTH_FALLBACK:
+    # Redis の一時停止・段階配布の設定を読めない = Coordinator にもつなげず働けていない Worker
+    # なので、自動更新を止めずに GitHub の最新版で更新する (直った版が来れば復帰できる)
     try:
         if username:
             cmd("AUTH", username, password)
         else:
             cmd("AUTH", password)
     except RedisError as e:
-        print(f"ERROR:AUTH_FAILED:{e}")
+        print(f"AUTH_FALLBACK:{e}")
         sys.exit(0)
 
-    enabled   = cmd("GET", "swim:auto_update_enabled")
-    whitelist = cmd("GET", "swim:auto_update_whitelist")
+    try:
+        enabled   = cmd("GET", "swim:auto_update_enabled")
+        whitelist = cmd("GET", "swim:auto_update_whitelist")
+    except RedisError as e:
+        if str(e).startswith(("NOPERM", "NOAUTH")):
+            print(f"AUTH_FALLBACK:{e}")
+            sys.exit(0)
+        raise
     sock.close()
 
     if enabled != "true":
@@ -354,9 +362,9 @@ PYEOF
                 log "staged rollout whitelist に含まれていない Worker: ${WORKER_NAME}、更新スキップ"
                 exit 0
                 ;;
-            ERROR:AUTH_FAILED:*)
-                warn "Redis 認証失敗 (${GUARD_RESULT#ERROR:AUTH_FAILED:}) — .env の REDIS_USERNAME / REDIS_PASSWORD を確認。安全側で更新スキップ"
-                exit 0
+            AUTH_FALLBACK:*)
+                warn "Redis 認証失敗 (${GUARD_RESULT#AUTH_FALLBACK:}) — .env の REDIS_USERNAME / REDIS_PASSWORD を確認。"
+                warn "  Coordinator の一時停止・段階配布の設定を読めないため、GitHub の最新版で更新を続けます"
                 ;;
             ERROR:*)
                 warn "Coordinator 疎通確認失敗 (${GUARD_RESULT#ERROR:})、安全側で更新スキップ"
