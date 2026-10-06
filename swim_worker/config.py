@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     # Redis
     redis_host: str
     redis_port: int = 6380
+    # ACL のワーカー用ユーザー名。空なら default ユーザーで認証する (旧 .env と互換)
+    redis_username: str = ""
     redis_password: str
     redis_ca_cert: str = ""
 

@@ -46,7 +46,7 @@ class TestTaskConsumer:
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="test-worker", heartbeat_interval=30)
         task = {"task_id": "task-001", "job_type": "collect_pkg_weather", "params": {"url": "https://example.com/api", "body": {"airports": ["RJTT"]}}}
         await consumer.execute_task(task)
-        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:task-001"]
+        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:test-worker:task-001"]
         assert len(result_calls) == 1
         result_data = json.loads(zstd.ZstdDecompressor().decompress(result_calls[0][0][2]))
         assert result_data["status"] == "success"
@@ -65,7 +65,7 @@ class TestTaskConsumer:
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="hyuga", heartbeat_interval=30)
         task = {"task_id": "task-x", "job_type": "collect_pkg_weather", "params": {"url": "https://example.com/api", "body": {}}}
         await consumer.execute_task(task)
-        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:task-x"]
+        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:hyuga:task-x"]
         result_data = json.loads(zstd.ZstdDecompressor().decompress(result_calls[0][0][2]))
         assert "format" not in result_data  # 個別 disable → raw 送信
         assert result_data["data"] == {"weatherDTO": {}}
@@ -82,7 +82,7 @@ class TestTaskConsumer:
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="test-worker", heartbeat_interval=30)
         task = {"task_id": "task-002", "job_type": "collect_pkg_weather", "params": {"url": "https://example.com/api", "body": {}}}
         await consumer.execute_task(task)
-        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:task-002"]
+        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:test-worker:task-002"]
         result_data = json.loads(zstd.ZstdDecompressor().decompress(result_calls[0][0][2]))
         assert "format" not in result_data  # whitelist 外 → raw
         assert result_data["data"] == {"weatherDTO": {}}
@@ -201,7 +201,7 @@ class TestTaskConsumer:
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="test-worker", heartbeat_interval=30)
         task = {"task_id": "task-002", "job_type": "collect_pireps", "params": {"url": "https://example.com/api", "body": {}}}
         await consumer.execute_task(task)
-        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:task-002"]
+        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:test-worker:task-002"]
         assert len(result_calls) == 1
         result_data = json.loads(zstd.ZstdDecompressor().decompress(result_calls[0][0][2]))
         assert result_data["status"] == "error"
@@ -343,6 +343,7 @@ class TestTaskConsumer:
                 {"job_type": "b", "url": "forbidden", "body": {}},
                 {"job_type": "c", "url": "boom", "body": {}},
             ]})
+        assert mock_redis.setex.call_args.args[0] == "results:test-worker:t1"
         stored = mock_redis.setex.call_args.args[2]
         import zstandard as zstd, json
         payload = json.loads(zstd.ZstdDecompressor().decompress(stored))
@@ -350,3 +351,22 @@ class TestTaskConsumer:
         assert caps["a"] == {"ok": True, "error": None, "reason": None}
         assert caps["b"]["ok"] is False and caps["b"]["reason"] == "unauthorized"
         assert caps["c"]["ok"] is False and caps["c"]["reason"] == "transient"
+
+    async def test_consume_loop_backs_off_on_noperm(self):
+        """ACL の権限不足 (NOPERM) は設定の誤りなので、1 秒ごとに回らず長めに待って明示的に記録する"""
+        import redis.exceptions
+        mock_redis = AsyncMock()
+        mock_redis.blpop.side_effect = redis.exceptions.NoPermissionError("NOPERM no permissions")
+        consumer = TaskConsumer(mock_redis, AsyncMock(), "test-worker")
+        consumer._running = True
+        sleeps = []
+
+        async def fake_sleep(sec):
+            sleeps.append(sec)
+            consumer._running = False
+
+        with patch("swim_worker.consumer.asyncio.sleep", new=fake_sleep), \
+                patch("swim_worker.consumer.logger") as mock_logger:
+            await consumer._consume_loop()
+        assert sleeps == [60]
+        assert "権限" in mock_logger.error.call_args.args[0]

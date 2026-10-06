@@ -50,11 +50,14 @@ class TestSettings:
         monkeypatch.setenv("SWIM_USERNAME", "u")
         monkeypatch.setenv("SWIM_PASSWORD", "p")
         monkeypatch.setenv("WORKER_NAME", "w")
+        monkeypatch.delenv("REDIS_USERNAME", raising=False)
 
         from swim_worker.config import Settings
         s = Settings()
         assert s.heartbeat_interval == 30
         assert s.redis_ca_cert == ""
+        # 未設定なら default ユーザーで認証する (ACL 移行前の .env と互換)
+        assert s.redis_username == ""
         assert s.task_hard_timeout == 300.0
         assert s.redis_socket_timeout == 30.0
         # blpop 窓は socket_timeout より短くないと、サーバーの nil 応答 (blpop_timeout + RTT)

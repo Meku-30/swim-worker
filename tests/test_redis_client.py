@@ -53,3 +53,21 @@ class TestCreateRedisClient:
         kwargs = mock_cls.call_args.kwargs
         assert kwargs["ssl_ca_certs"] == "/tmp/ca.crt"
         assert "ssl_ca_data" not in kwargs
+
+    def test_passes_username_when_configured(self, monkeypatch):
+        """ACL のワーカー用ユーザー (REDIS_USERNAME) が設定されていれば username= で認証する"""
+        from swim_worker.redis_client import create_redis_client
+        monkeypatch.setenv("REDIS_USERNAME", "worker-test-worker")
+        settings = _settings(monkeypatch)
+        with patch("swim_worker.redis_client.aioredis.Redis") as mock_cls:
+            create_redis_client(settings)
+        assert mock_cls.call_args.kwargs["username"] == "worker-test-worker"
+
+    def test_omits_username_when_empty(self, monkeypatch):
+        """未設定なら username を渡さず、従来どおり default ユーザーで認証する"""
+        from swim_worker.redis_client import create_redis_client
+        monkeypatch.delenv("REDIS_USERNAME", raising=False)
+        settings = _settings(monkeypatch)
+        with patch("swim_worker.redis_client.aioredis.Redis") as mock_cls:
+            create_redis_client(settings)
+        assert "username" not in mock_cls.call_args.kwargs
