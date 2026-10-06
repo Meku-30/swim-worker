@@ -20,6 +20,8 @@ from swim_worker.auth import SwimClient, SwimUnauthorizedError
 logger = logging.getLogger(__name__)
 
 RESULT_TTL = 3600  # 結果の有効期限（秒）
+# Redis ACL の権限不足 (設定の誤り) の時の待ち時間 (秒)。直るまでログを溢れさせない
+NOPERM_RETRY_DELAY = 60
 HEARTBEAT_TTL_MULTIPLIER = 2
 
 
@@ -162,7 +164,7 @@ class TaskConsumer:
             "error": None,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
-        await self._redis.setex(f"results:{task_id}", RESULT_TTL, _encode_result(result))
+        await self._redis.setex(self._result_key(task_id), RESULT_TTL, _encode_result(result))
         logger.info("capability_test 完了: %s (ok=%d, ng=%d)",
             task_id[:8],
             sum(1 for r in results.values() if r["ok"]),
@@ -438,11 +440,15 @@ class TaskConsumer:
             }
             logger.error("タスク失敗: %s — %s", task_id, e)
 
-        await self._redis.setex(f"results:{task_id}", RESULT_TTL, _encode_result(result))
+        await self._redis.setex(self._result_key(task_id), RESULT_TTL, _encode_result(result))
         self._task_total += 1
         if not success:
             self._task_errors += 1
         self._notify_state("idle")
+
+    def _result_key(self, task_id: str) -> str:
+        """結果のキー。Redis ACL で各 Worker が自分の名前の下にしか書けないよう、名前を入れる"""
+        return f"results:{self._worker_name}:{task_id}"
 
     async def _ensure_registered(self) -> None:
         """approved にも pending にもいなければ再登録する"""
@@ -495,6 +501,12 @@ class TaskConsumer:
                     self._notify_state("idle")
             except asyncio.CancelledError:
                 break
+            except redis.exceptions.NoPermissionError as e:
+                logger.error(
+                    "Redis の権限がありません (REDIS_USERNAME と管理者の ACL 設定を確認)、"
+                    "%d秒後にリトライ: %s", NOPERM_RETRY_DELAY, e,
+                )
+                await asyncio.sleep(NOPERM_RETRY_DELAY)
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
                 logger.warning("Redis接続エラー（コンシューマー）、5秒後にリトライ: %s", e)
                 await asyncio.sleep(5)

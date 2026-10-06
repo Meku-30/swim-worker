@@ -21,6 +21,8 @@ def create_redis_client(settings: Settings) -> aioredis.Redis:
         ssl=True, decode_responses=True, socket_timeout=settings.redis_socket_timeout,
         client_name=settings.worker_name,
     )
+    if settings.redis_username:
+        kwargs["username"] = settings.redis_username
     if settings.redis_ca_cert:
         kwargs["ssl_ca_certs"] = settings.redis_ca_cert
     else:

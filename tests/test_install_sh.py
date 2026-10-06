@@ -28,3 +28,14 @@ def test_install_sh_records_failed_version_and_skips_it():
     assert 'echo "$LATEST_VERSION" > "${INSTALL_DIR}/.failed-version"' in rollback
     # ガード評価の前でスキップ
     assert ".failed-version" in text[:text.index("--- ガード1")]
+
+
+def test_install_sh_guard_authenticates_with_acl_username():
+    """自動更新ガードは REDIS_USERNAME があれば ACL ユーザーで AUTH する (無ければ従来の default)"""
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    guard = text[text.index("--- ガード1"):text.index("PYEOF\n)")]
+    assert 'env.get("REDIS_USERNAME", "")' in guard
+    assert 'cmd("AUTH", username, password)' in guard
+    assert 'cmd("AUTH", password)' in guard
+    # 新規インストールの .env にも書く
+    assert "REDIS_USERNAME='${REDIS_USERNAME}'" in text

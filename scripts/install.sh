@@ -7,7 +7,7 @@
 #   sudo bash install.sh
 #
 # 非対話モード (管理者向け):
-#   sudo REDIS_HOST=... REDIS_PASSWORD=... SWIM_USERNAME=... SWIM_PASSWORD=... WORKER_NAME=... \
+#   sudo REDIS_HOST=... [REDIS_USERNAME=...] REDIS_PASSWORD=... SWIM_USERNAME=... SWIM_PASSWORD=... WORKER_NAME=... \
 #     bash install.sh
 #
 # 特定バージョンをインストール (検証/手動ロールバック用):
@@ -249,6 +249,7 @@ except Exception:
 
 host = env.get("REDIS_HOST", "")
 port = int(env.get("REDIS_PORT", "6380"))
+username = env.get("REDIS_USERNAME", "")  # ACL のワーカー用ユーザー (空なら default)
 password = env.get("REDIS_PASSWORD", "")
 worker_name = env.get("WORKER_NAME", "")
 if not host:
@@ -318,7 +319,10 @@ try:
 
     # AUTH 失敗は RedisError になるので個別分岐してわかりやすいメッセージに
     try:
-        cmd("AUTH", password)
+        if username:
+            cmd("AUTH", username, password)
+        else:
+            cmd("AUTH", password)
     except RedisError as e:
         print(f"ERROR:AUTH_FAILED:{e}")
         sys.exit(0)
@@ -351,7 +355,7 @@ PYEOF
                 exit 0
                 ;;
             ERROR:AUTH_FAILED:*)
-                warn "Redis 認証失敗 (${GUARD_RESULT#ERROR:AUTH_FAILED:}) — .env の REDIS_PASSWORD を確認。安全側で更新スキップ"
+                warn "Redis 認証失敗 (${GUARD_RESULT#ERROR:AUTH_FAILED:}) — .env の REDIS_USERNAME / REDIS_PASSWORD を確認。安全側で更新スキップ"
                 exit 0
                 ;;
             ERROR:*)
@@ -495,13 +499,15 @@ else
         read -rp "Redis ホスト: " REDIS_HOST
         read -rp "Redis ポート [6380]: " REDIS_PORT
         REDIS_PORT=${REDIS_PORT:-6380}
+        read -rp "Redis ユーザー名 (管理者から指定がなければ空欄): " REDIS_USERNAME
         read -rsp "Redis パスワード: " REDIS_PASSWORD; echo
         read -rp "SWIM ユーザー名: " SWIM_USERNAME
         read -rsp "SWIM パスワード: " SWIM_PASSWORD; echo
         read -rp "Worker 名 (ローマ字、他Workerと重複不可): " WORKER_NAME
     fi
     REDIS_PORT=${REDIS_PORT:-6380}
-    for pair in "REDIS_HOST:${REDIS_HOST}" "REDIS_PASSWORD:${REDIS_PASSWORD}" \
+    REDIS_USERNAME=${REDIS_USERNAME:-}
+    for pair in "REDIS_HOST:${REDIS_HOST}" "REDIS_USERNAME:${REDIS_USERNAME}" "REDIS_PASSWORD:${REDIS_PASSWORD}" \
                 "SWIM_USERNAME:${SWIM_USERNAME}" "SWIM_PASSWORD:${SWIM_PASSWORD}" \
                 "WORKER_NAME:${WORKER_NAME}"; do
         name="${pair%%:*}"
@@ -516,6 +522,7 @@ else
     cat > "$ENV_FILE" <<EOF
 REDIS_HOST='${REDIS_HOST}'
 REDIS_PORT=${REDIS_PORT}
+REDIS_USERNAME='${REDIS_USERNAME}'
 REDIS_PASSWORD='${REDIS_PASSWORD}'
 SWIM_USERNAME='${SWIM_USERNAME}'
 SWIM_PASSWORD='${SWIM_PASSWORD}'

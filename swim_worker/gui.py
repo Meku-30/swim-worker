@@ -43,6 +43,8 @@ def _get_base_dir() -> Path:
 
 
 ENV_PATH = _get_base_dir() / ".env"
+# 空でも起動できる設定欄 (Redis ユーザー名は空なら default ユーザーで認証する)
+OPTIONAL_FIELDS = {"redis_username"}
 CA_CERT_PATH = _get_base_dir() / "ca.crt"
 GUI_SETTINGS_PATH = _get_base_dir() / "data" / "gui_settings.json"
 UPDATE_SNOOZE_PATH = _get_base_dir() / "data" / "update_snooze.json"
@@ -207,6 +209,7 @@ class WorkerGUI:
 
         fields = [
             ("Redis ホスト:", "redis_host", False),
+            ("Redis ユーザー名:", "redis_username", False),
             ("Redis パスワード:", "redis_password", True),
             ("SWIM ID:", "swim_username", False),
             ("SWIM パスワード:", "swim_password", True),
@@ -403,6 +406,7 @@ class WorkerGUI:
         """既存の.envから設定を読み込む"""
         env_map = {
             "REDIS_HOST": "redis_host",
+            "REDIS_USERNAME": "redis_username",
             "REDIS_PASSWORD": "redis_password",
             "SWIM_USERNAME": "swim_username",
             "SWIM_PASSWORD": "swim_password",
@@ -429,6 +433,7 @@ class WorkerGUI:
         """設定を.envに保存"""
         env_map = {
             "redis_host": "REDIS_HOST",
+            "redis_username": "REDIS_USERNAME",
             "redis_password": "REDIS_PASSWORD",
             "swim_username": "SWIM_USERNAME",
             "swim_password": "SWIM_PASSWORD",
@@ -486,6 +491,8 @@ class WorkerGUI:
         """Worker起動"""
         # バリデーション
         for key, entry in self._entries.items():
+            if key in OPTIONAL_FIELDS:
+                continue
             if not entry.get().strip():
                 messagebox.showerror("エラー", f"{key} が空です。設定を記入してください。")
                 return
@@ -507,6 +514,7 @@ class WorkerGUI:
         # UIスレッドで値をコピー（別スレッドからのアクセスを避ける）
         self._worker_settings = {
             "redis_host": self._entries["redis_host"].get().strip(),
+            "redis_username": self._entries["redis_username"].get().strip(),
             "redis_password": self._entries["redis_password"].get().strip(),
             "swim_username": self._entries["swim_username"].get().strip(),
             "swim_password": self._entries["swim_password"].get().strip(),
@@ -579,6 +587,7 @@ class WorkerGUI:
                 settings = Settings(
                     _env_file=None,
                     redis_host=ws["redis_host"], redis_port=6380,
+                    redis_username=ws["redis_username"],
                     redis_password=ws["redis_password"], redis_ca_cert="",
                     swim_username=ws["swim_username"], swim_password=ws["swim_password"],
                     worker_name=ws["worker_name"],
