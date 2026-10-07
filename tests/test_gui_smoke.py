@@ -102,10 +102,21 @@ def test_gui_checks_github_when_redis_auth_fails(gui, monkeypatch):
             "worker_name": "tester",
         }
         app._worker_running = True
-        # 実際の GUI と同じく別スレッドで動かす (止まってもテストが固まらないよう時間を区切る)
+        # 実際の GUI と同じく、メインループを回しながら Worker を別スレッドで動かす
+        # (Worker スレッドからの画面更新は root.after 経由でメインループが処理する)
+        import time
         t = threading.Thread(target=app._run_worker, daemon=True)
+        deadline = time.monotonic() + 20
+
+        def _poll():
+            if not t.is_alive() or time.monotonic() > deadline:
+                app._root.quit()
+            else:
+                app._root.after(100, _poll)
+
         t.start()
-        t.join(timeout=20)
+        app._root.after(100, _poll)
+        app._root.mainloop()
         assert not t.is_alive(), "認証エラーの後に _run_worker が終わらない"
         assert errors == []
         assert len(calls) == 1
