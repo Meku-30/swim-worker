@@ -76,9 +76,11 @@ def test_gui_start_accepts_empty_or_set_username(gui, monkeypatch, username):
 
 def test_gui_checks_github_when_redis_auth_fails(gui, monkeypatch):
     """Redis の認証に失敗したら GitHub で最新版を確かめる (自動更新を止めない)"""
+    import threading
     import redis.exceptions
     _write_env(gui, "worker-tester")
-    monkeypatch.setattr(gui.threading, "Thread", _NoThread)
+    errors = []
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda *a, **kw: errors.append(a))
 
     class _AuthFailRedis:
         async def ping(self):
@@ -94,8 +96,18 @@ def test_gui_checks_github_when_redis_auth_fails(gui, monkeypatch):
                         lambda current, notify: calls.append((current, notify)))
     app = gui.WorkerGUI()
     try:
-        app._on_start()          # 設定を _worker_settings に写す (スレッドは起動しない)
-        app._run_worker()        # このスレッドで同期実行
+        app._worker_settings = {
+            "redis_host": "redis.example", "redis_username": "worker-tester",
+            "redis_password": "pw", "swim_username": "u", "swim_password": "p",
+            "worker_name": "tester",
+        }
+        app._worker_running = True
+        # 実際の GUI と同じく別スレッドで動かす (止まってもテストが固まらないよう時間を区切る)
+        t = threading.Thread(target=app._run_worker, daemon=True)
+        t.start()
+        t.join(timeout=20)
+        assert not t.is_alive(), "認証エラーの後に _run_worker が終わらない"
+        assert errors == []
         assert len(calls) == 1
         assert calls[0][0] == gui.__version__
         assert calls[0][1] == app._on_update_detected
