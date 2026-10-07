@@ -19,7 +19,19 @@ def gui(tmp_path, monkeypatch):
     monkeypatch.setattr(g, "ENV_PATH", tmp_path / ".env")
     monkeypatch.setattr(g, "GUI_SETTINGS_PATH", tmp_path / "data" / "gui_settings.json")
     monkeypatch.setattr(g, "UPDATE_SNOOZE_PATH", tmp_path / "data" / "update_snooze.json")
-    return g
+    import logging
+
+    def _drop_text_handlers():
+        # WorkerGUI はログの出力先 (TextHandler) をルートのロガーに足す。前のテストの閉じた
+        # 画面に書こうとすると例外になるので外す (実際の GUI はプロセスに 1 つだけ)
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            if isinstance(h, g.TextHandler):
+                root.removeHandler(h)
+
+    _drop_text_handlers()
+    yield g
+    _drop_text_handlers()
 
 
 def _write_env(g, username: str) -> None:
