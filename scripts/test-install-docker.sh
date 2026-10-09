@@ -90,18 +90,27 @@ fi
 
 # 5b. バイナリ配置 + permission
 BIN_STAT=$(docker exec "$CONTAINER_NAME" stat -c "%a %U %G" /opt/swim-worker/swim-worker 2>/dev/null || echo "")
-if [[ "$BIN_STAT" == "755 swim-worker swim-worker" ]]; then
+if [[ "$BIN_STAT" == "755 root root" ]]; then
     ok "バイナリ permission: $BIN_STAT"
 else
-    fail "バイナリ permission が不正: '$BIN_STAT' (期待: 755 swim-worker swim-worker)"
+    fail "バイナリ permission が不正: '$BIN_STAT' (期待: 755 root root)"
 fi
 
-# 5c. .env 権限 600 chown swim-worker
+# 5b'. /opt/swim-worker は root、data/ だけサービスユーザー
+DIR_STAT=$(docker exec "$CONTAINER_NAME" stat -c "%U" /opt/swim-worker 2>/dev/null || echo "")
+DATA_STAT=$(docker exec "$CONTAINER_NAME" stat -c "%a %U" /opt/swim-worker/data 2>/dev/null || echo "")
+if [[ "$DIR_STAT" == "root" && "$DATA_STAT" == "750 swim-worker" ]]; then
+    ok "所有者: /opt/swim-worker=$DIR_STAT, data=$DATA_STAT"
+else
+    fail "所有者が不正: /opt/swim-worker='$DIR_STAT' data='$DATA_STAT' (期待: root / 750 swim-worker)"
+fi
+
+# 5c. .env 権限 640 root:swim-worker (Worker は読むだけ)
 ENV_STAT=$(docker exec "$CONTAINER_NAME" stat -c "%a %U %G" /opt/swim-worker/.env 2>/dev/null || echo "")
-if [[ "$ENV_STAT" == "600 swim-worker swim-worker" ]]; then
+if [[ "$ENV_STAT" == "640 root swim-worker" ]]; then
     ok ".env permission: $ENV_STAT"
 else
-    fail ".env permission が不正: '$ENV_STAT' (期待: 600 swim-worker swim-worker)"
+    fail ".env permission が不正: '$ENV_STAT' (期待: 640 root swim-worker)"
 fi
 
 # 5d. .env の中身が期待通り (単引用符で囲まれている)
@@ -128,6 +137,13 @@ for unit in swim-worker.service swim-worker-update.service swim-worker-update.ti
         fail "$unit が /etc/systemd/system/ にない"
     fi
 done
+
+# 5g. 名前解決・Redis への通信を許可する drop-in
+if docker exec "$CONTAINER_NAME" grep -q '^\[Service\]' /etc/systemd/system/swim-worker.service.d/10-ip-allow.conf; then
+    ok "drop-in 10-ip-allow.conf 配置済み"
+else
+    fail "drop-in 10-ip-allow.conf がない"
+fi
 
 step "6. install.sh --auto のバージョン比較早期 exit 検証"
 # .version と /releases/latest のタグが同じ → 早期 exit (何も起きない)

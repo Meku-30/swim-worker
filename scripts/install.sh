@@ -16,20 +16,24 @@
 #
 # 自動更新モード (systemd timer から呼ばれる):
 #   sudo bash install.sh --auto
-#   (常に /releases/latest = stable のみ追従、prerelease は拾わない)
+#   (常に最新の stable を追従、prerelease は拾わない)
 #
 # やること:
-#   - 対応アーキテクチャのバイナリを GitHub Releases からダウンロード
+#   - 最新 stable のタグを調べ、そのタグに固定して GitHub Releases からダウンロード
 #   - SHA256SUMS で整合性検証
 #   - 専用ユーザー swim-worker を作成 (システムアカウント、シェルなし)
 #   - /opt/swim-worker/ に配置 + /opt/swim-worker/.version 書き込み
+#     (/opt/swim-worker は root の持ち物。Worker が書けるのは data/ だけ、.env は読むだけ)
 #   - .env を対話生成 (環境変数が全て揃っていればスキップ)
 #   - systemd unit 配置 + enable (起動は手動)
+#   - 名前解決のサーバー・Redis への通信を許可する drop-in を配置
+#     (unit は LAN・リンクローカル宛ての通信を閉じているため)
 #   - swim-worker-update.timer を配置 + enable (6h 毎の自動更新チェック)
 #
 # 削除方法:
 #   sudo systemctl disable --now swim-worker swim-worker-update.timer
-#   sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer}
+#   sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer} \
+#     /etc/systemd/system/swim-worker.service.d
 #   sudo userdel swim-worker
 
 set -euo pipefail
@@ -81,19 +85,19 @@ U2NY60E=
 CAEOF
 
 # 通常モード: RELEASE_TAG 環境変数で特定バージョンを強制可能 (検証/手動ロールバック用)。
-# 未設定なら /releases/latest (stable) を使う。
-# --auto モードは常に /releases/latest (stable のみ追従) を使う。
-REL_TAG="${RELEASE_TAG:-latest}"
-if [[ "$REL_TAG" == "latest" ]]; then
-    BASE_URL="https://github.com/${REPO}/releases/latest/download"
-    API_URL="https://api.github.com/repos/${REPO}/releases/latest"
-else
-    BASE_URL="https://github.com/${REPO}/releases/download/${REL_TAG}"
-    API_URL="https://api.github.com/repos/${REPO}/releases/tags/${REL_TAG}"
-fi
-# --auto は常に latest 追従 (prerelease を拾わないようにするため)
-AUTO_BASE_URL="https://github.com/${REPO}/releases/latest/download"
-AUTO_API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+# 未設定なら GitHub API で最新 stable のタグを調べ、そのタグに固定してダウンロードする。
+# (releases/latest/download を使うと、タグを調べてからダウンロードするまでの間に
+#  別の版が公開された場合に、.version と中身がずれる)
+# --auto モードは常に最新 stable (prerelease は拾わない)。
+RELEASE_TAG="${RELEASE_TAG:-}"
+LATEST_API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+DOWNLOAD_BASE="https://github.com/${REPO}/releases/download"
+# Worker が Redis に接続して登録まで済んだら書く起動成功マーカー (swim_worker/paths.py)
+STARTUP_MARKER="${INSTALL_DIR}/data/.startup_ok"
+# 更新後、新しい版が起動成功マーカーを書くまで待つ秒数
+STARTUP_WAIT=120
+DROPIN_DIR="/etc/systemd/system/swim-worker.service.d"
+DROPIN_FILE="${DROPIN_DIR}/10-ip-allow.conf"
 
 # --auto モード判定
 AUTO_MODE=0
@@ -123,6 +127,115 @@ fetch_latest_tag() {
     curl -fsSL --proto '=https' --tlsv1.2 "$url" \
         | python3 -c 'import json, sys; d = json.load(sys.stdin); print(d.get("tag_name", ""))' \
         2>/dev/null || true
+}
+
+# タグの形式を確認する
+#   strict: vX.Y.Z だけ (最新 stable・自動更新)
+#   manual: RELEASE_TAG 用。vX.Y.Z-rc1 のような prerelease も可
+# 使い方: validate_tag <tag> <strict|manual>
+validate_tag() {
+    local tag="$1" mode="${2:-strict}"
+    if [[ "$mode" == "strict" ]]; then
+        [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+    else
+        [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]
+    fi
+}
+
+# 起動成功マーカーを待つ (Worker は Redis に接続して登録まで済んだら data/.startup_ok を書く)。
+# 再起動の前にマーカーを消しておくこと
+# 使い方: wait_for_startup <秒>
+wait_for_startup() {
+    local limit="$1" waited=0
+    while (( waited < limit )); do
+        if [[ -f "$STARTUP_MARKER" ]] && systemctl is-active --quiet swim-worker.service; then
+            return 0
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+    return 1
+}
+
+# /opt/swim-worker は root の持ち物、Worker (サービスユーザー) が書けるのは data/ だけ。
+# .env は root:swim-worker 0640 (Worker は設定を読むだけ)。
+# 以前の install.sh は全体をサービスユーザーの持ち物にしていたので、更新 (--auto) のたびにも直す。
+# シンボリックリンクは先を変えない (chown -h)。.env・data/ がリンクなら止める
+fix_permissions() {
+    local f
+    if [[ -L "$INSTALL_DIR" || -L "${INSTALL_DIR}/data" || -L "${INSTALL_DIR}/.env" ]]; then
+        die "${INSTALL_DIR} (data/ または .env) がシンボリックリンクです。確認してください"
+    fi
+    mkdir -p "${INSTALL_DIR}/data"
+    chown root:root "$INSTALL_DIR"
+    chmod 0755 "$INSTALL_DIR"
+    for f in "$INSTALL_DIR"/* "$INSTALL_DIR"/.[!.]*; do
+        if [[ ! -e "$f" && ! -L "$f" ]] || [[ "$f" == "${INSTALL_DIR}/data" ]]; then
+            continue
+        fi
+        chown -h root:root "$f"
+    done
+    chown -hR "$SERVICE_USER:$SERVICE_USER" "${INSTALL_DIR}/data"
+    chmod 0750 "${INSTALL_DIR}/data"
+    if [[ -f "${INSTALL_DIR}/.env" ]]; then
+        chown root:"$SERVICE_USER" "${INSTALL_DIR}/.env"
+        chmod 0640 "${INSTALL_DIR}/.env"
+    fi
+}
+
+# swim-worker.service は LAN・リンクローカル・CGNAT 宛ての通信を閉じている (IPAddressDeny)。
+# 名前解決のサーバー (家庭のルーター・クラウドの 169.254.169.254 等) と Redis は
+# その範囲にあっても通す drop-in の中身を出力する。ループバックはもともと閉じていない
+# 使い方: ip_allow_dropin_content <resolv.conf> <REDIS_HOST>
+ip_allow_dropin_content() {
+    local resolv="$1" redis_host="$2" key ip rest
+    local -a ips=()
+    if [[ -r "$resolv" ]]; then
+        while read -r key ip rest; do
+            [[ "$key" == "nameserver" && -n "${ip:-}" ]] || continue
+            ips+=("${ip%%\%*}")   # fe80::1%eth0 → fe80::1
+        done < "$resolv"
+    fi
+    if [[ -n "$redis_host" ]]; then
+        if [[ "$redis_host" =~ ^[0-9a-fA-F:.]+$ ]]; then
+            ips+=("$redis_host")
+        elif command -v getent >/dev/null; then
+            while read -r ip rest; do
+                ips+=("$ip")
+            done < <(getent ahosts "$redis_host" 2>/dev/null || true)
+        fi
+    fi
+    echo "# install.sh が生成 (名前解決のサーバー・Redis への通信を IPAddressDeny の例外にする)"
+    echo "[Service]"
+    if (( ${#ips[@]} > 0 )); then
+        printf '%s\n' "${ips[@]}" | sort -u | while read -r ip; do
+            [[ "$ip" =~ ^[0-9a-fA-F:.]+$ ]] || continue
+            case "$ip" in 127.*|::1) continue ;; esac
+            echo "IPAddressAllow=${ip}"
+        done
+    fi
+}
+
+# 上の drop-in を /etc/systemd/system/swim-worker.service.d/ に置く (反映は daemon-reload 後)
+write_ip_allow_dropin() {
+    local redis_host="" tmp
+    if [[ -r "${INSTALL_DIR}/.env" ]]; then
+        redis_host=$(grep -E "^REDIS_HOST=" "${INSTALL_DIR}/.env" 2>/dev/null | head -1 \
+            | sed "s/^REDIS_HOST=//; s/^'//; s/'$//; s/^\"//; s/\"$//" || true)
+    fi
+    mkdir -p "$DROPIN_DIR"
+    tmp=$(mktemp)
+    ip_allow_dropin_content /etc/resolv.conf "$redis_host" > "$tmp"
+    install -m 0644 -o root -g root "$tmp" "$DROPIN_FILE"
+    rm -f "$tmp"
+}
+
+# root が ${INSTALL_DIR} 直下に小さいファイルを書く (既存がリンクでも先を書き換えないよう消してから)
+# 使い方: write_root_file <path> <内容>
+write_root_file() {
+    rm -f "$1"
+    printf '%s\n' "$2" > "$1"
+    chmod 0644 "$1"
 }
 
 # 指定したファイル群を DL して SHA256SUMS で整合性検証する
@@ -182,9 +295,9 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     CURRENT_VERSION=$(cat "$VERSION_FILE")
     [[ -n "$CURRENT_VERSION" ]] || die ".version が空です"
 
-    # 最新バージョンを取得 (--auto は常に /releases/latest = stable のみ)
-    LATEST_TAG=$(fetch_latest_tag "$AUTO_API_URL")
-    [[ -n "$LATEST_TAG" ]] || die "GitHub API から latest tag を取得できません"
+    # 最新バージョンを取得 (--auto は常に最新 stable)。以後のダウンロードはこのタグに固定
+    LATEST_TAG=$(fetch_latest_tag "$LATEST_API_URL")
+    validate_tag "$LATEST_TAG" strict || die "GitHub API から最新のタグを取得できません (${LATEST_TAG:-空})"
     LATEST_VERSION="${LATEST_TAG#v}"
 
     if [[ "$CURRENT_VERSION" == "$LATEST_VERSION" ]]; then
@@ -220,6 +333,7 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     # Worker バイナリに問い合わせる形にすると依存が増えるため、
     # 同梱の小さい Python で直接問い合わせる (バイナリ内 Python は使えないため
     # 専用 helper を置く。シンプルに curl_cffi ではなく標準 python + ssl を使う)
+    AUTH_BROKEN=0
     if command -v python3 >/dev/null; then
         # .env から WORKER_NAME 抽出 (log 表示用。Python helper は独自に .env 全体を読む)
         WORKER_NAME=""
@@ -365,6 +479,7 @@ PYEOF
             AUTH_FALLBACK:*)
                 warn "Redis 認証失敗 (${GUARD_RESULT#AUTH_FALLBACK:}) — .env の REDIS_USERNAME / REDIS_PASSWORD を確認。"
                 warn "  Coordinator の一時停止・段階配布の設定を読めないため、GitHub の最新版で更新を続けます"
+                AUTH_BROKEN=1
                 ;;
             ERROR:*)
                 warn "Coordinator 疎通確認失敗 (${GUARD_RESULT#ERROR:})、安全側で更新スキップ"
@@ -397,44 +512,58 @@ PYEOF
 
     log "自動更新: v${CURRENT_VERSION} → v${LATEST_VERSION}"
 
-    # --- 新バイナリ DL + 検証 ---
+    # --- 新バイナリ DL + 検証 (調べたタグに固定) ---
     TMPDIR=$(mktemp -d)
     trap 'rm -rf "$TMPDIR"' EXIT
-    # --auto は常に latest (stable) から DL
-    download_and_verify "$AUTO_BASE_URL" "$TMPDIR" "$BINARY_NAME"
+    download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "$BINARY_NAME"
 
     # --- 旧バイナリをバックアップ → 新バイナリ配置 → restart ---
+    rm -f "${INSTALL_DIR}/swim-worker.old"
     cp -p "${INSTALL_DIR}/swim-worker" "${INSTALL_DIR}/swim-worker.old"
-    install -m 0755 -o "$SERVICE_USER" -g "$SERVICE_USER" \
-        "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/swim-worker"
+    install -m 0755 -o root -g root "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/swim-worker"
+    fix_permissions
+    write_ip_allow_dropin
+    systemctl daemon-reload
 
     log "swim-worker を再起動..."
+    rm -f "$STARTUP_MARKER"
     systemctl restart swim-worker.service
 
-    # --- ロールバック判定: 60秒待って is-active + NRestarts < 2 ---
-    sleep 60
-    IS_ACTIVE=$(systemctl is-active swim-worker.service 2>/dev/null || echo "inactive")
-    N_RESTARTS=$(systemctl show --property=NRestarts --value swim-worker.service 2>/dev/null || echo "0")
-
-    if [[ "$IS_ACTIVE" == "active" && "$N_RESTARTS" -lt 2 ]]; then
-        log "自動更新成功 (is-active=active, NRestarts=${N_RESTARTS})"
-        echo "$LATEST_VERSION" > "$VERSION_FILE"
+    # --- ロールバック判定 ---
+    # 新しい版が起動成功マーカーを書く (= Redis に接続して登録まで済んだ) のを待つ。
+    # Redis の認証に失敗している Worker (AUTH_FALLBACK) はマーカーを書けないので、
+    # 60 秒後に落ちずに動いていれば成功とする
+    if [[ $AUTH_BROKEN -eq 1 ]]; then
+        sleep 60
+        if systemctl is-active --quiet swim-worker.service; then
+            log "自動更新完了 (Redis の認証に失敗しているため、起動の確認はプロセスの稼働のみ)"
+            write_root_file "$VERSION_FILE" "$LATEST_VERSION"
+            rm -f "${INSTALL_DIR}/swim-worker.old"
+            exit 0
+        fi
+    elif wait_for_startup "$STARTUP_WAIT"; then
+        log "自動更新成功 (起動を確認)"
+        write_root_file "$VERSION_FILE" "$LATEST_VERSION"
         rm -f "${INSTALL_DIR}/swim-worker.old"
         exit 0
     fi
 
     # ロールバック
-    warn "新版が不安定 (is-active=${IS_ACTIVE}, NRestarts=${N_RESTARTS})、ロールバック実行"
-    install -m 0755 -o "$SERVICE_USER" -g "$SERVICE_USER" \
+    warn "新版 (v${LATEST_VERSION}) の起動を確認できない、ロールバック実行"
+    install -m 0755 -o root -g root \
         "${INSTALL_DIR}/swim-worker.old" "${INSTALL_DIR}/swim-worker"
+    rm -f "$STARTUP_MARKER"
     systemctl restart swim-worker.service
-    sleep 5
-    if systemctl is-active --quiet swim-worker.service; then
-        warn "ロールバック完了 (v${CURRENT_VERSION} に復帰)"
-    else
-        die "ロールバックも失敗。手動調査が必要 (journalctl -u swim-worker -n 100)"
+    if [[ $AUTH_BROKEN -eq 0 ]] && ! wait_for_startup "$STARTUP_WAIT"; then
+        # 旧版に戻しても起動しない = 版ではなく環境 (Redis・ネットワークの停止など) の問題。
+        # .failed-version は書かず、次回の自動更新で同じ版をもう一度試す
+        warn "旧版 (v${CURRENT_VERSION}) に戻したが起動を確認できない。Redis・ネットワークを確認してください"
+        warn "  (journalctl -u swim-worker -n 100)。次回の自動更新で v${LATEST_VERSION} を再試行します"
+        rm -f "${INSTALL_DIR}/swim-worker.old"
+        exit 1
     fi
-    echo "$LATEST_VERSION" > "${INSTALL_DIR}/.failed-version"
+    warn "ロールバック完了 (v${CURRENT_VERSION} に復帰)"
+    write_root_file "${INSTALL_DIR}/.failed-version" "$LATEST_VERSION"
     rm -f "${INSTALL_DIR}/swim-worker.old"
     exit 1
 fi
@@ -444,21 +573,29 @@ fi
 # ========================================================================
 log "アーキテクチャ: ${ARCH_RAW} → ${BINARY_NAME}"
 
+# --- 入れる版を決める (タグに固定してダウンロードする) ---
+if [[ -n "$RELEASE_TAG" ]]; then
+    validate_tag "$RELEASE_TAG" manual || die "RELEASE_TAG の形式が不正です: ${RELEASE_TAG} (例: v1.2.3)"
+    TAG="$RELEASE_TAG"
+else
+    LATEST_TAG=$(fetch_latest_tag "$LATEST_API_URL")
+    validate_tag "$LATEST_TAG" strict || die "GitHub API から最新のタグを取得できません (${LATEST_TAG:-空})"
+    TAG="$LATEST_TAG"
+fi
+VERSION="${TAG#v}"
+log "バージョン: ${TAG}"
+
 # --- ダウンロード + 整合性検証 (ヘルパー関数で一括処理) ---
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 log "バイナリ / systemd unit / timer をダウンロード & SHA256 検証..."
-download_and_verify "$BASE_URL" "$TMPDIR" \
+download_and_verify "${DOWNLOAD_BASE}/${TAG}" "$TMPDIR" \
     "$BINARY_NAME" \
     swim-worker.service \
     swim-worker-update.service \
     swim-worker-update.timer
 log "整合性 OK"
-
-# --- 最新バージョン取得 (.version 書き込み用) ---
-LATEST_TAG=$(fetch_latest_tag "$API_URL")
-LATEST_VERSION="${LATEST_TAG#v}"
 
 # --- 専用ユーザー作成 ---
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
@@ -479,17 +616,10 @@ fi
 
 log "${INSTALL_DIR} にファイルを配置..."
 mkdir -p "${INSTALL_DIR}/data"
-install -m 0755 -o "$SERVICE_USER" -g "$SERVICE_USER" \
-    "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/swim-worker"
-chown -R "$SERVICE_USER:$SERVICE_USER" "${INSTALL_DIR}"
-chmod 0750 "${INSTALL_DIR}/data"
+install -m 0755 -o root -g root "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/swim-worker"
 
-# バージョンファイル書き込み (自動更新時の比較対象)
-if [[ -n "$LATEST_VERSION" ]]; then
-    echo "$LATEST_VERSION" > "$VERSION_FILE"
-    chown "$SERVICE_USER:$SERVICE_USER" "$VERSION_FILE"
-    chmod 0644 "$VERSION_FILE"
-fi
+# バージョンファイル書き込み (自動更新時の比較対象。ダウンロードしたタグと同じ)
+write_root_file "$VERSION_FILE" "$VERSION"
 rm -f "${INSTALL_DIR}/.failed-version"   # 手動インストール/アップグレードでロールバック済み扱いを解除
 
 # --- .env 作成 ---
@@ -537,16 +667,19 @@ SWIM_PASSWORD='${SWIM_PASSWORD}'
 WORKER_NAME='${WORKER_NAME}'
 EOF
     umask 022
-    chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
-    chmod 0600 "$ENV_FILE"
-    log ".env を作成: ${ENV_FILE} (パーミッション 600)"
+    log ".env を作成: ${ENV_FILE} (root:${SERVICE_USER} 640、Worker は読むだけ)"
 fi
+
+# 所有者を整える (/opt/swim-worker は root、data/ だけサービスユーザー、.env は 640)
+fix_permissions
 
 # --- systemd unit / update timer 配置 ---
 log "systemd unit を配置..."
 install -m 0644 "${TMPDIR}/swim-worker.service"        "$SERVICE_FILE"
 install -m 0644 "${TMPDIR}/swim-worker-update.service" "$UPDATE_SERVICE_FILE"
 install -m 0644 "${TMPDIR}/swim-worker-update.timer"   "$UPDATE_TIMER_FILE"
+write_ip_allow_dropin
+log "通信の許可 (名前解決・Redis) を ${DROPIN_FILE} に書きました"
 systemctl daemon-reload
 systemctl enable swim-worker.service >/dev/null
 systemctl enable --now swim-worker-update.timer >/dev/null
