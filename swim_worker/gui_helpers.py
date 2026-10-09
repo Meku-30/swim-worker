@@ -1,5 +1,6 @@
 """GUI (gui.py) から使う tkinter 非依存のヘルパー。単体テスト可能にするため分離。"""
 import logging
+import shlex
 from pathlib import Path
 
 ROLLBACK_DISABLE_THRESHOLD = 2  # 同一バージョンでこの回数ロールバックしたら自動更新を止める
@@ -52,6 +53,25 @@ def pyinstaller_clean_env(base_env: dict) -> dict:
     return env
 
 
+def bat_escape(text: str) -> str:
+    """バッチファイルに埋め込む文字列の % を %% にする (変数展開されないように)"""
+    return text.replace("%", "%%")
+
+
+def encode_bat(text: str, ansi_codec: str = "mbcs") -> bytes:
+    """.bat の中身をバイト列にする。
+
+    cmd.exe はバッチをシステムの ANSI コードページ (日本語 Windows は CP932) で読むので、
+    書ければそれで書く。書けない文字 (コードページ外のユーザー名など) があれば、
+    2 行目に `chcp 65001` を入れて UTF-8 で書く (それ以降の行は UTF-8 として読まれる)。
+    """
+    try:
+        return text.encode(ansi_codec)
+    except UnicodeEncodeError:
+        first, sep, rest = text.partition("\r\n")
+        return (first + sep + "chcp 65001 > nul\r\n" + rest).encode("utf-8")
+
+
 def build_windows_update_script(*, base: Path, current_exe: Path, new_exe: Path, old_exe: Path,
                                 startup_ok: Path, rollback_marker: Path, log_path: Path,
                                 new_version: str) -> str:
@@ -62,22 +82,28 @@ def build_windows_update_script(*, base: Path, current_exe: Path, new_exe: Path,
     move が最終的に失敗した場合 (:fail) も旧 exe を再起動し、reason=move_failed のマーカーを
     書く (Worker が黙って消えないため)。
     """
+    # パスの % はバッチの変数展開にならないよう %% にする (%DATE% などスクリプト自身の変数はそのまま)
+    base_s, current_exe_s, new_exe_s, old_exe_s, startup_ok_s, rollback_marker_s, log_path_s = (
+        bat_escape(str(x)) for x in (base, current_exe, new_exe, old_exe, startup_ok,
+                                     rollback_marker, log_path))
+    marker_dir = bat_escape(str(rollback_marker.parent))
+    exe_name = bat_escape(current_exe.name)
     return (
         "@echo off\r\n"
-        f'echo [%DATE% %TIME%] update start > "{log_path}"\r\n'
+        f'echo [%DATE% %TIME%] update start > "{log_path_s}"\r\n'
         "set /a COUNT=0\r\n"
         ":retry\r\n"
         "set /a COUNT+=1\r\n"
-        f'echo [%DATE% %TIME%] attempt %COUNT% >> "{log_path}"\r\n'
+        f'echo [%DATE% %TIME%] attempt %COUNT% >> "{log_path_s}"\r\n'
         "if %COUNT% gtr 30 goto fail\r\n"
         "ping 127.0.0.1 -n 2 > nul\r\n"
         # Phase 2: 旧 exe を .old にバックアップ (失敗時のロールバック用)
-        f'copy /Y "{current_exe}" "{old_exe}" >> "{log_path}" 2>&1\r\n'
-        f'move /Y "{new_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
+        f'copy /Y "{current_exe_s}" "{old_exe_s}" >> "{log_path_s}" 2>&1\r\n'
+        f'move /Y "{new_exe_s}" "{current_exe_s}" >> "{log_path_s}" 2>&1\r\n'
         "if errorlevel 1 goto retry\r\n"
-        f'echo [%DATE% %TIME%] move success >> "{log_path}"\r\n'
+        f'echo [%DATE% %TIME%] move success >> "{log_path_s}"\r\n'
         # Phase 2: 前回の startup marker を削除 (新 exe の成功判定用)
-        f'if exist "{startup_ok}" del "{startup_ok}" >> "{log_path}" 2>&1\r\n'
+        f'if exist "{startup_ok_s}" del "{startup_ok_s}" >> "{log_path_s}" 2>&1\r\n'
         # ファイルシステム同期待ち
         "ping 127.0.0.1 -n 2 > nul\r\n"
         # PyInstaller 6.9+ の bootloader が _PYI_ARCHIVE_FILE を
@@ -89,8 +115,8 @@ def build_windows_update_script(*, base: Path, current_exe: Path, new_exe: Path,
         'set "_PYI_PARENT_PROCESS_LEVEL="\r\n'
         'set "_MEIPASS2="\r\n'
         'set "PYINSTALLER_RESET_ENVIRONMENT=1"\r\n'
-        f'start "" /D "{base}" "{current_exe}"\r\n'
-        f'echo [%DATE% %TIME%] new exe started >> "{log_path}"\r\n'
+        f'start "" /D "{base_s}" "{current_exe_s}"\r\n'
+        f'echo [%DATE% %TIME%] new exe started >> "{log_path_s}"\r\n'
         # Phase 2: 起動成功判定ループ (最大約120秒 startup_ok を待つ)
         # ping -n 2 が約1秒/反復のため、120 反復 ≈ 120 秒。
         # 旧 exe の Redis heartbeat TTL (heartbeat_interval × multiplier=2 の最大 60秒)
@@ -100,31 +126,31 @@ def build_windows_update_script(*, base: Path, current_exe: Path, new_exe: Path,
         "set /a WAIT+=1\r\n"
         "if %WAIT% gtr 120 goto rollback\r\n"
         "ping 127.0.0.1 -n 2 > nul\r\n"
-        f'if exist "{startup_ok}" goto success\r\n'
+        f'if exist "{startup_ok_s}" goto success\r\n'
         "goto waitok\r\n"
         ":success\r\n"
-        f'echo [%DATE% %TIME%] startup OK after %WAIT%s >> "{log_path}"\r\n'
+        f'echo [%DATE% %TIME%] startup OK after %WAIT%s >> "{log_path_s}"\r\n'
         # 成功: .old を削除
-        f'if exist "{old_exe}" del "{old_exe}" >> "{log_path}" 2>&1\r\n'
+        f'if exist "{old_exe_s}" del "{old_exe_s}" >> "{log_path_s}" 2>&1\r\n'
         'del "%~f0"\r\n'
         "exit /b 0\r\n"
         ":rollback\r\n"
-        f'echo [%DATE% %TIME%] ROLLBACK: startup_ok not found in 120s >> "{log_path}"\r\n'
+        f'echo [%DATE% %TIME%] ROLLBACK: startup_ok not found in 120s >> "{log_path_s}"\r\n'
         # 新 exe を消して旧 exe を戻す (taskkill で走ってる新 exe を止める)
-        f'taskkill /F /IM "{current_exe.name}" >> "{log_path}" 2>&1\r\n'
+        f'taskkill /F /IM "{exe_name}" >> "{log_path_s}" 2>&1\r\n'
         "ping 127.0.0.1 -n 3 > nul\r\n"
-        f'move /Y "{old_exe}" "{current_exe}" >> "{log_path}" 2>&1\r\n'
+        f'move /Y "{old_exe_s}" "{current_exe_s}" >> "{log_path_s}" 2>&1\r\n'
         # GUI 起動時にロールバック通知するためのマーカー書き込み (JSON)
-        f'mkdir "{rollback_marker.parent}" 2>nul\r\n'
-        f'echo {{"rolled_back_from":"v{new_version}"}} > "{rollback_marker}"\r\n'
-        f'start "" /D "{base}" "{current_exe}"\r\n'
+        f'mkdir "{marker_dir}" 2>nul\r\n'
+        f'echo {{"rolled_back_from":"v{new_version}"}} > "{rollback_marker_s}"\r\n'
+        f'start "" /D "{base_s}" "{current_exe_s}"\r\n'
         'del "%~f0"\r\n'
         "exit /b 0\r\n"
         ":fail\r\n"
-        f'echo [%DATE% %TIME%] FAILED after %COUNT% attempts, restarting current exe >> "{log_path}"\r\n'
-        f'mkdir "{rollback_marker.parent}" 2>nul\r\n'
-        f'echo {{"rolled_back_from":"v{new_version}","reason":"move_failed"}} > "{rollback_marker}"\r\n'
-        f'start "" /D "{base}" "{current_exe}"\r\n'
+        f'echo [%DATE% %TIME%] FAILED after %COUNT% attempts, restarting current exe >> "{log_path_s}"\r\n'
+        f'mkdir "{marker_dir}" 2>nul\r\n'
+        f'echo {{"rolled_back_from":"v{new_version}","reason":"move_failed"}} > "{rollback_marker_s}"\r\n'
+        f'start "" /D "{base_s}" "{current_exe_s}"\r\n'
         'del "%~f0"\r\n'
         "exit /b 1\r\n"
     )
@@ -138,19 +164,24 @@ def build_macos_update_script(*, current_exe: Path, new_exe: Path, old_exe: Path
     Phase 2: .old バックアップ + 起動成功判定 + ロールバック。
     ロールバック時は pkill -f (スクリプト自身も対象になる) ではなく、起動した新 exe の PID を kill する。
     """
+    # パスはシェルの単引用符で囲む ($ や ` や " を含むフォルダ名でも壊れないように)
+    current_exe_q, new_exe_q, old_exe_q, startup_ok_q, rollback_marker_q, log_path_q = (
+        shlex.quote(str(x)) for x in (current_exe, new_exe, old_exe, startup_ok,
+                                      rollback_marker, log_path))
+    marker_dir_q = shlex.quote(str(rollback_marker.parent))
     return f"""#!/bin/bash
 set -u
-LOG="{log_path}"
+LOG={log_path_q}
 echo "[$(date)] update start" > "$LOG"
 sleep 3
 # 旧 exe をバックアップ
-cp "{current_exe}" "{old_exe}" >> "$LOG" 2>&1 || true
-mv "{new_exe}" "{current_exe}" >> "$LOG" 2>&1
-chmod +x "{current_exe}"
+cp {current_exe_q} {old_exe_q} >> "$LOG" 2>&1 || true
+mv {new_exe_q} {current_exe_q} >> "$LOG" 2>&1
+chmod +x {current_exe_q}
 # 前回の startup marker 削除
-rm -f "{startup_ok}"
+rm -f {startup_ok_q}
 # 新 exe 起動
-"{current_exe}" &
+{current_exe_q} &
 NEW_PID=$!
 echo "[$(date)] new exe started" >> "$LOG"
 # 起動成功判定 (最大 120 秒)
@@ -158,9 +189,9 @@ echo "[$(date)] new exe started" >> "$LOG"
 # 失効を待つ余裕として TTL の倍以上を確保する。
 for i in $(seq 1 120); do
     sleep 1
-    if [ -f "{startup_ok}" ]; then
+    if [ -f {startup_ok_q} ]; then
         echo "[$(date)] startup OK after ${{i}}s" >> "$LOG"
-        rm -f "{old_exe}"
+        rm -f {old_exe_q}
         rm -- "$0"
         exit 0
     fi
@@ -169,10 +200,10 @@ done
 echo "[$(date)] ROLLBACK: startup_ok not found in 120s" >> "$LOG"
 kill "$NEW_PID" >> "$LOG" 2>&1 || true
 sleep 2
-mv "{old_exe}" "{current_exe}" >> "$LOG" 2>&1
-mkdir -p "{rollback_marker.parent}"
-echo '{{"rolled_back_from":"v{new_version}"}}' > "{rollback_marker}"
-"{current_exe}" &
+mv {old_exe_q} {current_exe_q} >> "$LOG" 2>&1
+mkdir -p {marker_dir_q}
+echo '{{"rolled_back_from":"v{new_version}"}}' > {rollback_marker_q}
+{current_exe_q} &
 rm -- "$0"
 exit 0
 """

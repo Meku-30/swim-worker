@@ -4,8 +4,11 @@ tkinter 非依存。ファイルの中身の組み立てを関数にして単体
 """
 import logging
 import os
+import plistlib
 import sys
 from pathlib import Path
+
+from swim_worker.gui_helpers import bat_escape, encode_bat
 
 logger = logging.getLogger(__name__)
 
@@ -27,44 +30,36 @@ def startup_path(platform: str | None = None) -> Path:
     return startup / BAT_NAME
 
 
-def launch_command() -> str:
-    """自動起動で実行するもの (frozen なら exe)"""
+def launch_command() -> list[str]:
+    """自動起動で実行するコマンド (frozen なら exe、開発環境なら python -m swim_worker.gui)"""
     if getattr(sys, "frozen", False):
-        return sys.executable
-    return "python -m swim_worker"
+        return [sys.executable]
+    return [sys.executable, "-m", "swim_worker.gui"]
 
 
-def build_plist(exe_path: str, working_dir: Path) -> str:
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{PLIST_LABEL}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{exe_path}</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>{working_dir}</string>
-</dict>
-</plist>
-"""
+def build_plist(args: list[str], working_dir: Path) -> bytes:
+    """LaunchAgent の plist (plistlib が XML のエスケープをする)"""
+    return plistlib.dumps({
+        "Label": PLIST_LABEL,
+        "ProgramArguments": list(args),
+        "RunAtLoad": True,
+        "WorkingDirectory": str(working_dir),
+    })
 
 
-def build_bat(exe_path: str, working_dir: Path) -> str:
-    return f'@echo off\r\ncd /d "{working_dir}"\r\nstart "" "{exe_path}"\r\n'
+def build_bat(args: list[str], working_dir: Path) -> str:
+    """スタートアップの .bat (パスの % は %% にする)"""
+    cmd = " ".join(f'"{bat_escape(a)}"' for a in args)
+    return f'@echo off\r\ncd /d "{bat_escape(str(working_dir))}"\r\nstart "" {cmd}\r\n'
 
 
-def file_bytes(platform: str, exe_path: str, working_dir: Path) -> bytes:
+def file_bytes(platform: str, args: list[str], working_dir: Path,
+               ansi_codec: str = "mbcs") -> bytes:
     """自動起動ファイルとして書く中身 (バイト列)"""
     if platform == "darwin":
-        return build_plist(exe_path, working_dir).encode("utf-8")
-    # Windows .bat はシステムの ANSI コードページで読まれる
-    # パスに日本語が含まれる場合UTF-8だと文字化けするため mbcs (日本語Windows=CP932) で書き込む
-    return build_bat(exe_path, working_dir).encode("mbcs", errors="replace")
+        return build_plist(args, working_dir)
+    # .bat はシステムの ANSI コードページで書く (書けない文字があれば UTF-8 + chcp 65001)
+    return encode_bat(build_bat(args, working_dir), ansi_codec)
 
 
 def is_enabled(platform: str | None = None) -> bool:
@@ -73,8 +68,9 @@ def is_enabled(platform: str | None = None) -> bool:
     return startup_path(platform).exists()
 
 
-def enable(path: Path, platform: str, exe_path: str, working_dir: Path) -> None:
-    path.write_bytes(file_bytes(platform, exe_path, working_dir))
+def enable(path: Path, platform: str, args: list[str], working_dir: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(file_bytes(platform, args, working_dir))
     logger.info("自動起動を有効にしました")
 
 
@@ -84,14 +80,11 @@ def disable(path: Path) -> None:
     logger.info("自動起動を無効にしました")
 
 
-def needs_path_update(path: Path, platform: str, exe_path: str) -> bool:
-    """自動起動ファイル内の exe パスが今の exe と違うか (exe を移動した場合)"""
+def needs_rewrite(path: Path, platform: str, args: list[str], working_dir: Path) -> bool:
+    """自動起動ファイルが今の exe・フォルダと違う中身か (exe を移動した・古い形式)"""
     if not path.exists():
         return False
-    # .bat はシステムコードページ (mbcs)、plist は UTF-8
-    read_encoding = "utf-8" if platform == "darwin" else "mbcs"
     try:
-        content = path.read_text(encoding=read_encoding, errors="replace")
+        return path.read_bytes() != file_bytes(platform, args, working_dir)
     except Exception:
         return False
-    return exe_path not in content

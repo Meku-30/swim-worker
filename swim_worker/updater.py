@@ -13,6 +13,7 @@ from pathlib import Path
 from swim_worker.gui_helpers import (
     build_macos_update_script,
     build_windows_update_script,
+    encode_bat,
     pyinstaller_clean_env,
 )
 from swim_worker.settings_store import load_json, save_json
@@ -168,8 +169,8 @@ def launch_update_helper(*, base: Path, current_exe: Path, new_exe: Path,
             startup_ok=startup_ok, rollback_marker=rollback_marker,
             log_path=log_path, new_version=new_version,
         )
-        # パスに日本語が含まれる場合に備えて mbcs (システム ANSI) で書き込む
-        script_path.write_bytes(script.encode("mbcs", errors="replace"))
+        # システム ANSI (日本語 Windows は CP932) で書く。書けない文字は UTF-8 + chcp 65001
+        script_path.write_bytes(encode_bat(script))
         # PyInstaller 6.9+ の "Failed to load Python DLL" 対策として
         # 子プロセスの環境変数から _PYI_* を除去し、PYINSTALLER_RESET_ENVIRONMENT を設定
         # 参考: https://pyinstaller.org/en/stable/runtime-information.html

@@ -119,16 +119,49 @@ class TestAutostart:
         assert autostart.startup_path("darwin").name == "org.swim-worker.plist"
 
     def test_bat_contents(self):
-        bat = autostart.build_bat(r"C:\swim\swim-worker-gui.exe", Path(r"C:\swim"))
+        bat = autostart.build_bat([r"C:\swim\swim-worker-gui.exe"], Path(r"C:\swim"))
         assert bat.startswith("@echo off\r\n")
         assert 'start "" "C:\\swim\\swim-worker-gui.exe"' in bat
 
+    def test_plist_escapes_xml(self, tmp_path):
+        import plistlib
+        exe = "/Users/a&b/<swim>/swim-worker"
+        data = plistlib.loads(autostart.file_bytes("darwin", [exe], Path("/Users/a&b")))
+        assert data["ProgramArguments"] == [exe]
+        assert data["WorkingDirectory"] == "/Users/a&b"
+        assert data["Label"] == "org.swim-worker"
+        assert data["RunAtLoad"] is True
+
+    def test_bat_doubles_percent(self):
+        bat = autostart.build_bat([r"C:\100%\swim.exe"], Path(r"C:\100%"))
+        assert 'cd /d "C:\\100%%"' in bat
+        assert 'start "" "C:\\100%%\\swim.exe"' in bat
+
+    def test_bat_uses_ansi_when_possible(self):
+        b = autostart.file_bytes("win32", [r"C:\ユーザー\swim.exe"], Path(r"C:\ユーザー"),
+                                 ansi_codec="cp932")
+        assert b.decode("cp932").startswith("@echo off\r\ncd /d")
+        assert "chcp" not in b.decode("cp932")
+
+    def test_bat_falls_back_to_utf8_with_chcp(self):
+        """ANSI コードページで書けない文字 (例: 日本語 Windows でのウムラウト) は UTF-8 + chcp 65001"""
+        b = autostart.file_bytes("win32", [r"C:\Jürgen\swim.exe"], Path(r"C:\Jürgen"),
+                                 ansi_codec="cp932")
+        text = b.decode("utf-8")
+        assert text.startswith("@echo off\r\nchcp 65001 > nul\r\n")
+        assert r'start "" "C:\Jürgen\swim.exe"' in text
+
+    def test_launch_command(self, monkeypatch):
+        monkeypatch.setattr(autostart.sys, "frozen", True, raising=False)
+        monkeypatch.setattr(autostart.sys, "executable", "/x/swim-worker")
+        assert autostart.launch_command() == ["/x/swim-worker"]
+
     def test_enable_disable(self, tmp_path):
         p = tmp_path / "org.swim-worker.plist"
-        autostart.enable(p, "darwin", "/Apps/swim/swim-worker", tmp_path)
+        autostart.enable(p, "darwin", ["/Apps/swim/swim-worker"], tmp_path)
         assert "<string>/Apps/swim/swim-worker</string>" in p.read_text(encoding="utf-8")
-        assert autostart.needs_path_update(p, "darwin", "/Apps/swim/swim-worker") is False
-        assert autostart.needs_path_update(p, "darwin", "/Other/swim-worker") is True
+        assert autostart.needs_rewrite(p, "darwin", ["/Apps/swim/swim-worker"], tmp_path) is False
+        assert autostart.needs_rewrite(p, "darwin", ["/Other/swim-worker"], tmp_path) is True
         autostart.disable(p)
         assert not p.exists()
 
