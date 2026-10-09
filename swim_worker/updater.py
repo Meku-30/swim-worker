@@ -3,10 +3,13 @@
 流れ: download_url() → download_and_verify() → launch_update_helper() → GUI が終了
 → ヘルパー (.bat / .sh) が exe を差し替えて再起動し、起動確認できなければロールバック。
 """
+import contextlib
+import hashlib
 import logging
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,6 +20,7 @@ from swim_worker.gui_helpers import (
     pyinstaller_clean_env,
 )
 from swim_worker.settings_store import load_json, save_json
+from swim_worker.update_verify import UpdateVerifyError, parse_sha256sums
 
 logger = logging.getLogger(__name__)
 
@@ -120,36 +124,139 @@ def cleanup_stale_update_files(base: Path, now_ts: float | None = None) -> None:
 
 
 # --- ダウンロードと検証 ---
+#
+# 流れ: fetch_checksums() で SHA256SUMS を取る → 期待するハッシュが分かってから本体を
+# ストリームで .part に書きつつハッシュを計算 → 一致したら os.replace で置く。
+# W3 (署名) は fetch_checksums() の中で SHA256SUMS.sig を取って検証し、通らなければ例外に
+# すればよい (本体のダウンロードより前に止まる)。
 
-def download_and_verify(download_url: str, dest: Path, *, on_phase=None) -> int:
-    """exe をダウンロードし、同じリリースの SHA256SUMS で検証してから dest に書く。
+CONNECT_STALL_TIMEOUT = 60.0    # 接続・無通信がこれだけ続いたら諦める (秒)
+MAX_DOWNLOAD_SEC = 30 * 60      # 全体の上限 (遅い回線でも 30 分)
+MAX_ASSET_SIZE = 300 * 1024 * 1024
+MAX_SUMS_SIZE = 64 * 1024
+PROGRESS_INTERVAL_SEC = 0.2
 
-    戻り値: 書いたバイト数。on_phase(text) は段階の表示用 (別スレッドから呼ばれる)。
+
+class CurlFetcher:
+    """curl_cffi で GitHub から取る (証明書は curl_cffi 同梱の CA を使う)。
+
+    stream=True のときの timeout は「接続」と「無通信 (1 B/s 未満が続く)」の上限になり、
+    全体の時間では切らない (大きい exe を遅い回線で落とせるように)。全体の上限は呼ぶ側で見る。
     """
-    from curl_cffi.requests import Session, BrowserType
-    from swim_worker.update_verify import verify_sha256
+
+    def __init__(self, impersonate="chrome136", timeout: float = CONNECT_STALL_TIMEOUT):
+        self._impersonate = impersonate
+        self._timeout = timeout
+
+    def _session(self):
+        from curl_cffi.requests import Session
+        kw = {"timeout": self._timeout}
+        if self._impersonate:
+            kw["impersonate"] = self._impersonate
+        return Session(**kw)
+
+    def get_text(self, url: str, max_bytes: int = MAX_SUMS_SIZE) -> str:
+        with self._session() as client:
+            resp = client.get(url, allow_redirects=True)
+            if resp.status_code != 200:
+                raise RuntimeError(f"{url.rsplit('/', 1)[-1]} 取得失敗: status={resp.status_code}")
+            if len(resp.content) > max_bytes:
+                raise RuntimeError(f"{url.rsplit('/', 1)[-1]} が大きすぎます")
+            return resp.content.decode("utf-8")
+
+    @contextlib.contextmanager
+    def stream(self, url: str):
+        """(status, Content-Length または None, チャンクの iterator) を返す"""
+        with self._session() as client:
+            resp = client.get(url, allow_redirects=True, stream=True)
+            try:
+                total = resp.headers.get("content-length")
+                try:
+                    total = int(total) if total is not None else None
+                except ValueError:
+                    total = None
+                yield resp.status_code, total, resp.iter_content()
+            finally:
+                resp.close()
+
+
+def release_base_url(download_url: str) -> str:
+    return download_url.rsplit("/", 1)[0]
+
+
+def fetch_checksums(fetcher, base_url: str) -> str:
+    """同じリリースの SHA256SUMS を取る。
+
+    W3: ここで `SHA256SUMS.sig` も取り、埋め込んだ公開鍵で検証して通らなければ例外にする。
+    """
+    return fetcher.get_text(f"{base_url}/SHA256SUMS")
+
+
+def download_and_verify(download_url: str, dest: Path, *, fetcher=None, on_progress=None,
+                        on_phase=None, clock=time.monotonic) -> int:
+    """exe をストリームでダウンロードし、SHA256SUMS と一致したら dest に置く。
+
+    途中で失敗したら何も残さない。戻り値は書いたバイト数。
+    on_progress(済んだバイト数, 全体のバイト数 or None)・on_phase(text) は
+    このスレッド (GUI のメインスレッドではない) から呼ばれる。
+    """
+    fetcher = fetcher or CurlFetcher()
     asset_name = download_url.rsplit("/", 1)[-1]
-    sums_url = download_url.rsplit("/", 1)[0] + "/SHA256SUMS"
-    with Session(impersonate=BrowserType.chrome136, timeout=120.0) as client:
-        # stream=False で全体をメモリに読み込む (curl_cffi では stream=True の扱いが不安定)
-        resp = client.get(download_url, allow_redirects=True)
-        if resp.status_code != 200:
-            raise RuntimeError(f"ダウンロード失敗: status={resp.status_code}")
-        content = resp.content
-        if not content or len(content) < MIN_ASSET_SIZE:
-            raise RuntimeError(f"ダウンロードサイズ異常: {len(content) if content else 0} bytes")
-        # 同じ release の SHA256SUMS で整合性検証 (install.sh と同等)。
-        # 破損・改竄された DL をそのまま exe として起動しないため必須。
+    if on_phase:
+        on_phase("チェックサムを取得しています")
+    sums_text = fetch_checksums(fetcher, release_base_url(download_url))
+    expected = parse_sha256sums(sums_text).get(asset_name)
+    if not expected:
+        raise UpdateVerifyError(f"SHA256SUMS に {asset_name} のエントリがありません")
+
+    if on_phase:
+        on_phase("新しいバージョンを取得しています")
+    part = dest.with_name(dest.name + ".part")
+    digest = hashlib.sha256()
+    done = 0
+    started = clock()
+    last_report = None
+    try:
+        with fetcher.stream(download_url) as (status, total, chunks), part.open("wb") as f:
+            if status != 200:
+                raise RuntimeError(f"ダウンロード失敗: status={status}")
+            if total is not None and total > MAX_ASSET_SIZE:
+                raise RuntimeError(f"ダウンロードが大きすぎます: {total} bytes")
+            for chunk in chunks:
+                if not chunk:
+                    continue
+                done += len(chunk)
+                if done > MAX_ASSET_SIZE:
+                    raise RuntimeError(f"ダウンロードが大きすぎます: {done} bytes 超")
+                now = clock()
+                if now - started > MAX_DOWNLOAD_SEC:
+                    raise RuntimeError("ダウンロードに時間がかかりすぎたため中止しました")
+                f.write(chunk)
+                digest.update(chunk)
+                if on_progress and (last_report is None or now - last_report >= PROGRESS_INTERVAL_SEC):
+                    last_report = now
+                    on_progress(done, total)
+            f.flush()
+            os.fsync(f.fileno())
+        if on_progress:
+            on_progress(done, total if total is not None else done)
+        if done < MIN_ASSET_SIZE:
+            raise RuntimeError(f"ダウンロードサイズ異常: {done} bytes")
         if on_phase:
             on_phase("整合性を検証しています")
-        sums_resp = client.get(sums_url, allow_redirects=True)
-        if sums_resp.status_code != 200:
-            raise RuntimeError(f"SHA256SUMS 取得失敗: status={sums_resp.status_code}")
-        digest = verify_sha256(content, sums_resp.text, asset_name)
-        logger.info("SHA256 検証 OK: %s (%s…)", asset_name, digest[:16])
-        with dest.open("wb") as f:
-            f.write(content)
-    return dest.stat().st_size
+        actual = digest.hexdigest()
+        if actual != expected:
+            raise UpdateVerifyError(
+                f"SHA256 不一致: {asset_name} (expected={expected[:16]}…, actual={actual[:16]}…)")
+        logger.info("SHA256 検証 OK: %s (%s…)", asset_name, actual[:16])
+        os.replace(part, dest)
+    except BaseException:
+        try:
+            part.unlink()
+        except OSError:
+            pass
+        raise
+    return done
 
 
 # --- 差し替えヘルパーの起動 ---
