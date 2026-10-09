@@ -66,6 +66,11 @@ TAG="$1"
 for c in gh openssl sha256sum awk cmp; do
     command -v "$c" >/dev/null || die "$c が必要です"
 done
+# pkeyutl -rawin (Ed25519 で SHA256SUMS をそのまま署名・検証) は OpenSSL 3.0 から
+ossl=$(openssl version 2>/dev/null || true)
+if [[ ! "$ossl" =~ ^OpenSSL\ ([0-9]+)\. ]] || (( BASH_REMATCH[1] < 3 )); then
+    die "OpenSSL 3.0 以上が必要です (pkeyutl -rawin)。今: ${ossl:-不明}"
+fi
 [[ -f "$KEY" ]] || die "署名鍵がありません: ${KEY} (docs/release-signing.md の「鍵を作る」)"
 if ! head -1 "$KEY" | grep -q "ENCRYPTED PRIVATE KEY"; then
     warn "署名鍵にパスフレーズが付いていません: ${KEY}"

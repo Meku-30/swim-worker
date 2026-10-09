@@ -129,7 +129,7 @@ install.sh 自体の署名も確かめたい場合は、[「リリースの署�
 
 install.sh が以下を自動で行います:
 
-- 最新版のタグを調べ、お使いのアーキテクチャ (amd64 / arm64) に合うバイナリをそのタグから DL し、検証する: `SHA256SUMS` の署名 (`SHA256SUMS.sig`、Ed25519) を install.sh に埋め込んだ公開鍵で確かめ、`SHA256SUMS` の先頭行の版がそのタグと一致し、各ファイルのハッシュが一致すること。署名のないリリースは入れません (OpenSSL 1.1.1 以上が必要。Pi OS Bookworm・Debian 12・Ubuntu 22.04 以降は標準で入っています)
+- 最新版のタグを調べ、お使いのアーキテクチャ (amd64 / arm64) に合うバイナリをそのタグから DL し、検証する: `SHA256SUMS` の署名 (`SHA256SUMS.sig`、Ed25519) を install.sh に埋め込んだ公開鍵で確かめ、`SHA256SUMS` の先頭行の版がそのタグと一致し、各ファイルのハッシュが一致すること。署名のないリリースは入れません (**OpenSSL 3.0 以上**が必要。Pi OS Bookworm・Debian 12・Ubuntu 22.04 以降は標準で入っています。Debian 11・Ubuntu 20.04 などの OpenSSL 1.1.1 では署名を確かめられないため、インストール・自動更新が止まります。`openssl version` で確認できます)
 - 専用ユーザー `swim-worker` (システムアカウント、ログイン不可) を作成
 - `/opt/swim-worker/` にバイナリ配置 (root の持ち物。Worker が書けるのは `data/` だけ)
 - `.env` を対話式に作成 (`root:swim-worker` の `640`。Worker は読むだけ、他のユーザーは読めない)
@@ -224,7 +224,7 @@ chmod 600 .env
 
 リリースの `SHA256SUMS` は管理者の Ed25519 鍵で署名されています (`SHA256SUMS.sig`)。
 公開鍵はこのリポジトリの [`scripts/release_pubkeys/`](scripts/release_pubkeys/) にあります
-(install.sh・自動更新・GUI に埋め込んであるものと同じ)。OpenSSL 1.1.1 以上で確かめられます:
+(install.sh・自動更新・GUI に埋め込んであるものと同じ)。OpenSSL 3.0 以上で確かめられます (1.1.1 には `pkeyutl -rawin` がありません):
 
 ```bash
 TAG=v1.3.0   # 確かめる版

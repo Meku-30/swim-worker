@@ -25,7 +25,7 @@
 # やること:
 #   - 最新 stable のタグを調べ、そのタグに固定して GitHub Releases からダウンロード
 #   - SHA256SUMS の署名 (SHA256SUMS.sig、Ed25519) を埋め込みの公開鍵で検証し、
-#     各ファイルのハッシュを SHA256SUMS で検証 (署名のないリリースは入れない。OpenSSL 1.1.1 以上が必要)
+#     各ファイルのハッシュを SHA256SUMS で検証 (署名のないリリースは入れない。OpenSSL 3.0 以上が必要)
 #   - 専用ユーザー swim-worker を作成 (システムアカウント、シェルなし)
 #   - /opt/swim-worker/ に配置 + /opt/swim-worker/.version 書き込み
 #     (/opt/swim-worker は root の持ち物。Worker が書けるのは data/ だけ、.env は読むだけ)
@@ -125,15 +125,13 @@ validate_tag() {
     fi
 }
 
-# `openssl version` の出力が OpenSSL 1.1.1 以上か (Ed25519 の pkeyutl -rawin が要る)
+# `openssl version` の出力が OpenSSL 3.0 以上か (Ed25519 で SHA256SUMS をそのまま確かめる
+# `pkeyutl -rawin` は 3.0 から。1.1.1 には無い)
 # 使い方: openssl_version_ok "OpenSSL 3.0.13 30 Jan 2024"
 openssl_version_ok() {
     local v="$1"
     [[ "$v" =~ ^OpenSSL\ ([0-9]+)\.([0-9]+)\.([0-9]+) ]] || return 1
-    local major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}" patch="${BASH_REMATCH[3]}"
-    (( major >= 3 )) && return 0
-    (( major == 1 && minor == 1 && patch >= 1 )) && return 0
-    return 1
+    (( BASH_REMATCH[1] >= 3 ))
 }
 
 require_openssl() {
@@ -141,7 +139,7 @@ require_openssl() {
     local v
     v=$(openssl version 2>/dev/null || true)
     openssl_version_ok "$v" \
-        || die "OpenSSL 1.1.1 以上が必要です (更新の署名の検証に Ed25519 を使います)。今: ${v:-不明}"
+        || die "OpenSSL 3.0 以上が必要です (更新の署名の検証に openssl pkeyutl -rawin を使います)。今: ${v:-不明}。Debian 12・Ubuntu 22.04・Raspberry Pi OS Bookworm 以降なら標準で入っています。古い OS は OS の更新が必要です"
 }
 
 # SHA256SUMS の署名を、埋め込みの公開鍵 (RELEASE_PUBKEYS_PEM) のどれかで確かめる。

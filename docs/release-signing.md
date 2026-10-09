@@ -6,7 +6,7 @@ Worker (Linux の install.sh・固定の更新スクリプト、Windows / macOS 
 
 ## 必要なもの (署名する端末)
 
-- OpenSSL 1.1.1 以上 (`openssl version`)
+- OpenSSL 3.0 以上 (`openssl version`。署名・検証に `pkeyutl -rawin` を使う。macOS 標準の LibreSSL は不可、Homebrew の openssl@3 など)
 - [gh](https://cli.github.com/) (このリポジトリにリリースを書ける権限で `gh auth login` 済み)
 - このリポジトリの clone (タグを `git fetch --tags` 済み)
 - 署名鍵 `~/.config/swim-release/signing-key.pem` (パスフレーズ付き。下の「鍵を作る」)
