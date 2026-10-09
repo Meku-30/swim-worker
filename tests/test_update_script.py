@@ -78,21 +78,52 @@ def test_update_script_guard_verifies_tls_and_uses_acl_username():
     assert 'cmd("AUTH", username, password)' in text and 'cmd("AUTH", password)' in text
 
 
-def test_update_script_auth_fallback_continues_and_errors_stop():
-    """認証失敗は GitHub の最新版 (署名を確認) で続け、届かない時だけ止める"""
-    text = UPDATE_SH.read_text(encoding="utf-8")
-    branch = text[text.index("    AUTH_FALLBACK:*)"):]
-    branch = branch[:branch.index(";;")]
-    assert "exit 0" not in branch and "AUTH_BROKEN=1" in branch
-    err = text[text.index("    ERROR:*)"):]
-    assert "exit 0" in err[:err.index(";;")]
+def _guard(fake: str | None, tmp_path) -> subprocess.CompletedProcess:
+    """coordinator_guard を、偽の python3 (決まった判定を返す) で動かす"""
+    stub = ("" if fake is None else
+            f'python3() {{ cat > /dev/null; echo "{fake}"; }}\n')
+    path = "/nonexistent" if fake is None else "/usr/bin:/bin"
+    return subprocess.run(
+        ["/bin/bash", "-c", 'set -uo pipefail\nlog() { echo "LOG: $*"; }\nwarn() { echo "WARN: $*"; }\n'
+         + stub + 'INSTALL_DIR="' + str(tmp_path) + '"\nREDIS_CA_PEM=x\n'
+         + _function(UPDATE_SH, "coordinator_guard") + "coordinator_guard"],
+        capture_output=True, text=True, env={"PATH": path}, timeout=30)
+
+
+@pytest.mark.parametrize("fake,rc", [
+    ("OK", 0),
+    ("AUTH_FALLBACK:WRONGPASS", 2),   # 認証失敗は GitHub の最新版 (署名を確認) で続ける
+    ("DISABLED", 1),
+    ("NOT_IN_WHITELIST:w1", 1),
+    ("ERROR:ConnectionRefusedError:x", 1),  # 届かないときは止める
+    ("garbage", 1),
+    (None, 1),                         # python3 が無ければ確かめられないので止める
+])
+def test_coordinator_guard_return_codes(fake, rc, tmp_path):
+    r = _guard(fake, tmp_path)
+    assert r.returncode == rc, r.stdout + r.stderr
+
+
+def test_update_script_guard_only_mode():
+    """--guard-only: 一時停止・段階配布だけを確かめる (install.sh の移行が使う。opt-out は見ない)"""
+    code = UPDATE_SH.read_text(encoding="utf-8")
+    branch = code[code.index('if [[ "${1:-}" == "--guard-only" ]]; then'):]
+    branch = branch[:branch.index("\nfi\n")]
+    assert "coordinator_guard" in branch
+    assert code.index("--guard-only") < code.index('if [[ -f "${INSTALL_DIR}/.no-auto-update" ]]')
+    assert code.index("--guard-only") < code.index('"${BASE}/${f}"')
+    assert "exit 0" in branch and "exit 3" in branch
+    # 本来の流れも同じ関数で判定する (二重実装しない)
+    main = code[code.index("# --- ガード2"):]
+    assert "coordinator_guard || guard_rc=$?" in main
+    assert code.count("result=$(INSTALL_DIR=") == 1
 
 
 def test_update_script_checks_guards_before_downloading():
     """一時停止・段階配布・メジャー版・opt-out・ロールバック済みの版はダウンロードの前に確かめる"""
     code = UPDATE_SH.read_text(encoding="utf-8")
     first_download = code.index('"${BASE}/${f}"')
-    for marker in (".no-auto-update", "FAILED_VERSION_FILE", "GUARD_RESULT=$(",
+    for marker in (".no-auto-update", "FAILED_VERSION_FILE", "coordinator_guard || guard_rc=$?",
                    "メジャーバージョン変更", "sort -V"):
         assert code.index(marker) < first_download, marker
     verify = code.index('verify_sums_signature "${WORK}/SHA256SUMS"')
@@ -310,56 +341,190 @@ class TestInstallShDownload:
 
 # --- install.sh の --auto (移行・適用) ------------------------------------------
 
-def test_install_sh_auto_without_tag_migrates_to_update_script():
-    """旧 update.service (最新の install.sh を --auto で実行) から: 更新スクリプトと unit を
-    署名を確かめて置き、更新スクリプトに任せる"""
+def _auto_sections():
     text = INSTALL_SH.read_text(encoding="utf-8")
     auto = text[text.index("if [[ $AUTO_MODE -eq 1 ]]; then"):text.index("# 通常モード: フルインストール")]
     mig = auto[auto.index('if [[ -z "${SWIM_UPDATE_TAG:-}" ]]; then'):]
     mig = mig[:mig.index("\n    fi\n")]
-    assert '.no-auto-update' in mig
-    assert 'download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "${UPDATE_FILES[@]}"' in mig
-    assert mig.index("download_and_verify") < mig.index("install_update_files") \
-        < mig.index('exec "$UPDATER_PATH"')
-    assert "exec 9>&-" in mig  # ロックを手放してから (更新スクリプトが呼ぶ install.sh が取る)
-    # 適用 (タグあり) は今の版より新しいときだけ
     apply = auto[auto.index('LATEST_TAG="$SWIM_UPDATE_TAG"'):]
+    return text, mig, apply
+
+
+def test_install_sh_auto_without_tag_migrates_to_update_script():
+    """旧 update.service (最新の install.sh を --auto で実行) から: 更新スクリプト・update.service・
+    timer だけを署名を確かめて置く。本体の unit (IPAddressDeny 付き) は置かない"""
+    _, mig, apply = _auto_sections()
+    assert 'download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "${UPDATER_FILES[@]}"' in mig
+    assert "install_updater_files" in mig
+    for bad in ("install_worker_unit", "SERVICE_FILE", "UPDATE_FILES[@]", "BINARY_NAME"):
+        assert bad not in mig, bad
+    # 長い処理 (更新スクリプトの実行 = バイナリの更新) はしない。旧 unit の TimeoutStartSec=600 の
+    # 下で動いているため。次の timer から新しい update.service (900 秒) で更新する
+    assert 'exec "$UPDATER_PATH"' not in mig and "update.sh" not in mig.replace("swim-worker-update.sh", "")
+    assert mig.rstrip().endswith("exit 0")
+    # 適用 (タグあり) は今の版より新しいときだけ
     assert apply.index("より新しくないため skip") < apply.index("download_and_verify")
     assert '"$BINARY_NAME" "${UPDATE_FILES[@]}"' in apply
-    assert "install_update_files" in apply
 
 
-def test_update_files_include_update_script():
+def test_migration_goes_through_coordinator_guard():
+    """移行も一時停止・段階配布を通ってから。判定は新しい更新スクリプトの --guard-only (同じ実装)。
+    opt-out の機も移行する (update.sh がバイナリを更新しない)"""
+    _, mig, _ = _auto_sections()
+    guard = mig.index('bash "${TMPDIR}/swim-worker-update.sh" --guard-only')
+    assert mig.index("download_and_verify") < guard < mig.index("install_updater_files")
+    assert ".no-auto-update" not in mig
+    after_guard = mig[guard:mig.index("install_updater_files")]
+    assert "exit 0" in after_guard  # 止められたら何も置かずに終わる (次回また試す)
+
+
+def test_update_files_split():
     text = INSTALL_SH.read_text(encoding="utf-8")
-    assert ("UPDATE_FILES=(swim-worker.service swim-worker-update.service "
-            "swim-worker-update.timer swim-worker-update.sh)") in text
-    fn = _function(INSTALL_SH, "install_update_files")
+    assert ("UPDATER_FILES=(swim-worker-update.service swim-worker-update.timer "
+            "swim-worker-update.sh)") in text
+    assert 'UPDATE_FILES=(swim-worker.service "${UPDATER_FILES[@]}")' in text
+    fn = _function(INSTALL_SH, "install_updater_files")
+    assert "SERVICE_FILE\"" not in fn.replace("UPDATE_SERVICE_FILE", "")
     assert 'UPDATER_DIR="/usr/local/libexec/swim-worker"' in text
     assert "install -m 0755 -o root -g root" in fn and 'mv -f "${UPDATER_PATH}.new"' in fn
     assert 'chown root:root "$UPDATER_DIR"' in fn
 
 
-def test_install_update_files_places_files(tmp_path):
+_INSTALL_STUB = ('install() { local a=(); while (( $# )); do case "$1" in -m|-o|-g) shift 2;; '
+                 '*) a+=("$1"); shift;; esac; done; cp "${a[0]}" "${a[1]}"; }\n'
+                 'chown() { :; }\n')
+
+
+def test_install_updater_files_places_files(tmp_path):
     src = tmp_path / "src"
     src.mkdir()
-    for n in ("swim-worker.service", "swim-worker-update.service", "swim-worker-update.timer",
-              "swim-worker-update.sh"):
+    for n in ("swim-worker-update.service", "swim-worker-update.timer", "swim-worker-update.sh"):
         (src / n).write_text(n)
     etc = tmp_path / "etc"
     etc.mkdir()
     lib = tmp_path / "libexec" / "swim-worker"
-    stub = ('install() { local a=(); while (( $# )); do case "$1" in -m|-o|-g) shift 2;; '
-            '*) a+=("$1"); shift;; esac; done; cp "${a[0]}" "${a[1]}"; }\n'
-            'chown() { :; }\n')
-    script = (stub + f'SERVICE_FILE="{etc}/a.service"\nUPDATE_SERVICE_FILE="{etc}/b.service"\n'
+    script = (_INSTALL_STUB + f'SERVICE_FILE="{etc}/a.service"\nUPDATE_SERVICE_FILE="{etc}/b.service"\n'
               f'UPDATE_TIMER_FILE="{etc}/c.timer"\nUPDATER_DIR="{lib}"\n'
               f'UPDATER_PATH="{lib}/update.sh"\n'
-              + _function(INSTALL_SH, "install_update_files") + f'install_update_files "{src}"')
+              + _function(INSTALL_SH, "install_updater_files") + f'install_updater_files "{src}"')
     r = _run(script)
     assert r.returncode == 0, r.stderr
     assert (lib / "update.sh").read_text() == "swim-worker-update.sh"
     assert not (lib / "update.sh.new").exists()
     assert (etc / "b.service").read_text() == "swim-worker-update.service"
+    assert not (etc / "a.service").exists()  # 本体の unit は置かない
+
+
+# --- 本体の unit と通信許可の drop-in ---------------------------------------------
+
+def _worker_unit_script(tmp_path, dropin_fn: str) -> tuple[str, Path, Path]:
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    (src / "swim-worker.service").write_text("IPAddressDeny=10.0.0.0/8\n")
+    unit = tmp_path / "etc" / "swim-worker.service"
+    dropin = tmp_path / "etc" / "swim-worker.service.d" / "10-ip-allow.conf"
+    unit.parent.mkdir(exist_ok=True)
+    script = (_INSTALL_STUB + f'SERVICE_FILE="{unit}"\nDROPIN_FILE="{dropin}"\n' + dropin_fn
+              + _function(INSTALL_SH, "install_worker_unit") + f'install_worker_unit "{src}"')
+    return script, unit, dropin
+
+
+def test_install_worker_unit_places_dropin_before_unit(tmp_path):
+    ok = ('write_ip_allow_dropin() { mkdir -p "$(dirname "$DROPIN_FILE")"; '
+          '[[ ! -e "$SERVICE_FILE" ]] || { echo "unit が先" >&2; return 1; }; '
+          'echo "[Service]" > "$DROPIN_FILE"; }\n')
+    script, unit, dropin = _worker_unit_script(tmp_path, ok)
+    r = _run(script)
+    assert r.returncode == 0, r.stderr
+    assert unit.exists() and dropin.exists()
+
+
+def test_install_worker_unit_keeps_old_unit_if_dropin_fails(tmp_path):
+    """drop-in を書けなければ、IPAddressDeny 付きの unit を置かない"""
+    fail = 'write_ip_allow_dropin() { die "drop-in を書けない"; }\n'
+    script, unit, dropin = _worker_unit_script(tmp_path, fail)
+    unit.write_text("old unit\n")
+    r = _run(script)
+    assert r.returncode != 0
+    assert unit.read_text() == "old unit\n"
+
+
+def test_worker_unit_is_only_placed_with_dropin():
+    """どの経路でも本体の unit は install_worker_unit (drop-in → unit の順) でしか置かない"""
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    fn = _function(INSTALL_SH, "install_worker_unit")
+    assert fn.index("write_ip_allow_dropin") < fn.index('"$SERVICE_FILE"')
+    rest = text.replace(fn, "")
+    for line in rest.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        if re.search(r'\b(install|cp|mv)\b.*"\$SERVICE_FILE"', line):
+            raise AssertionError(f"install_worker_unit の外で unit を置いている: {line}")
+    _, mig, apply = _auto_sections()
+    normal = text[text.index("# 通常モード: フルインストール"):]
+    assert "install_worker_unit" in apply and "install_worker_unit" in normal
+    assert "install_worker_unit" not in mig
+
+
+# --- ロールバックで unit・drop-in・更新スクリプトも戻す -------------------------------
+
+def _backup_script(tmp_path) -> tuple[str, dict[str, Path]]:
+    files = {n: tmp_path / n for n in ("unit", "dropin", "usvc", "utimer", "update.sh")}
+    script = (f'SERVICE_FILE="{files["unit"]}"\nDROPIN_FILE="{files["dropin"]}"\n'
+              f'UPDATE_SERVICE_FILE="{files["usvc"]}"\nUPDATE_TIMER_FILE="{files["utimer"]}"\n'
+              f'UPDATER_PATH="{files["update.sh"]}"\n'
+              + _function(INSTALL_SH, "update_backup_targets")
+              + _function(INSTALL_SH, "backup_update_files")
+              + _function(INSTALL_SH, "restore_update_files")
+              + _function(INSTALL_SH, "drop_update_backups"))
+    return script, files
+
+
+def test_backup_and_restore_update_files(tmp_path):
+    script, files = _backup_script(tmp_path)
+    for n, p in files.items():
+        if n != "dropin":  # v1.2.x には drop-in が無い
+            p.write_text(f"old {n}")
+    (tmp_path / "unit.old").write_text("前回の残り")
+    replace = "".join(f'echo "new" > "{p}"\n' for p in files.values())
+    r = _run(script + "backup_update_files\n" + replace + "restore_update_files\n")
+    assert r.returncode == 0, r.stderr
+    for n, p in files.items():
+        if n == "dropin":
+            assert not p.exists()  # 元に無かったものは消す (古い unit に drop-in は無い)
+        else:
+            assert p.read_text() == f"old {n}", n
+    assert not list(tmp_path.glob("*.old"))
+
+
+def test_drop_update_backups(tmp_path):
+    script, files = _backup_script(tmp_path)
+    for p in files.values():
+        p.write_text("old")
+    r = _run(script + "backup_update_files\ndrop_update_backups\n")
+    assert r.returncode == 0, r.stderr
+    assert not list(tmp_path.glob("*.old"))
+    assert all(p.read_text() == "old" for p in files.values())
+
+
+def test_apply_backs_up_and_rollback_restores():
+    _, _, apply = _auto_sections()
+    backup = apply.index("backup_update_files")
+    first_replace = apply.index('install -m 0755 -o root -g root "${TMPDIR}/${BINARY_NAME}"')
+    assert apply.index("download_and_verify") < backup < first_replace
+    # .version はバイナリの置き換えと同時に (途中で止まっても中身と食い違わない)
+    after_bin = apply[first_replace:]
+    nxt = after_bin.split("\n")[1:3]
+    assert any('write_root_file "$VERSION_FILE" "$LATEST_VERSION"' in l for l in nxt), nxt
+    assert after_bin.index('write_root_file "$VERSION_FILE" "$LATEST_VERSION"') \
+        < after_bin.index("systemctl restart swim-worker.service")
+    rollback = apply[apply.index("ロールバック実行"):]
+    restore = rollback.index("restore_update_files")
+    assert restore < rollback.index("systemctl daemon-reload") < rollback.index("systemctl restart")
+    assert 'write_root_file "$VERSION_FILE" "$CURRENT_VERSION"' in rollback
+    # 成功したら退避を消す
+    success = apply[:apply.index("ロールバック実行")]
+    assert success.count("drop_update_backups") >= 2
 
 
 # --- update.service ----------------------------------------------------------

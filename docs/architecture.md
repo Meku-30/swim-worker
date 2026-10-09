@@ -224,7 +224,7 @@ curl | bash install.sh
 - `RestrictAddressFamilies=AF_INET AF_INET6`
 - `SystemCallFilter=@system-service`、`SystemCallArchitectures=native`
 - `UMask=0077`
-- `IPAddressDeny=` で LAN (10/8・172.16/12・192.168/16)・リンクローカル (169.254/16・fe80::/10)・CGNAT (100.64/10)・fc00::/7 への通信を閉じる。ループバックは閉じない (systemd-resolved の 127.0.0.53)。名前解決のサーバー (家庭のルーター、クラウドのメタデータ DNS など) と Redis がこの範囲にある環境は、install.sh が `/etc/resolv.conf` と `.env` の Redis ホストから `swim-worker.service.d/10-ip-allow.conf` に `IPAddressAllow=` を書く (通常インストール・自動更新のたび)
+- `IPAddressDeny=` で LAN (10/8・172.16/12・192.168/16)・リンクローカル (169.254/16・fe80::/10)・CGNAT (100.64/10)・fc00::/7 への通信を閉じる。ループバックは閉じない (systemd-resolved の 127.0.0.53)。名前解決のサーバー (家庭のルーター、クラウドのメタデータ DNS など) と Redis がこの範囲にある環境は、install.sh が `/etc/resolv.conf` と `.env` の Redis ホストから `swim-worker.service.d/10-ip-allow.conf` に `IPAddressAllow=` を書く (通常インストール・自動更新のたび)。値はその時点で固定なので、systemd-resolved を使わない機で DNS サーバーの IP が変わると次の更新まで名前解決できない (`sudo bash install.sh` で書き直す。Worker は起動時に、許可されていない DNS サーバーがあればログに警告を出す)。IPAddressAllow/Deny は宛先 IP だけでポートを区別できないので、「プライベート帯域の 53 番だけ通す」のような書き方はできず、unit の再読み込みなしに起動時に作り直すこともできないため、この形にしている
 - `MemoryDenyWriteExecute` は無効のまま (curl_cffi が使う cffi のクロージャが書き込み+実行可能なメモリを使うため)
 - `MemoryMax=256M`
 - `After=time-sync.target` (Pi の RTC なし環境で TLS 証明書検証失敗を回避)
@@ -245,9 +245,13 @@ curl | bash install.sh
 
 通ったら、そのタグの `SHA256SUMS` と `SHA256SUMS.sig` を取って署名と版を検証し、`install.sh` を取ってハッシュを確かめ、`SWIM_UPDATE_TAG=<タグ> bash install.sh --auto` を実行する。install.sh はバイナリ・更新スクリプト・unit を同じ検証で差し替え、再起動して起動を確かめる。
 
-**旧方式からの移行**: v1.2.x までの `swim-worker-update.service` は最新の `install.sh` を取って `--auto` で実行していた。新しい install.sh は `SWIM_UPDATE_TAG` なしの `--auto` で呼ばれると、更新スクリプトと unit を最新リリースから (署名を確かめて) 置き直してから更新スクリプトに処理を任せる。手作業なしで、次の自動更新のサイクルで新方式に移る。
+**旧方式からの移行**: v1.2.x までの `swim-worker-update.service` (TimeoutStartSec=600) は最新の `install.sh` を取って `--auto` で実行していた。新しい install.sh は `SWIM_UPDATE_TAG` なしの `--auto` で呼ばれると、最新リリースの更新スクリプト・update.service・timer だけを署名を確かめて一時ディレクトリに取り、その更新スクリプトを `--guard-only` で実行して一時停止 (kill switch)・段階配布 (whitelist) を確かめる (判定は更新スクリプトの実装をそのまま使い、install.sh に二重に持たない)。止められたら何も置かずに終わり、次回また試す。通れば 3 つを置いて daemon-reload し、すぐ終わる (バイナリの更新や起動待ちのような長い処理は旧 unit の時間制限の下ではしない)。本体の unit (IPAddressDeny 付き) とバイナリは、次の timer で新しい update.service (TimeoutStartSec=900) が更新スクリプト経由で通信許可の drop-in と一緒に入れる。
 
-更新時は旧バイナリを `swim-worker.old` として保持し、再起動の前に起動成功マーカー (`data/.startup_ok`) を消す。新しい版が Redis に接続して登録まで済むとマーカーを書くので、それを最大 120 秒待ち、書かれなければ自動ロールバックする。旧版に戻しても起動しない場合は版ではなく環境 (Redis・ネットワークの停止など) の問題として `.failed-version` を書かず、次回の自動更新で同じ版を再試行する。Redis の認証に失敗している Worker はマーカーを書けないので、60 秒後に稼働しているかだけを見る。
+- 本体の unit は、どの経路でも通信許可の drop-in を書けてから置く (`install_worker_unit`)。IPAddressDeny 付きの unit が drop-in なしで入ると、DNS がルーターにある機が名前解決できなくなるため
+- opt-out (`.no-auto-update`) の機も移行する。旧 update.service は署名を確かめない最新の install.sh を root で実行し続けるため。移行も一時停止・段階配布には従う (管理者が止めている間は配布物を何も替えない、を優先)。バイナリを更新しないのは新しい更新スクリプトの opt-out の確認が守る
+- Redis の認証に失敗している機は、本来の更新と同じく移行も続ける
+
+更新時は旧バイナリを `swim-worker.old`、unit・drop-in・更新スクリプト・update.service・timer を `<名前>.old` に退避し、`.version` はバイナリの置き換えと同時に書く (途中で止まっても中身と食い違わない)。再起動の前に起動成功マーカー (`data/.startup_ok`) を消す。新しい版が Redis に接続して登録まで済むとマーカーを書くので、それを最大 120 秒待ち、書かれなければ自動ロールバックする (バイナリ・`.version`・退避したファイルを戻して daemon-reload。更新前に無かったファイルは消す)。旧版に戻しても起動しない場合は版ではなく環境 (Redis・ネットワークの停止など) の問題として `.failed-version` を書かず、次回の自動更新で同じ版を再試行する。Redis の認証に失敗している Worker はマーカーを書けないので、60 秒後に稼働しているかだけを見る。
 
 GUI 版 (Windows / macOS) の自動更新の案内も、Worker 本体が上の 5〜7 (管理者の一時停止・段階配布・メジャー版) と同じ判定をしてから出す。
 

@@ -23,7 +23,7 @@ TimeoutStartSec=900
 SuccessExitStatus=0 1
 
 # --- Hardening (root で動くが、更新に要る場所以外は書けなくする) ---
-# 書くのは /opt/swim-worker (バイナリ・.version)、/etc/systemd/system (unit・drop-in)、
+# 書くのは /opt/swim-worker (バイナリ・.version)、/etc/systemd/system (unit・drop-in とその .old)、
 # 更新スクリプト自身、/run/lock (更新のロック) だけ。/usr・/etc のほかは読み取り専用
 ProtectSystem=full
 ReadWritePaths=/etc/systemd/system -/usr/local/libexec/swim-worker

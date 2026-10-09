@@ -162,7 +162,7 @@ sudo systemctl status swim-worker
 sudo journalctl -u swim-worker -f     # ライブログ
 sudo systemctl stop swim-worker       # 停止
 sudo systemctl disable --now swim-worker swim-worker-update.timer && \
-  sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer} \
+  sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer,old} \
     /etc/systemd/system/swim-worker.service.d /usr/local/libexec/swim-worker && \
   sudo userdel swim-worker            # 完全削除
 ```
@@ -175,15 +175,15 @@ timer は固定の更新スクリプト `/usr/local/libexec/swim-worker/update.s
 
 1. 管理者の一時停止・段階配布・メジャー版の変更でないことを確かめる (ここまではダウンロードしない)
 2. そのリリースの `SHA256SUMS` と署名 `SHA256SUMS.sig` を取り、埋め込みの公開鍵で署名と版を検証
-3. 署名を確かめた `install.sh` で新バイナリを DL + 検証し、旧バイナリを `.old` として保持
+3. 署名を確かめた `install.sh` で新バイナリを DL + 検証し、旧バイナリ・unit・通信許可の設定・更新スクリプトを `.old` として保持
 4. swim-worker を再起動
-5. 新しい版が Redis につながって登録まで済む (起動成功マーカー `data/.startup_ok` を書く) のを最大 120 秒待つ → 済まなければ自動ロールバック
+5. 新しい版が Redis につながって登録まで済む (起動成功マーカー `data/.startup_ok` を書く) のを最大 120 秒待つ → 済まなければ自動ロールバック (バイナリ・`.version`・unit・通信許可の設定・更新スクリプトを元に戻す)
 
 署名のないリリース、署名が合わないリリース、今の版より新しくない版には更新しません。
 
-以前の版 (v1.2.x まで) の自動更新は最新の install.sh をそのまま実行していました。その仕組みが署名付きの新しい版の install.sh を実行した時点で、固定の更新スクリプトと新しい timer の設定に置き換わります (手作業は要りません)。
+以前の版 (v1.2.x まで) の自動更新は最新の install.sh をそのまま実行していました。その仕組みが署名付きの新しい版の install.sh を実行すると、管理者の一時停止・段階配布の確認を通ったうえで、固定の更新スクリプトと新しい update.service・timer の設定だけに置き換わります (手作業は要りません)。Worker 本体の更新は、その次の自動更新 (6〜8 時間後) で新しい仕組みが行います。自動更新を止めている (`.no-auto-update`) 機も仕組みの置き換えは行い、本体は更新しません。
 
-LAN 内の DNS サーバーや Redis の IP が変わった場合は、`sudo bash install.sh` をもう一度実行すると通信の許可が書き直されます。
+**ネットワークを変えたら `sudo bash install.sh` をもう一度実行してください。** Worker は LAN 内への通信を閉じていて、名前解決のサーバー (DNS) と Redis だけをインストール時の値で通しています。systemd-resolved を使っていない機 (Raspberry Pi OS Bookworm の NetworkManager など、`/etc/resolv.conf` にルーターの IP が直接書かれている機) で、別のネットワークにつないだ・ルーターを替えたなどで DNS サーバーの IP が変わると、次の自動更新まで名前解決できません。install.sh を実行し直すと通信の許可が書き直されます (設定 `.env` はそのまま)。Worker は起動時に、今の DNS サーバーが許可されていなければログ (`journalctl -u swim-worker`) に警告を出します。
 
 **自動更新を止めたい場合** (Pi 管理者向け):
 

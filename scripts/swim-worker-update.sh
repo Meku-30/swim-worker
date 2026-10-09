@@ -20,6 +20,10 @@
 #
 # ダウンロードの前に 1〜4 を確かめるので、止めている間は GitHub にも取りに行かない。
 #
+# `update.sh --guard-only`: 3 (一時停止・段階配布) だけを確かめ、通れば 0、止めるなら 3 で終わる。
+# 旧方式から移る install.sh が、署名を確かめたこのスクリプトを一時ファイルに置いて使う
+# (判定を install.sh に二重に持たない)。opt-out は見ない (移行は opt-out の機でも行う)。
+#
 # 手で走らせる: sudo systemctl start swim-worker-update.service
 #              sudo journalctl -u swim-worker-update.service -n 30
 
@@ -177,63 +181,21 @@ check_release_line() {
     fi
 }
 
-# --- 事前チェック ---
-[[ $EUID -eq 0 ]] || die "root で実行してください"
-command -v curl >/dev/null      || die "curl が必要です"
-command -v sha256sum >/dev/null || die "sha256sum が必要です"
-require_openssl
-
-[[ -f "$VERSION_FILE" ]] || die ".version がありません。通常の install.sh を先に実行してください"
-CURRENT_VERSION=$(cat "$VERSION_FILE")
-[[ -n "$CURRENT_VERSION" ]] || die ".version が空です"
-
-# --- ガード1: ローカル opt-out ファイル ---
-if [[ -f "${INSTALL_DIR}/.no-auto-update" ]]; then
-    log "自動更新が opt-out されています (${INSTALL_DIR}/.no-auto-update)"
-    exit 0
-fi
-
-# --- 最新版 (常に最新 stable。prerelease は拾わない)。以後のダウンロードはこのタグに固定 ---
-command -v python3 >/dev/null || {
-    # python3 がないと最新版も kill switch / whitelist も確認できない。安全側で更新しない
-    warn "python3 がないため最新版・Coordinator のガードを確認できません、安全側で更新スキップ"
-    exit 0
-}
-LATEST_TAG=$(fetch_latest_tag "$LATEST_API_URL")
-validate_tag "$LATEST_TAG" strict || die "GitHub API から最新のタグを取得できません (${LATEST_TAG:-空})"
-LATEST_VERSION="${LATEST_TAG#v}"
-
-if [[ "$CURRENT_VERSION" == "$LATEST_VERSION" ]]; then
-    log "最新版です (v${CURRENT_VERSION})"
-    exit 0
-fi
-
-# ダウングレード防止: 現行 > latest なら skip (prerelease 検証中等の保護)
-NEWER=$(printf '%s\n%s\n' "$CURRENT_VERSION" "$LATEST_VERSION" | sort -V | tail -1)
-if [[ "$NEWER" == "$CURRENT_VERSION" ]]; then
-    log "現行 (v${CURRENT_VERSION}) が latest (v${LATEST_VERSION}) より新しい、skip (prerelease 検証中等)"
-    exit 0
-fi
-
-# --- ガード0: 前回この版でロールバックしていれば再試行しない (手動 install.sh で解除) ---
-if [[ -f "$FAILED_VERSION_FILE" ]]; then
-    FAILED_VERSION=$(cat "$FAILED_VERSION_FILE")
-    if [[ "$FAILED_VERSION" == "$LATEST_VERSION" ]]; then
-        log "v${LATEST_VERSION} は前回ロールバックした版のため skip (手動で install.sh を実行すると解除)"
-        exit 0
+# Coordinator の一時停止 (kill switch)・段階配布 (whitelist) を Redis に聞く。
+# 標準の python3 + ssl で Redis に直接問い合わせる (Worker のバイナリには頼らない)。
+# install.sh の移行 (旧方式から) も --guard-only でこれを使う (判定を二重に持たない)
+# 戻り値: 0 = 通過、2 = Redis の認証に失敗 (GitHub の最新版で続ける)、1 = 止める (理由はログ)
+coordinator_guard() {
+    local result worker_name=""
+    if ! command -v python3 >/dev/null; then
+        warn "python3 がないため Coordinator のガードを確認できません、安全側で止めます"
+        return 1
     fi
-    rm -f "$FAILED_VERSION_FILE"   # より新しい版が出たので解除
-fi
-
-# --- ガード2: Redis kill switch + whitelist (staged rollout) ---
-# 標準の python3 + ssl で Redis に直接問い合わせる (Worker のバイナリには頼らない)
-AUTH_BROKEN=0
-WORKER_NAME=""
-if [[ -r "${INSTALL_DIR}/.env" ]]; then
-    WORKER_NAME=$(grep -E "^WORKER_NAME=" "${INSTALL_DIR}/.env" 2>/dev/null \
-        | head -1 | sed "s/^WORKER_NAME=//; s/^'//; s/'$//" || true)
-fi
-GUARD_RESULT=$(INSTALL_DIR="$INSTALL_DIR" SWIM_REDIS_CA_PEM="$REDIS_CA_PEM" python3 - <<'PYEOF' 2>/dev/null || echo "ERROR"
+    if [[ -r "${INSTALL_DIR}/.env" ]]; then
+        worker_name=$(grep -E "^WORKER_NAME=" "${INSTALL_DIR}/.env" 2>/dev/null \
+            | head -1 | sed "s/^WORKER_NAME=//; s/^'//; s/'$//" || true)
+    fi
+    result=$(INSTALL_DIR="$INSTALL_DIR" SWIM_REDIS_CA_PEM="$REDIS_CA_PEM" python3 - <<'PYEOF' 2>/dev/null || echo "ERROR"
 import os, re, socket, ssl, sys
 
 # .env を読み込み (install.sh が書いた単引用符形式)
@@ -358,32 +320,107 @@ except Exception as e:
     print(f"ERROR:{type(e).__name__}:{e}")
     sys.exit(0)
 PYEOF
-)
-case "$GUARD_RESULT" in
-    "DISABLED")
-        log "Coordinator kill switch が OFF (自動更新は一時停止中)、更新スキップ"
+    )
+    case "$result" in
+        "DISABLED")
+            log "Coordinator kill switch が OFF (自動更新は一時停止中)、スキップ"
+            return 1
+            ;;
+        NOT_IN_WHITELIST:*)
+            log "staged rollout whitelist に含まれていない Worker: ${worker_name}、スキップ"
+            return 1
+            ;;
+        AUTH_FALLBACK:*)
+            warn "Redis 認証失敗 (${result#AUTH_FALLBACK:}) — .env の REDIS_USERNAME / REDIS_PASSWORD を確認。"
+            warn "  Coordinator の一時停止・段階配布の設定を読めないため、GitHub の最新版 (署名を確認) で続けます"
+            return 2
+            ;;
+        ERROR:*)
+            warn "Coordinator 疎通確認失敗 (${result#ERROR:})、安全側でスキップ"
+            return 1
+            ;;
+        "OK")
+            log "ガード通過"
+            return 0
+            ;;
+        *)
+            warn "予期しないガード応答 (${result})、スキップ"
+            return 1
+            ;;
+    esac
+}
+
+# --- 事前チェック ---
+[[ $EUID -eq 0 ]] || die "root で実行してください"
+command -v curl >/dev/null      || die "curl が必要です"
+command -v sha256sum >/dev/null || die "sha256sum が必要です"
+require_openssl
+
+[[ -f "$VERSION_FILE" ]] || die ".version がありません。通常の install.sh を先に実行してください"
+CURRENT_VERSION=$(cat "$VERSION_FILE")
+[[ -n "$CURRENT_VERSION" ]] || die ".version が空です"
+
+# --- 移行用: 一時停止・段階配布だけを確かめる ---
+# 旧方式 (v1.2.x の update.service) から移る install.sh が、署名を確かめたこのスクリプトを
+# 一時ファイルに置いて `--guard-only` で呼ぶ。通れば 0、止めるなら 3。
+# opt-out (.no-auto-update) は見ない: 移行 (このスクリプトと unit の差し替え) は opt-out の機でも
+# 行い、バイナリを更新しないのはこのスクリプト自身 (下のガード1) が守る
+if [[ "${1:-}" == "--guard-only" ]]; then
+    guard_rc=0
+    coordinator_guard || guard_rc=$?
+    # 2 (認証に失敗している Worker) は本来の流れと同じく続ける
+    if (( guard_rc == 1 )); then
+        exit 3
+    fi
+    exit 0
+fi
+
+# --- ガード1: ローカル opt-out ファイル ---
+if [[ -f "${INSTALL_DIR}/.no-auto-update" ]]; then
+    log "自動更新が opt-out されています (${INSTALL_DIR}/.no-auto-update)"
+    exit 0
+fi
+
+# --- 最新版 (常に最新 stable。prerelease は拾わない)。以後のダウンロードはこのタグに固定 ---
+command -v python3 >/dev/null || {
+    # python3 がないと最新版も kill switch / whitelist も確認できない。安全側で更新しない
+    warn "python3 がないため最新版・Coordinator のガードを確認できません、安全側で更新スキップ"
+    exit 0
+}
+LATEST_TAG=$(fetch_latest_tag "$LATEST_API_URL")
+validate_tag "$LATEST_TAG" strict || die "GitHub API から最新のタグを取得できません (${LATEST_TAG:-空})"
+LATEST_VERSION="${LATEST_TAG#v}"
+
+if [[ "$CURRENT_VERSION" == "$LATEST_VERSION" ]]; then
+    log "最新版です (v${CURRENT_VERSION})"
+    exit 0
+fi
+
+# ダウングレード防止: 現行 > latest なら skip (prerelease 検証中等の保護)
+NEWER=$(printf '%s\n%s\n' "$CURRENT_VERSION" "$LATEST_VERSION" | sort -V | tail -1)
+if [[ "$NEWER" == "$CURRENT_VERSION" ]]; then
+    log "現行 (v${CURRENT_VERSION}) が latest (v${LATEST_VERSION}) より新しい、skip (prerelease 検証中等)"
+    exit 0
+fi
+
+# --- ガード0: 前回この版でロールバックしていれば再試行しない (手動 install.sh で解除) ---
+if [[ -f "$FAILED_VERSION_FILE" ]]; then
+    FAILED_VERSION=$(cat "$FAILED_VERSION_FILE")
+    if [[ "$FAILED_VERSION" == "$LATEST_VERSION" ]]; then
+        log "v${LATEST_VERSION} は前回ロールバックした版のため skip (手動で install.sh を実行すると解除)"
         exit 0
-        ;;
-    NOT_IN_WHITELIST:*)
-        log "staged rollout whitelist に含まれていない Worker: ${WORKER_NAME}、更新スキップ"
-        exit 0
-        ;;
-    AUTH_FALLBACK:*)
-        warn "Redis 認証失敗 (${GUARD_RESULT#AUTH_FALLBACK:}) — .env の REDIS_USERNAME / REDIS_PASSWORD を確認。"
-        warn "  Coordinator の一時停止・段階配布の設定を読めないため、GitHub の最新版 (署名を確認) で更新を続けます"
-        AUTH_BROKEN=1
-        ;;
-    ERROR:*)
-        warn "Coordinator 疎通確認失敗 (${GUARD_RESULT#ERROR:})、安全側で更新スキップ"
-        exit 0
-        ;;
-    "OK")
-        log "ガード通過"
-        ;;
-    *)
-        warn "予期しないガード応答 (${GUARD_RESULT})、更新スキップ"
-        exit 0
-        ;;
+    fi
+    rm -f "$FAILED_VERSION_FILE"   # より新しい版が出たので解除
+fi
+
+# --- ガード2: Redis kill switch + whitelist (staged rollout) ---
+AUTH_BROKEN=0
+guard_rc=0
+coordinator_guard || guard_rc=$?
+case "$guard_rc" in
+    0) ;;
+    2) AUTH_BROKEN=1 ;;
+    *) exit 0 ;;
 esac
 
 # --- ガード3: メジャーバージョン変更は手動必須 ---

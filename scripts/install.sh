@@ -18,9 +18,12 @@
 #   ふだんは固定の更新スクリプト /usr/local/libexec/swim-worker/update.sh
 #   (swim-worker-update.service が実行) が、一時停止・段階配布・メジャー版を確かめ、
 #   署名を確かめたこの install.sh を SWIM_UPDATE_TAG=<タグ> 付きの --auto で実行する。
+#   バイナリを替える前に unit・drop-in・更新スクリプト・update.service・timer を <名前>.old に退避し、
+#   起動を確かめられなければバイナリ・.version と一緒に戻す (ロールバック)。
 #   SWIM_UPDATE_TAG なしの --auto (旧 update.service が最新の install.sh を取って実行する場合・
-#   手で sudo bash install.sh --auto した場合) は、更新スクリプトと unit を (署名を確かめて)
-#   置き直してから、その更新スクリプトに処理を任せる (旧方式からの移行)
+#   手で sudo bash install.sh --auto した場合) は旧方式からの移行: 署名を確かめた新しい更新スクリプトの
+#   --guard-only で一時停止・段階配布を確かめ、通れば更新スクリプト・update.service・timer だけを
+#   置いて終わる (本体の unit・バイナリは次の timer の更新で drop-in と一緒に入る)。opt-out の機も移す
 #
 # やること:
 #   - 最新 stable のタグを調べ、そのタグに固定して GitHub Releases からダウンロード
@@ -327,12 +330,12 @@ download_and_verify() {
     done
 }
 
-# 検証済みの unit・timer・更新スクリプトを置く (反映は daemon-reload 後)。
+# 検証済みの更新スクリプト・update.service・timer を置く (反映は daemon-reload 後)。
+# 本体の unit (swim-worker.service) はここでは置かない (install_worker_unit が drop-in と一緒に置く)。
 # 更新スクリプトは実行中に置き換えることがあるので、一時ファイルに書いてから mv で入れ替える
-# 使い方: install_update_files <tmpdir>
-install_update_files() {
+# 使い方: install_updater_files <tmpdir>
+install_updater_files() {
     local tmpdir="$1"
-    install -m 0644 -o root -g root "${tmpdir}/swim-worker.service"        "$SERVICE_FILE"
     install -m 0644 -o root -g root "${tmpdir}/swim-worker-update.service" "$UPDATE_SERVICE_FILE"
     install -m 0644 -o root -g root "${tmpdir}/swim-worker-update.timer"   "$UPDATE_TIMER_FILE"
     if [[ -L "$UPDATER_DIR" ]]; then
@@ -346,8 +349,57 @@ install_update_files() {
     mv -f "${UPDATER_PATH}.new" "$UPDATER_PATH"
 }
 
-# 一緒に配る (検証して置く) ファイル
-UPDATE_FILES=(swim-worker.service swim-worker-update.service swim-worker-update.timer swim-worker-update.sh)
+# 本体の unit を、通信許可の drop-in と一緒に置く (反映は daemon-reload 後)。
+# unit は LAN 宛ての通信を閉じている (IPAddressDeny) ので、drop-in が無いまま入ると
+# DNS がルーターにある機が名前解決できなくなる。drop-in を先に書き、書けたら unit を置く
+# (drop-in だけが先に入っても、IPAddressDeny の無い古い unit には影響しない)
+# 使い方: install_worker_unit <tmpdir>
+install_worker_unit() {
+    local tmpdir="$1"
+    write_ip_allow_dropin
+    [[ -f "$DROPIN_FILE" ]] || die "通信許可の drop-in (${DROPIN_FILE}) を置けませんでした"
+    install -m 0644 -o root -g root "${tmpdir}/swim-worker.service" "$SERVICE_FILE"
+}
+
+# 更新で置き換えるファイル (ロールバックで戻す)
+update_backup_targets() {
+    printf '%s\n' "$SERVICE_FILE" "$DROPIN_FILE" "$UPDATE_SERVICE_FILE" "$UPDATE_TIMER_FILE" "$UPDATER_PATH"
+}
+
+# 置き換える前に <ファイル>.old に退避する (無かったものは .old も作らない = 戻すときに消す)
+backup_update_files() {
+    local f
+    while IFS= read -r f; do
+        rm -f "${f}.old"
+        if [[ -f "$f" ]]; then
+            cp -p "$f" "${f}.old"
+        fi
+    done < <(update_backup_targets)
+}
+
+# 退避したものに戻す (反映は daemon-reload 後)。退避が無いもの (更新前に無かったもの) は消す
+restore_update_files() {
+    local f
+    while IFS= read -r f; do
+        if [[ -f "${f}.old" ]]; then
+            mv -f "${f}.old" "$f"
+        else
+            rm -f "$f"
+        fi
+    done < <(update_backup_targets)
+}
+
+# 更新がうまくいったら退避を消す
+drop_update_backups() {
+    local f
+    while IFS= read -r f; do
+        rm -f "${f}.old"
+    done < <(update_backup_targets)
+}
+
+# 一緒に配る (検証して置く) ファイル。旧方式からの移行では UPDATER_FILES だけを置く
+UPDATER_FILES=(swim-worker-update.service swim-worker-update.timer swim-worker-update.sh)
+UPDATE_FILES=(swim-worker.service "${UPDATER_FILES[@]}")
 
 # --- 事前チェック ---
 [[ $EUID -eq 0 ]] || die "root で実行してください (sudo bash install.sh)"
@@ -387,23 +439,30 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     [[ -n "$CURRENT_VERSION" ]] || die ".version が空です"
 
     if [[ -z "${SWIM_UPDATE_TAG:-}" ]]; then
-        # --- 旧方式からの移行: 固定の更新スクリプトを置いて、そちらに任せる ---
-        if [[ -f "${INSTALL_DIR}/.no-auto-update" ]]; then
-            log "自動更新が opt-out されています (${INSTALL_DIR}/.no-auto-update)"
-            exit 0
-        fi
+        # --- 旧方式からの移行: 固定の更新スクリプト・update.service・timer だけを置く ---
+        # 本体の unit・バイナリはここでは替えない (次の timer で新しい update.service が
+        # 更新スクリプト経由で drop-in と一緒に入れる)。旧 update.service は TimeoutStartSec=600 で
+        # この処理を動かしているので、長い処理 (バイナリの更新・起動待ち) はしない。
+        # opt-out した機も移す: 旧 update.service は署名を確かめない最新の
+        # install.sh を root で動かし続けるため。バイナリを更新しないのは新しい更新スクリプトが守る
         LATEST_TAG=$(fetch_latest_tag "$LATEST_API_URL")
         validate_tag "$LATEST_TAG" strict || die "GitHub API から最新のタグを取得できません (${LATEST_TAG:-空})"
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "${UPDATE_FILES[@]}"
-        install_update_files "$TMPDIR"
+        download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "${UPDATER_FILES[@]}"
+        # 一時停止 (kill switch)・段階配布 (whitelist) は、署名を確かめた新しい更新スクリプトの
+        # 判定 (--guard-only) をそのまま使う。止められたら何も置かずに終わり、次回また試す
+        guard_rc=0
+        bash "${TMPDIR}/swim-worker-update.sh" --guard-only || guard_rc=$?
+        if (( guard_rc != 0 )); then
+            log "Coordinator の一時停止・段階配布により、新方式への移行を見送ります (次回また試します)"
+            exit 0
+        fi
+        install_updater_files "$TMPDIR"
         systemctl daemon-reload
-        log "固定の更新スクリプト (${UPDATER_PATH}) と unit を ${LATEST_TAG} から置きました。以後はそちらで更新します"
-        rm -rf "$TMPDIR"
-        trap - EXIT
-        exec 9>&-   # 更新スクリプトが呼ぶ install.sh がロックを取れるように
-        exec "$UPDATER_PATH"
+        log "固定の更新スクリプト (${UPDATER_PATH})・update.service・timer を ${LATEST_TAG} から置きました"
+        log "次の自動更新 (timer) から新方式で更新します (今すぐ: systemctl start swim-worker-update.service)"
+        exit 0
     fi
 
     # --- 固定の更新スクリプトから: 指定のタグを入れる ---
@@ -427,13 +486,15 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     trap 'rm -rf "$TMPDIR"' EXIT
     download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "$BINARY_NAME" "${UPDATE_FILES[@]}"
 
-    # --- 旧バイナリをバックアップ → 新バイナリ配置 → restart ---
+    # --- 旧バイナリ・unit・drop-in・更新スクリプトを .old に退避 → 新しいものを配置 → restart ---
     rm -f "${INSTALL_DIR}/swim-worker.old"
     cp -p "${INSTALL_DIR}/swim-worker" "${INSTALL_DIR}/swim-worker.old"
+    backup_update_files
     install -m 0755 -o root -g root "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/swim-worker"
-    install_update_files "$TMPDIR"
+    write_root_file "$VERSION_FILE" "$LATEST_VERSION"   # .version はバイナリと同時に (ロールバックで戻す)
+    install_updater_files "$TMPDIR"
+    install_worker_unit "$TMPDIR"
     fix_permissions
-    write_ip_allow_dropin
     systemctl daemon-reload
 
     log "swim-worker を再起動..."
@@ -448,14 +509,14 @@ if [[ $AUTO_MODE -eq 1 ]]; then
         sleep 60
         if systemctl is-active --quiet swim-worker.service; then
             log "自動更新完了 (Redis の認証に失敗しているため、起動の確認はプロセスの稼働のみ)"
-            write_root_file "$VERSION_FILE" "$LATEST_VERSION"
             rm -f "${INSTALL_DIR}/swim-worker.old"
+            drop_update_backups
             exit 0
         fi
     elif wait_for_startup "$STARTUP_WAIT"; then
         log "自動更新成功 (起動を確認)"
-        write_root_file "$VERSION_FILE" "$LATEST_VERSION"
         rm -f "${INSTALL_DIR}/swim-worker.old"
+        drop_update_backups
         exit 0
     fi
 
@@ -463,6 +524,9 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     warn "新版 (v${LATEST_VERSION}) の起動を確認できない、ロールバック実行"
     install -m 0755 -o root -g root \
         "${INSTALL_DIR}/swim-worker.old" "${INSTALL_DIR}/swim-worker"
+    write_root_file "$VERSION_FILE" "$CURRENT_VERSION"
+    restore_update_files   # unit・drop-in・更新スクリプト・update.service・timer も戻す
+    systemctl daemon-reload
     rm -f "$STARTUP_MARKER"
     systemctl restart swim-worker.service
     if [[ $AUTH_BROKEN -eq 0 ]] && ! wait_for_startup "$STARTUP_WAIT"; then
@@ -582,8 +646,8 @@ fix_permissions
 
 # --- systemd unit / update timer / 固定の更新スクリプト配置 ---
 log "systemd unit と更新スクリプト (${UPDATER_PATH}) を配置..."
-install_update_files "$TMPDIR"
-write_ip_allow_dropin
+install_updater_files "$TMPDIR"
+install_worker_unit "$TMPDIR"
 log "通信の許可 (名前解決・Redis) を ${DROPIN_FILE} に書きました"
 systemctl daemon-reload
 systemctl enable swim-worker.service >/dev/null
