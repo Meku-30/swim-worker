@@ -370,3 +370,92 @@ class TestTaskConsumer:
             await consumer._consume_loop()
         assert sleeps == [60]
         assert "権限" in mock_logger.error.call_args.args[0]
+
+
+def _redis_with(values: dict):
+    """GET の値を dict で返す Redis のモック"""
+    r = AsyncMock()
+
+    async def get(key):
+        return values.get(key)
+    r.get.side_effect = get
+    return r
+
+
+@pytest.mark.asyncio
+class TestUpdateGate:
+    """新版の通知 (on_update_available) は kill switch・whitelist・メジャー版で絞る (install.sh --auto と同じ)"""
+
+    BASE = {"swim:latest_worker_version": "v1.3.0", "swim:auto_update_enabled": "true"}
+
+    async def _check(self, values, name="w1", current="1.2.1", quiet=False, consumer=None):
+        calls = []
+        if consumer is None:
+            consumer = TaskConsumer(_redis_with(values), AsyncMock(), name,
+                                    on_update_available=calls.append)
+        else:
+            consumer._redis = _redis_with(values)
+            calls = consumer._test_calls
+        with patch("swim_worker.consumer.__version__", current):
+            await consumer.check_latest_version(quiet=quiet)
+        return calls, consumer
+
+    async def test_notifies_when_enabled_and_no_whitelist(self):
+        calls, _ = await self._check(dict(self.BASE))
+        assert calls == ["1.3.0"]
+
+    async def test_kill_switch_off_blocks(self):
+        for v in (None, "false", "TRUE", "1", ""):
+            calls, _ = await self._check({**self.BASE, "swim:auto_update_enabled": v})
+            assert calls == [], v
+
+    async def test_whitelist(self):
+        calls, _ = await self._check({**self.BASE, "swim:auto_update_whitelist": "a, w1 ,b"})
+        assert calls == ["1.3.0"]
+        calls, _ = await self._check({**self.BASE, "swim:auto_update_whitelist": "a,b"})
+        assert calls == []
+        # 空白だけの whitelist は「全員」
+        calls, _ = await self._check({**self.BASE, "swim:auto_update_whitelist": "  "})
+        assert calls == ["1.3.0"]
+
+    async def test_major_version_change_is_skipped(self):
+        calls, _ = await self._check({**self.BASE, "swim:latest_worker_version": "v2.0.0"})
+        assert calls == []
+
+    async def test_not_newer_does_not_notify(self):
+        for latest in ("v1.2.1", "v1.2.0", "v0.9.9"):
+            calls, _ = await self._check({**self.BASE, "swim:latest_worker_version": latest})
+            assert calls == [], latest
+
+    async def test_invalid_version_string_is_ignored(self):
+        """W1-3: Redis から来るバージョンは ^\\d+\\.\\d+\\.\\d+$ 以外を受け付けない"""
+        for bad in ("1.3", "1.3.0.1", "v1.3.0-rc1", "1.3.0 ", "1.3.0\n../x", "１.３.０",
+                    "1.3.0/../../evil", "v", "vv1.3.0"):
+            calls, _ = await self._check({**self.BASE, "swim:latest_worker_version": bad})
+            assert calls == [], repr(bad)
+
+    async def test_redis_error_on_gate_blocks(self):
+        r = AsyncMock()
+
+        async def get(key):
+            if key == "swim:latest_worker_version":
+                return "v1.3.0"
+            raise ConnectionError("down")
+        r.get.side_effect = get
+        calls = []
+        consumer = TaskConsumer(r, AsyncMock(), "w1", on_update_available=calls.append)
+        with patch("swim_worker.consumer.__version__", "1.2.1"):
+            await consumer.check_latest_version()
+        assert calls == []
+
+    async def test_reevaluated_after_kill_switch_turns_on(self):
+        calls = []
+        consumer = TaskConsumer(AsyncMock(), AsyncMock(), "w1", on_update_available=calls.append)
+        consumer._test_calls = calls
+        await self._check({**self.BASE, "swim:auto_update_enabled": "false"}, consumer=consumer, quiet=True)
+        assert calls == []
+        await self._check(dict(self.BASE), consumer=consumer, quiet=True)
+        assert calls == ["1.3.0"]
+        # 同じ版は定期チェックで重複通知しない
+        await self._check(dict(self.BASE), consumer=consumer, quiet=True)
+        assert calls == ["1.3.0"]
