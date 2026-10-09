@@ -51,12 +51,27 @@ SystemCallErrorNumber=EPERM
 RestrictRealtime=true
 # setuid/setgid 禁止
 RestrictSUIDSGID=true
-# execve で mmap(PROT_WRITE|PROT_EXEC) 禁止
+# 書き込み+実行可能なメモリの禁止 (MemoryDenyWriteExecute) は無効のまま。
+# curl_cffi が使う cffi (libffi のクロージャ) が W+X のメモリを確保するため、true だと落ちうる
 MemoryDenyWriteExecute=false
 # Personality 変更禁止
 LockPersonality=true
 # 名前空間作成禁止
 RestrictNamespaces=true
+# ネイティブ以外の ABI (x86 上の 32bit 等) のシステムコールを禁止
+SystemCallArchitectures=native
+# 作るファイル (Cookie・ロック等) は所有者だけが読める
+UMask=0077
+
+# --- 通信先 ---
+# 接続先は SWIM・Redis (どちらもインターネット側) だけなので、LAN・リンクローカル・
+# CGNAT (Tailscale 等) への通信を閉じる。ループバックは閉じない (systemd-resolved の
+# 127.0.0.53 で名前解決するため)。
+# 名前解決のサーバーや Redis がこの範囲にある環境 (家庭のルーターを DNS にしている Pi、
+# クラウドのメタデータ DNS 169.254.169.254 など) は、install.sh が
+# /etc/systemd/system/swim-worker.service.d/10-ip-allow.conf に IPAddressAllow= を書いて通す。
+IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10
+IPAddressDeny=fc00::/7 fe80::/10
 
 # --- リソース制限 (メモリ暴走防止) ---
 # Pi で他用途と同居しても暴走しない。通常稼働は 80〜120MB 程度。
