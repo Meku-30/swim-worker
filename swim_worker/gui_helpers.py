@@ -240,3 +240,34 @@ def update_prompt_kind(*, snoozed: bool, auto_update: bool) -> str | None:
     if snoozed:
         return None
     return "countdown" if auto_update else "prompt"
+
+
+# 設定欄 (表示名)。この順に確かめる
+FIELD_LABELS = {
+    "redis_host": "Redis ホスト",
+    "redis_username": "Redis ユーザー名",
+    "redis_password": "Redis パスワード",
+    "swim_username": "SWIM ID",
+    "swim_password": "SWIM パスワード",
+    "worker_name": "Worker 名",
+}
+SECRET_FIELDS = ("redis_password", "swim_password")
+
+
+def validate_fields(fields: dict[str, str]) -> str | None:
+    """起動前の確認。問題があればユーザーに見せる文、無ければ None。
+
+    全部必須 (Redis のユーザー名も。サーバー側で default ユーザーは使えない)。
+    パスワードは空白も値の一部なので strip しない。
+    """
+    from swim_worker.config import WORKER_NAME_RE, WORKER_NAME_RULE_MESSAGE
+    for key, label in FIELD_LABELS.items():
+        value = fields.get(key, "")
+        empty = (value == "") if key in SECRET_FIELDS else (value.strip() == "")
+        if empty:
+            hint = "管理者から教えてもらったユーザー名を入力してください。" \
+                if key == "redis_username" else "設定を記入してください。"
+            return f"{label} が空です。{hint}"
+    if not WORKER_NAME_RE.fullmatch(fields.get("worker_name", "").strip()):
+        return WORKER_NAME_RULE_MESSAGE
+    return None
