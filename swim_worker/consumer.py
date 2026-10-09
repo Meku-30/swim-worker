@@ -16,6 +16,7 @@ import redis.exceptions
 
 from swim_worker import __version__, parsers, paths
 from swim_worker.auth import SwimClient, SwimUnauthorizedError
+from swim_worker.update_check import parse_version
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,23 @@ RESULT_TTL = 3600  # 結果の有効期限（秒）
 # Redis ACL の権限不足 (設定の誤り) の時の待ち時間 (秒)。直るまでログを溢れさせない
 NOPERM_RETRY_DELAY = 60
 HEARTBEAT_TTL_MULTIPLIER = 2
+
+# Coordinator が置く最新版と、自動更新の制御 (install.sh --auto と同じキー)
+LATEST_VERSION_KEY = "swim:latest_worker_version"
+AUTO_UPDATE_ENABLED_KEY = "swim:auto_update_enabled"
+AUTO_UPDATE_WHITELIST_KEY = "swim:auto_update_whitelist"
+_GATE_REASON_JA = {
+    "major": "メジャーバージョンの変更は手動で更新してください",
+    "disabled": "管理者が自動更新を止めています",
+    "not_in_whitelist": "段階配布の対象外です",
+    "error": "自動更新の設定を確認できません",
+}
+
+
+def _as_str(v) -> str | None:
+    if isinstance(v, bytes):
+        return v.decode("utf-8", "replace")
+    return v
 
 
 # 起動成功マーカー・前回プロセスの token の置き場所は paths.py に集約。
@@ -93,6 +111,8 @@ class TaskConsumer:
         self._version_check_counter = 0
         self._VERSION_CHECK_INTERVAL = 20
         self._notified_version: str | None = None
+        self._gate_logged: tuple[str, str] | None = None
+        self._invalid_version_logged: str | None = None
 
     async def register(self) -> None:
         """Worker を pending リストに登録（承認済みならスキップ）"""
@@ -186,37 +206,78 @@ class TaskConsumer:
         except Exception as e:
             logger.warning("バージョン登録エラー: %s", e)
 
-    async def check_latest_version(self, *, quiet: bool = False) -> None:
-        """Coordinatorが記録した最新版 (Redis) と自分を比較し、古ければ警告ログを出す
+    async def _update_gate(self, current: tuple, latest: tuple) -> str | None:
+        """新版を案内してよいか。よければ None、だめなら理由。
 
+        判定は install.sh --auto のガードと同じ:
+          - 自動更新の kill switch (AUTO_UPDATE_ENABLED_KEY) が文字列 'true' でなければ不可
+          - 段階配布の whitelist (AUTO_UPDATE_WHITELIST_KEY、カンマ区切り) が空白以外を含み、
+            自分の名前が入っていなければ不可
+          - メジャー版が変わる更新は不可 (手動で更新する)
+        Redis から読めないときも不可 (安全側。install.sh の ERROR と同じ)。
+        """
+        if latest[0] != current[0]:
+            return "major"
+        try:
+            enabled = _as_str(await self._redis.get(AUTO_UPDATE_ENABLED_KEY))
+            whitelist = _as_str(await self._redis.get(AUTO_UPDATE_WHITELIST_KEY))
+        except Exception as e:
+            logger.debug("自動更新の設定を読めない: %s", e)
+            return "error"
+        if enabled != "true":
+            return "disabled"
+        if whitelist and whitelist.strip():
+            allowed = [x.strip() for x in whitelist.split(",") if x.strip()]
+            if self._worker_name not in allowed:
+                return "not_in_whitelist"
+        return None
+
+    async def check_latest_version(self, *, quiet: bool = False) -> None:
+        """Coordinatorが記録した最新版 (Redis) と自分を比較し、古ければログを出す。
+
+        新版の案内 (on_update_available) は管理者の kill switch・段階配布の whitelist・
+        メジャー版スキップを通ったときだけ呼ぶ (GUI の自動更新もこれで止められる)。
         quiet=True: 定期チェック用。「最新です」ログを抑制し、同一バージョンの重複通知を防ぐ。
         """
         try:
-            raw = await self._redis.get("swim:latest_worker_version")
+            raw = _as_str(await self._redis.get(LATEST_VERSION_KEY))
             if not raw:
                 return
-            latest_tag = (raw.decode() if isinstance(raw, bytes) else raw).lstrip("v")
-            if not latest_tag:
+            latest = parse_version(raw)
+            if latest is None:
+                if self._invalid_version_logged != raw:
+                    self._invalid_version_logged = raw
+                    logger.warning("Coordinator の最新版の値が不正なため無視: %r", raw[:40])
                 return
-            current = tuple(int(x) for x in __version__.split(".") if x.isdigit())
-            latest = tuple(int(x) for x in latest_tag.split(".") if x.isdigit())
-            if latest > current:
-                # 同じバージョンの重複通知を防ぐ
-                if quiet and self._notified_version == latest_tag:
-                    return
-                self._notified_version = latest_tag
-                logger.warning(
-                    "新しいバージョンが利用可能です: v%s → v%s  "
-                    "https://github.com/Meku-30/swim-worker/releases/latest",
-                    __version__, latest_tag,
-                )
-                if self._on_update_available:
-                    try:
-                        self._on_update_available(latest_tag)
-                    except Exception as e:
-                        logger.debug("update callback エラー: %s", e)
-            elif not quiet:
-                logger.info("バージョン最新 (v%s)", __version__)
+            latest_tag = "%d.%d.%d" % latest
+            current = parse_version(__version__)
+            if current is None or latest <= current:
+                if not quiet:
+                    logger.info("バージョン最新 (v%s)", __version__)
+                return
+            # 同じバージョンの重複通知を防ぐ
+            if quiet and self._notified_version == latest_tag:
+                return
+            reason = await self._update_gate(current, latest)
+            if reason is not None:
+                if self._gate_logged != (latest_tag, reason):
+                    self._gate_logged = (latest_tag, reason)
+                    logger.info(
+                        "新しいバージョン v%s があります (自動更新は保留: %s)",
+                        latest_tag, _GATE_REASON_JA.get(reason, reason),
+                    )
+                return
+            self._notified_version = latest_tag
+            logger.warning(
+                "新しいバージョンが利用可能です: v%s → v%s  "
+                "https://github.com/Meku-30/swim-worker/releases/latest",
+                __version__, latest_tag,
+            )
+            if self._on_update_available:
+                try:
+                    self._on_update_available(latest_tag)
+                except Exception as e:
+                    logger.debug("update callback エラー: %s", e)
         except Exception as e:
             logger.debug("バージョンチェックエラー: %s", e)
 

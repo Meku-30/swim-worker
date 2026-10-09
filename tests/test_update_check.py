@@ -37,3 +37,16 @@ def test_check_update_notifies_only_when_newer():
         with patch.object(update_check, "fetch_latest_release_version", return_value=latest):
             assert update_check.check_update_without_redis("1.2.0", notify) is None
     notify.assert_not_called()
+
+
+def test_parse_version_is_strict():
+    assert update_check.parse_version("1.2.3") == (1, 2, 3)
+    assert update_check.parse_version("v1.2.3") == (1, 2, 3)
+    for bad in ("1.2", "1.2.3.4", "v1.2.3-rc1", " 1.2.3", "1.2.3\n", "vv1.2.3", "", None, "a.b.c"):
+        assert update_check.parse_version(bad) is None, repr(bad)
+
+
+def test_fetch_latest_rejects_non_semver_tag():
+    url = "https://github.com/Meku-30/swim-worker/releases/tag/v1.2"
+    with patch("swim_worker.update_check.urllib.request.urlopen", _fake_urlopen(url)):
+        assert update_check.fetch_latest_release_version() is None
