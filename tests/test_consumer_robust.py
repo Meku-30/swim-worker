@@ -137,7 +137,7 @@ class TestRedisErrors:
 
     async def test_heartbeat_loop_waits_longer_on_auth_error(self):
         r = make_redis()
-        r.eval.side_effect = redis.exceptions.AuthenticationError("WRONGPASS")
+        r.get.side_effect = redis.exceptions.AuthenticationError("WRONGPASS")
         c, _ = _consumer(r)
         c._running = True
         sleeps = []
@@ -154,23 +154,20 @@ class TestRedisErrors:
 class TestHeartbeatOwnership:
     async def test_other_owner_raises_duplicate(self):
         r = make_redis()
-        r.eval.return_value = 0
+        r.get.return_value = "someone-else"
         c, _ = _consumer(r)
         with pytest.raises(DuplicateWorkerError):
             await c.send_heartbeat()
         r.setex.assert_not_called()
 
-    async def test_fallback_without_eval_permission(self):
-        """Redis の ACL に EVAL が無い間は GET で確かめてから SETEX (非原子だが所有確認はする)"""
+    async def test_get_then_setex_without_eval(self):
+        """Worker の ACL に EVAL は無い: GET で確かめてから SETEX (非原子だが所有確認はする)"""
         r = make_redis()
-        r.eval.side_effect = redis.exceptions.NoPermissionError("NOPERM eval")
         c, _ = _consumer(r)
         r.get.return_value = c._instance_token
         await c.send_heartbeat()
         r.setex.assert_awaited_once_with("heartbeat:w1", 60, c._instance_token)
-        # 2 回目以降は EVAL を試さない
         await c.send_heartbeat()
-        assert r.eval.await_count == 1
         assert r.setex.await_count == 2
         # 期限切れ (None) なら取り直す
         r.get.return_value = None
@@ -181,6 +178,7 @@ class TestHeartbeatOwnership:
         with pytest.raises(DuplicateWorkerError):
             await c.send_heartbeat()
         assert r.setex.await_count == 3
+        r.eval.assert_not_called()
 
     async def test_run_stops_with_duplicate_when_heartbeat_taken(self, tmp_path, monkeypatch):
         monkeypatch.setattr(consumer_mod, "_last_instance_token_path", lambda: tmp_path / "tok")
@@ -188,8 +186,7 @@ class TestHeartbeatOwnership:
         r = make_redis()
         r.set.return_value = True
         r.sismember.return_value = True
-        r.get.return_value = None
-        r.eval.return_value = 0
+        r.get.return_value = "someone-else"
 
         async def blpop(*a, **k):
             await asyncio.sleep(10)
@@ -233,7 +230,6 @@ class TestGracefulStop:
         r.set.return_value = True
         r.sismember.return_value = True
         r.get.return_value = None
-        r.eval.return_value = 1
         task = {"task_id": "t1", "job_type": "collect_pireps", "params": {"url": URL, "body": {}}}
         n = {"i": 0}
 
@@ -267,7 +263,6 @@ class TestGracefulStop:
         r.set.return_value = True
         r.sismember.return_value = True
         r.get.return_value = None
-        r.eval.return_value = 1
         entered = asyncio.Event()
 
         async def blpop(*a, **k):
