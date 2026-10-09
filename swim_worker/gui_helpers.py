@@ -176,3 +176,36 @@ echo '{{"rolled_back_from":"v{new_version}"}}' > "{rollback_marker}"
 rm -- "$0"
 exit 0
 """
+
+
+# --- 画面の表示・判定 (tkinter 非依存) ---
+
+# SWIM API ジョブタイプの日本語ラベル
+JOB_LABELS = {
+    "collect_notams": "NOTAM収集",
+    "collect_pireps": "PIREP収集",
+    "collect_pkg_weather": "PKG気象収集",
+    "collect_airports": "空港一覧取得",
+    "collect_airport_profiles": "空港詳細取得",
+    "collect_airspace_data": "空域データ取得",
+    "collect_flight_foids": "フライト一覧取得",
+    "collect_flight_details": "フライト詳細取得",
+    "fetch_maintenance_info": "メンテ情報取得",
+    "capability_test": "権限テスト",
+}
+
+
+def task_state_text(state: str, job_type: str = "", total: int = 0, errors: int = 0) -> str:
+    """Consumer のタスク状態を状態欄の文字列にする"""
+    if state == "processing":
+        return f"● 実行中: {JOB_LABELS.get(job_type, job_type)}"
+    if errors > 0:
+        return f"● 接続中 (処理済 {total} 件, エラー {errors})"
+    return f"● 接続中 (処理済 {total} 件)"
+
+
+def update_prompt_kind(*, snoozed: bool, auto_update: bool) -> str | None:
+    """新版を知ったときに出すもの: "countdown" (自動適用) / "prompt" (確認) / None (snooze 中)"""
+    if snoozed:
+        return None
+    return "countdown" if auto_update else "prompt"
