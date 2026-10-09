@@ -237,16 +237,60 @@ class TestWorkerRunner:
         deadline = time.monotonic() + 5
         while not started and time.monotonic() < deadline:
             time.sleep(0.01)
-        r.request_stop()
+        r.request_stop(graceful=False)
         assert r.join(5)
-        assert finished in ([], [worker_runner.STOPPED])
+        assert finished == [worker_runner.STOPPED]
+
+    def test_graceful_stop_lets_consumer_finish(self, monkeypatch):
+        import swim_worker.redis_client as rc
+        import swim_worker.consumer as consumer
+        monkeypatch.setattr(rc, "create_redis_client", lambda s: _FakeRedis())
+        state = {}
+
+        async def _run(self):
+            self._running = True
+            state["consumer"] = self
+            while self._running:
+                await asyncio.sleep(0.01)
+            state["finished_normally"] = True
+        monkeypatch.setattr(consumer.TaskConsumer, "run", _run)
+        finished = []
+        r = worker_runner.WorkerRunner(SETTINGS, on_finished=lambda o, m: finished.append(o))
+        r.start()
+        deadline = time.monotonic() + 5
+        while "consumer" not in state and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert r.stop_and_join(graceful_timeout=5, hard_timeout=1)
+        assert state.get("finished_normally") is True
+        assert finished == [worker_runner.STOPPED]
+
+    def test_stop_and_join_cancels_when_graceful_times_out(self, monkeypatch):
+        import swim_worker.redis_client as rc
+        import swim_worker.consumer as consumer
+        monkeypatch.setattr(rc, "create_redis_client", lambda s: _FakeRedis())
+        started = []
+
+        async def _stuck(self):
+            started.append(1)
+            await asyncio.sleep(3600)
+        monkeypatch.setattr(consumer.TaskConsumer, "run", _stuck)
+        r = worker_runner.WorkerRunner(SETTINGS)
+        r.start()
+        deadline = time.monotonic() + 5
+        while not started and time.monotonic() < deadline:
+            time.sleep(0.01)
+        t0 = time.monotonic()
+        assert r.stop_and_join(graceful_timeout=0.3, hard_timeout=5)
+        assert time.monotonic() - t0 < 4
 
     def test_stop_before_loop_starts(self, monkeypatch):
         import swim_worker.redis_client as rc
         monkeypatch.setattr(rc, "create_redis_client", lambda s: _FakeRedis(ConnectionError("x")))
-        r = worker_runner.WorkerRunner(SETTINGS)
+        finished = []
+        r = worker_runner.WorkerRunner(SETTINGS, on_finished=lambda o, m: finished.append(o))
         r.request_stop()
         _run_until_done(r)
+        assert finished == [worker_runner.STOPPED]
 
 
 # --- updater のダウンロード (ストリーム・検証) ---
@@ -372,3 +416,92 @@ def test_curl_fetcher_streams_from_local_server(tmp_path):
         assert progress[-1] == (len(content), len(content))
     finally:
         httpd.shutdown()
+
+
+class _FlakyRedis(_FakeRedis):
+    def __init__(self, failures: int, exc=ConnectionError("down")):
+        super().__init__()
+        self.failures = failures
+        self.fail_exc = exc
+        self.pings = 0
+
+    async def ping(self):
+        self.pings += 1
+        if self.pings <= self.failures:
+            raise self.fail_exc
+        return True
+
+
+class TestWorkerRunnerRetry:
+    def _runner(self, monkeypatch, fake, run=None, **kw):
+        import swim_worker.redis_client as rc
+        import swim_worker.consumer as consumer
+        monkeypatch.setattr(rc, "create_redis_client", lambda s: fake)
+        ran = []
+
+        async def _run(self):
+            ran.append(1)
+            if run:
+                await run(len(ran))
+        monkeypatch.setattr(consumer.TaskConsumer, "run", _run)
+        sleeps = []
+
+        async def _sleep(d):
+            sleeps.append(d)
+        finished = []
+        r = worker_runner.WorkerRunner(SETTINGS, sleep=_sleep,
+                                       on_finished=lambda o, m: finished.append(o), **kw)
+        return r, ran, sleeps, finished
+
+    def test_retries_forever_with_backoff_capped_at_5_minutes(self, monkeypatch):
+        fake = _FlakyRedis(failures=20)
+        statuses = []
+        r, ran, sleeps, finished = self._runner(monkeypatch, fake, on_status=statuses.append)
+        _run_until_done(r)
+        assert fake.pings == 21
+        assert ran == [1]
+        assert sleeps[:4] == [1, 2, 4, 8]
+        assert max(sleeps) == 300
+        assert all(b >= a for a, b in zip(sleeps, sleeps[1:]))
+        assert any("再接続" in s or "再試行" in s for s in statuses)
+        assert finished == [worker_runner.STOPPED]
+
+    @pytest.mark.parametrize("exc", [redis.exceptions.AuthenticationError("WRONGPASS"),
+                                     redis.exceptions.NoPermissionError("NOPERM")])
+    def test_auth_errors_are_not_retried(self, monkeypatch, exc):
+        import swim_worker.update_check as uc
+        monkeypatch.setattr(uc, "check_update_without_redis", lambda cur, notify: None)
+        fake = _FlakyRedis(failures=1, exc=exc)
+        r, ran, sleeps, finished = self._runner(monkeypatch, fake)
+        _run_until_done(r)
+        assert sleeps == [] and ran == []
+        assert finished == [worker_runner.AUTH_ERROR]
+
+    def test_connection_lost_during_run_reconnects(self, monkeypatch):
+        async def run(n):
+            if n == 1:
+                raise redis.exceptions.ConnectionError("lost")
+        r, ran, sleeps, finished = self._runner(monkeypatch, _FlakyRedis(failures=0), run=run)
+        _run_until_done(r)
+        assert ran == [1, 1]
+        assert sleeps == [1]
+        assert finished == [worker_runner.STOPPED]
+
+    def test_other_errors_stop(self, monkeypatch):
+        async def run(n):
+            raise ValueError("bug")
+        r, ran, sleeps, finished = self._runner(monkeypatch, _FlakyRedis(failures=0), run=run)
+        _run_until_done(r)
+        assert ran == [1]
+        assert finished == [worker_runner.ERROR]
+
+    def test_stop_during_backoff(self, monkeypatch):
+        import swim_worker.redis_client as rc
+        monkeypatch.setattr(rc, "create_redis_client", lambda s: _FlakyRedis(failures=10 ** 6))
+        finished = []
+        r = worker_runner.WorkerRunner(SETTINGS, on_finished=lambda o, m: finished.append(o))
+        r.start()
+        time.sleep(0.3)
+        r.request_stop()
+        assert r.join(5)
+        assert finished == [worker_runner.STOPPED]
