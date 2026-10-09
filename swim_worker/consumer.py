@@ -34,6 +34,10 @@ RESULT_WRITE_RETRY_DELAYS = (1.0, 2.0)
 LATEST_VERSION_KEY = "swim:latest_worker_version"
 AUTO_UPDATE_ENABLED_KEY = "swim:auto_update_enabled"
 AUTO_UPDATE_WHITELIST_KEY = "swim:auto_update_whitelist"
+# 段階配布中の最新版 (Coordinator は whitelist がある間 LATEST_VERSION_KEY を進めず、こちらに書く)。
+# whitelist に入った Worker だけが見る。値は「どの版か」を知るためだけに使い、ダウンロード先は
+# これまでどおり GitHub のリリースから決める
+STAGED_VERSION_KEY = "swim:latest_worker_version_staged"
 _GATE_REASON_JA = {
     "major": "メジャーバージョンの変更は手動で更新してください",
     "disabled": "管理者が自動更新を止めています",
@@ -233,6 +237,26 @@ class TaskConsumer:
                 return "not_in_whitelist"
         return None
 
+    async def _in_staged_rollout(self) -> bool:
+        """kill switch が 'true' で、空でない whitelist に自分が入っているか (段階配布の対象か)"""
+        try:
+            enabled = _as_str(await self._redis.get(AUTO_UPDATE_ENABLED_KEY))
+            whitelist = _as_str(await self._redis.get(AUTO_UPDATE_WHITELIST_KEY))
+        except Exception:
+            return False
+        if enabled != "true" or not whitelist or not whitelist.strip():
+            return False
+        return self._worker_name in [x.strip() for x in whitelist.split(",") if x.strip()]
+
+    async def _staged_version(self) -> tuple | None:
+        """段階配布の対象なら staged の版 (形が正しいときだけ)。それ以外は None"""
+        if not await self._in_staged_rollout():
+            return None
+        try:
+            return parse_version(_as_str(await self._redis.get(STAGED_VERSION_KEY)) or "")
+        except Exception:
+            return None   # 古い ACL (staged を読めない) でも今までどおり動く
+
     async def check_latest_version(self, *, quiet: bool = False) -> None:
         """Coordinatorが記録した最新版 (Redis) と自分を比較し、古ければログを出す。
 
@@ -242,13 +266,14 @@ class TaskConsumer:
         """
         try:
             raw = _as_str(await self._redis.get(LATEST_VERSION_KEY))
-            if not raw:
-                return
-            latest = parse_version(raw)
+            latest = parse_version(raw) if raw else None
+            if raw and latest is None and self._invalid_version_logged != raw:
+                self._invalid_version_logged = raw
+                logger.warning("Coordinator の最新版の値が不正なため無視: %r", raw[:40])
+            staged = await self._staged_version()
+            if staged is not None and (latest is None or staged > latest):
+                latest = staged
             if latest is None:
-                if self._invalid_version_logged != raw:
-                    self._invalid_version_logged = raw
-                    logger.warning("Coordinator の最新版の値が不正なため無視: %r", raw[:40])
                 return
             latest_tag = "%d.%d.%d" % latest
             current = parse_version(__version__)

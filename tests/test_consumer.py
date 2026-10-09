@@ -443,6 +443,26 @@ class TestUpdateGate:
         calls, _ = await self._check({**self.BASE, "swim:auto_update_whitelist": "  "})
         assert calls == ["1.3.0"]
 
+    async def test_staged_version_only_for_whitelisted_worker(self):
+        """段階配布: latest を進めていない間 (whitelist あり)、whitelist に入った Worker だけ staged を見る"""
+        vals = {**self.BASE, "swim:latest_worker_version": "v1.2.1",
+                "swim:latest_worker_version_staged": "v1.3.0", "swim:auto_update_whitelist": "w1"}
+        calls, _ = await self._check(vals, name="w1")
+        assert calls == ["1.3.0"]
+        calls, _ = await self._check(vals, name="w2")      # whitelist 外は staged を見ない
+        assert calls == []
+        calls, _ = await self._check({**vals, "swim:auto_update_whitelist": ""}, name="w1")
+        assert calls == []                                 # whitelist が空なら staged は使わない (latest だけ)
+        calls, _ = await self._check({**vals, "swim:auto_update_enabled": "false"}, name="w1")
+        assert calls == []
+
+    async def test_staged_version_must_be_well_formed(self):
+        for bad in ("1.3", "v1.3.0-rc1", "1.3.0/../x", "１.３.０", "https://evil/1.3.0"):
+            vals = {**self.BASE, "swim:latest_worker_version": "v1.2.1",
+                    "swim:latest_worker_version_staged": bad, "swim:auto_update_whitelist": "w1"}
+            calls, _ = await self._check(vals, name="w1")
+            assert calls == [], repr(bad)
+
     async def test_major_version_change_is_skipped(self):
         calls, _ = await self._check({**self.BASE, "swim:latest_worker_version": "v2.0.0"})
         assert calls == []
