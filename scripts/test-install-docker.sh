@@ -61,7 +61,7 @@ step "2. 必要パッケージインストール"
 docker exec "$CONTAINER_NAME" bash -c '\
     export DEBIAN_FRONTEND=noninteractive; \
     apt-get update -qq >/dev/null 2>&1 && \
-    apt-get install -y -qq curl ca-certificates systemd python3 >/dev/null 2>&1 \
+    apt-get install -y -qq curl ca-certificates openssl systemd python3 >/dev/null 2>&1 \
 ' && ok "curl / systemd / python3 導入"
 
 step "3. install.sh を release から DL → 構文チェック"
@@ -154,18 +154,19 @@ else
     fail "drop-in 10-ip-allow.conf がない"
 fi
 
-step "6. install.sh --auto のバージョン比較早期 exit 検証"
+step "6. 固定の更新スクリプトのバージョン比較早期 exit 検証"
+# install.sh が置いた /usr/local/libexec/swim-worker/update.sh (署名を確かめる更新スクリプト)。
 # .version と /releases/latest のタグが同じ → 早期 exit (何も起きない)
 # (RELEASE が最新でないときは「最新版です」にならないので、既定の最新版で走らせること)
 OUT=$(docker exec -e V="$RELEASE_VERSION" "$CONTAINER_NAME" bash -c '\
     echo "$V" > /opt/swim-worker/.version; \
-    bash /tmp/install.sh --auto 2>&1 | head -3 \
+    /usr/local/libexec/swim-worker/update.sh 2>&1 | tail -3 \
 ')
 echo "$OUT"
 if echo "$OUT" | grep -q "最新版です"; then
-    ok "--auto が現行==最新で早期 exit"
+    ok "更新スクリプトが現行==最新で早期 exit"
 else
-    fail "--auto の早期 exit が期待通りでない"
+    fail "更新スクリプトの早期 exit が期待通りでない (署名付きリリース v1.3.0 以降で走らせること)"
     echo "$OUT"
 fi
 

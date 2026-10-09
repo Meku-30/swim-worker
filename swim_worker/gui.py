@@ -1012,7 +1012,8 @@ class WorkerGUI:
                     self._update_dialog_indeterminate(f"{done / mb:.1f} MB")
 
             updater.download_and_verify(
-                download_url, new_exe, on_progress=_progress, on_phase=self._update_dialog_status)
+                download_url, new_exe, on_progress=_progress, on_phase=self._update_dialog_status,
+                current_version=__version__)
             size_mb = new_exe.stat().st_size / mb
             logging.info("ダウンロード完了: %s (%.1f MB)", new_exe, size_mb)
             self._update_dialog_progress(100, f"ダウンロード完了 ({size_mb:.1f} MB)")

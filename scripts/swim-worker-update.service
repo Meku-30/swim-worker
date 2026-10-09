@@ -3,34 +3,48 @@ Description=SWIM Worker Auto-Update Check
 Documentation=https://github.com/Meku-30/swim-worker
 # 本体が動いていないときに更新してもあまり意味がないので依存を明示
 After=swim-worker.service network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
-# install.sh を最新版から fresh DL → --auto モードで実行。
-# install.sh 自体にバグ修正が入っても次サイクルで自動的に新ロジックが使われる。
-#
-# install.sh --auto は以下を行う:
-#   1. GitHub /releases/latest と .version を比較 → 同じなら即 exit
-#   2. opt-out ファイル / Redis kill switch / whitelist / major-skip のガード
-#   3. 調べたタグに固定して新バイナリ DL + SHA256 検証
-#   4. 旧バイナリをバックアップ → install → systemctl restart swim-worker
-#   5. 新版が起動成功マーカー (data/.startup_ok) を書くのを最大 120 秒待つ。
-#      書かなければロールバック (旧版も起動しなければ環境の問題として次回再試行)
-ExecStart=/usr/bin/env bash -c '\
-    set -e; \
-    TMP=$(mktemp); \
-    trap "rm -f $TMP" EXIT; \
-    curl -fsSL --proto "=https" --tlsv1.2 \
-        -o "$TMP" \
-        https://github.com/Meku-30/swim-worker/releases/latest/download/install.sh; \
-    bash "$TMP" --auto \
-'
+# install.sh が置いた固定の更新スクリプト (root:root 0755、リリースの公開鍵を埋め込み) を実行する。
+# GitHub から取ったものは署名を確かめてからしか実行しない:
+#   1. opt-out / 最新タグと .version の比較 / 前回ロールバックした版
+#   2. Redis の kill switch・whitelist、メジャー版 (ここまでダウンロードの前)
+#   3. そのタグの SHA256SUMS + SHA256SUMS.sig を取り、埋め込みの公開鍵で署名と版の行を検証
+#   4. install.sh を取ってハッシュを確認し、SWIM_UPDATE_TAG=<タグ> bash install.sh --auto
+#      (バイナリ・更新スクリプト・unit の差し替え、再起動、起動成功マーカーでの確認、ロールバック)
+ExecStart=/usr/local/libexec/swim-worker/update.sh
 
 # update 処理中のタイムアウト (DL + 停止待ち最大 90 秒 + 起動確認 120 秒、ロールバック時はその 2 倍)
 TimeoutStartSec=900
 
 # 失敗しても swim-worker 本体の稼働は維持したい (exit 1 でも alarm 出さない)
 SuccessExitStatus=0 1
+
+# --- Hardening (root で動くが、更新に要る場所以外は書けなくする) ---
+# 書くのは /opt/swim-worker (バイナリ・.version)、/etc/systemd/system (unit・drop-in)、
+# 更新スクリプト自身、/run/lock (更新のロック) だけ。/usr・/etc のほかは読み取り専用
+ProtectSystem=full
+ReadWritePaths=/etc/systemd/system -/usr/local/libexec/swim-worker
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+# systemctl (UNIX ソケット)・GitHub と Redis (IPv4/IPv6)・名前解決 (netlink)
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0022
 
 [Install]
 # timer から呼ばれるだけなので WantedBy は不要
