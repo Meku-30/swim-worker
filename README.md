@@ -125,12 +125,15 @@ less install.sh
 sudo bash install.sh
 ```
 
+install.sh 自体の署名も確かめたい場合は、[「リリースの署名を自分で確かめる」](#リリースの署名を自分で確かめる) の手順で `install.sh` を検証してから実行してください。
+
 install.sh が以下を自動で行います:
 
-- 最新版のタグを調べ、お使いのアーキテクチャ (amd64 / arm64) に合うバイナリをそのタグから DL し、SHA256 で整合性検証
+- 最新版のタグを調べ、お使いのアーキテクチャ (amd64 / arm64) に合うバイナリをそのタグから DL し、検証する: `SHA256SUMS` の署名 (`SHA256SUMS.sig`、Ed25519) を install.sh に埋め込んだ公開鍵で確かめ、`SHA256SUMS` の先頭行の版がそのタグと一致し、各ファイルのハッシュが一致すること。署名のないリリースは入れません (OpenSSL 1.1.1 以上が必要。Pi OS Bookworm・Debian 12・Ubuntu 22.04 以降は標準で入っています)
 - 専用ユーザー `swim-worker` (システムアカウント、ログイン不可) を作成
 - `/opt/swim-worker/` にバイナリ配置 (root の持ち物。Worker が書けるのは `data/` だけ)
 - `.env` を対話式に作成 (`root:swim-worker` の `640`。Worker は読むだけ、他のユーザーは読めない)
+- 自動更新用の固定の更新スクリプトを `/usr/local/libexec/swim-worker/update.sh` に置く
 - systemd サービスとして登録 (自動起動)。LAN 内の機器への通信は閉じ、名前解決のサーバーと Redis だけ通す設定 (`/etc/systemd/system/swim-worker.service.d/10-ip-allow.conf`) も置く
 
 対話で以下を聞かれるので、管理者から教えてもらった値と、あなたの SWIM 認証情報を入力してください:
@@ -160,19 +163,25 @@ sudo journalctl -u swim-worker -f     # ライブログ
 sudo systemctl stop swim-worker       # 停止
 sudo systemctl disable --now swim-worker swim-worker-update.timer && \
   sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer} \
-    /etc/systemd/system/swim-worker.service.d && \
+    /etc/systemd/system/swim-worker.service.d /usr/local/libexec/swim-worker && \
   sudo userdel swim-worker            # 完全削除
 ```
 
 ### 自動更新について
 
 install.sh は `swim-worker-update.timer` (6時間間隔 + 最大2時間ランダム) を有効化します。
-管理者 (meku) が新バージョンを公開し、更新を許可すると、自動で:
+timer は固定の更新スクリプト `/usr/local/libexec/swim-worker/update.sh` を root で実行します。
+管理者 (meku) が新バージョンを署名して公開し、更新を許可すると、自動で:
 
-1. 新バイナリを DL + SHA256 検証
-2. 旧バイナリを `.old` として保持
-3. swim-worker を再起動
-4. 新しい版が Redis につながって登録まで済む (起動成功マーカー `data/.startup_ok` を書く) のを最大 120 秒待つ → 済まなければ自動ロールバック
+1. 管理者の一時停止・段階配布・メジャー版の変更でないことを確かめる (ここまではダウンロードしない)
+2. そのリリースの `SHA256SUMS` と署名 `SHA256SUMS.sig` を取り、埋め込みの公開鍵で署名と版を検証
+3. 署名を確かめた `install.sh` で新バイナリを DL + 検証し、旧バイナリを `.old` として保持
+4. swim-worker を再起動
+5. 新しい版が Redis につながって登録まで済む (起動成功マーカー `data/.startup_ok` を書く) のを最大 120 秒待つ → 済まなければ自動ロールバック
+
+署名のないリリース、署名が合わないリリース、今の版より新しくない版には更新しません。
+
+以前の版 (v1.2.x まで) の自動更新は最新の install.sh をそのまま実行していました。その仕組みが署名付きの新しい版の install.sh を実行した時点で、固定の更新スクリプトと新しい timer の設定に置き換わります (手作業は要りません)。
 
 LAN 内の DNS サーバーや Redis の IP が変わった場合は、`sudo bash install.sh` をもう一度実行すると通信の許可が書き直されます。
 
@@ -189,12 +198,12 @@ sudo systemctl disable --now swim-worker-update.timer  # timer 自体を無効�
 [Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下を DL:
 
 - バイナリ: `swim-worker-linux-amd64` または `swim-worker-linux-arm64`
-- `SHA256SUMS`
+- `SHA256SUMS` と `SHA256SUMS.sig`
 
-SHA256 を検証してから、`.env` を自前で作成して実行:
+[署名](#リリースの署名を自分で確かめる)と SHA256 を検証してから、`.env` を自前で作成して実行:
 
 ```bash
-sha256sum -c SHA256SUMS --ignore-missing
+sha256sum -c SHA256SUMS --ignore-missing   # 先頭の版の行は「形式が不正」と警告されるが無視してよい
 chmod +x ./swim-worker-linux-*
 
 cat > .env <<EOF
@@ -210,6 +219,25 @@ chmod 600 .env
 
 ./swim-worker-linux-amd64   # お使いのアーキに応じて
 ```
+
+### リリースの署名を自分で確かめる
+
+リリースの `SHA256SUMS` は管理者の Ed25519 鍵で署名されています (`SHA256SUMS.sig`)。
+公開鍵はこのリポジトリの [`scripts/release_pubkeys/`](scripts/release_pubkeys/) にあります
+(install.sh・自動更新・GUI に埋め込んであるものと同じ)。OpenSSL 1.1.1 以上で確かめられます:
+
+```bash
+TAG=v1.3.0   # 確かめる版
+for f in SHA256SUMS SHA256SUMS.sig install.sh; do
+  curl -fsSLO "https://github.com/Meku-30/swim-worker/releases/download/${TAG}/${f}"
+done
+curl -fsSL -o release.pub.pem https://raw.githubusercontent.com/Meku-30/swim-worker/master/scripts/release_pubkeys/key1.pub.pem
+openssl pkeyutl -verify -pubin -inkey release.pub.pem -rawin -in SHA256SUMS -sigfile SHA256SUMS.sig
+head -1 SHA256SUMS                           # 「# swim-worker-release ${TAG}」であること
+sha256sum -c SHA256SUMS --ignore-missing     # 版の行の「形式が不正」の警告は無視してよい
+```
+
+`Signature Verified Successfully` と `install.sh: OK` が出れば、管理者が署名したものです。
 
 ---
 
@@ -262,10 +290,13 @@ python -m swim_worker
 ```bash
 pip install -r requirements-gui.txt   # GUI 版を動かす場合
 pip install -r requirements-dev.txt   # pytest / PyInstaller ビルド用
+# CI と同じ版で揃えるなら、ハッシュ付きのロックから: pip install --require-hashes -r requirements-dev.lock
 python -m swim_worker.gui             # GUI 版 (.env・data/ はカレントディレクトリ)
 ```
 
 GUI の画面のテスト (`tests/test_gui_smoke.py`) は画面が要ります。画面の無い Linux では skip されるので、`xvfb-run python -m pytest` のように仮想ディスプレイで走らせてください。
+
+依存を変えたら `scripts/lock-deps.sh` (uv が要る) でロック (`requirements.lock`・`requirements-dev.lock`) を作り直してコミットします。リリースの手順 (CI → 署名 → 公開) は [docs/release-signing.md](docs/release-signing.md) にあります。
 
 SWIM の API を手で確かめる調査用スクリプトは `scripts/dev/` にあります (`probe_*.py`、`capture_headers.py`)。パスワードは引数では受け取らず、環境変数 `SWIM_PASSWORD` か入力で渡します。
 
