@@ -306,12 +306,15 @@ class FakeFetcher:
         self.chunk = chunk
         self.requested = []
 
-    def get_text(self, url, max_bytes=1 << 20):
+    def get_bytes(self, url, max_bytes=1 << 20):
         self.requested.append(url)
         name = url.rsplit("/", 1)[-1]
         if self.status.get(name, 200) != 200 or name not in self.files:
             raise RuntimeError(f"{name} 取得失敗: status={self.status.get(name, 404)}")
-        return self.files[name].decode()
+        return self.files[name]
+
+    def get_text(self, url, max_bytes=1 << 20):
+        return self.get_bytes(url, max_bytes).decode()
 
     @contextlib.contextmanager
     def stream(self, url):
@@ -326,11 +329,45 @@ BASE = "https://github.com/Meku-30/swim-worker/releases/download/v9.9.9"
 ASSET = "swim-worker-windows.exe"
 
 
+@pytest.fixture(scope="module")
+def _test_signing_key(tmp_path_factory):
+    """テストの中だけの一時的な署名鍵 (本物の鍵には触らない)"""
+    from tests.signing_helpers import make_key
+    return make_key(tmp_path_factory.mktemp("signing"), "test")
+
+
+@pytest.fixture
+def signed_releases(_test_signing_key, monkeypatch):
+    """テスト用の鍵で SHA256SUMS に署名し (_release)、その公開鍵を埋め込みとして使う"""
+    global _SIGNING_KEY
+    pytest.importorskip("cryptography")
+    from swim_worker import release_keys
+    monkeypatch.setattr(release_keys, "RELEASE_PUBKEYS_PEM", (_test_signing_key.public_pem,))
+    _SIGNING_KEY = _test_signing_key
+    yield
+    _SIGNING_KEY = None
+
+
+_SIGNING_KEY = None
+
+
+def _sign_bytes(data: bytes) -> bytes:
+    import tempfile
+    from tests.signing_helpers import sign
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "SHA256SUMS"
+        src.write_bytes(data)
+        sign(_SIGNING_KEY, src, Path(d) / "sig")
+        return (Path(d) / "sig").read_bytes()
+
+
 def _release(content: bytes, digest: str | None = None):
     digest = digest or hashlib.sha256(content).hexdigest()
-    return {ASSET: content, "SHA256SUMS": f"{digest}  {ASSET}\n".encode()}
+    sums = f"{digest}  {ASSET}\n".encode()
+    return {ASSET: content, "SHA256SUMS": sums, "SHA256SUMS.sig": _sign_bytes(sums)}
 
 
+@pytest.mark.usefixtures("signed_releases")
 class TestDownloadAndVerify:
     def test_streams_verifies_and_reports_progress(self, tmp_path):
         content = os.urandom(2 * 1024 * 1024 + 7)
@@ -343,8 +380,9 @@ class TestDownloadAndVerify:
         assert dest.read_bytes() == content
         assert progress[-1] == (len(content), len(content))
         assert len(progress) >= 2
-        # SHA256SUMS を先に取る (W3 で署名を検証してから本体を落とすため)
+        # SHA256SUMS とその署名を先に取る (署名を検証してから本体を落とす)
         assert f.requested[0].endswith("/SHA256SUMS")
+        assert f.requested[1].endswith("/SHA256SUMS.sig")
         assert not list(tmp_path.glob("*.part"))
 
     def test_hash_mismatch_leaves_nothing(self, tmp_path):
@@ -356,10 +394,11 @@ class TestDownloadAndVerify:
         assert list(tmp_path.iterdir()) == []
 
     def test_missing_entry_fails_before_download(self, tmp_path):
-        f = FakeFetcher({ASSET: b"x", "SHA256SUMS": b"abc  other\n"})
+        sums = b"abc  other\n"
+        f = FakeFetcher({ASSET: b"x", "SHA256SUMS": sums, "SHA256SUMS.sig": _sign_bytes(sums)})
         with pytest.raises(Exception, match="エントリ"):
             updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
-        assert len(f.requested) == 1
+        assert len(f.requested) == 2  # SHA256SUMS と .sig だけ
 
     def test_http_error(self, tmp_path):
         content = os.urandom(2 * 1024 * 1024)
@@ -390,6 +429,7 @@ class TestDownloadAndVerify:
                                         clock=lambda: next(t))
 
 
+@pytest.mark.usefixtures("signed_releases")
 def test_curl_fetcher_streams_from_local_server(tmp_path):
     """curl_cffi の stream=True で実際に落とせる (ローカルの HTTP サーバー)"""
     pytest.importorskip("curl_cffi")

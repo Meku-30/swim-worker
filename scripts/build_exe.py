@@ -103,6 +103,9 @@ if system in ("Windows", "Darwin"):
         "--hidden-import", "keyring.backends.Windows" if system == "Windows"
         else "keyring.backends.macOS",
         "--copy-metadata", "keyring",
+        # 更新物の署名の検証 (Ed25519)。cryptography は pyinstaller の hook で入るが明示する
+        "--hidden-import", "cryptography.hazmat.primitives.asymmetric.ed25519",
+        "--hidden-import", "cryptography.hazmat.primitives.serialization",
     ]
     # 実行ファイルに埋め込むアイコン (.ico on Windows, .icns on macOS)
     icon_path = ICON_ICO if system == "Windows" else ICON_ICNS
