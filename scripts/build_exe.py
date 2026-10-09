@@ -96,6 +96,13 @@ if system in ("Windows", "Darwin"):
         "--hidden-import", "PIL",
         "--hidden-import", "PIL.Image",
         "--hidden-import", "PIL.ImageDraw",
+        # パスワードの保存先 (Windows 資格情報マネージャー / macOS キーチェーン)。
+        # keyring はバックエンドを entry point (メタデータ) で探すので、メタデータも同梱する
+        # (pyinstaller-hooks-contrib の hook-keyring と同じ。hook が無い環境でも効くよう明示)
+        "--hidden-import", "keyring",
+        "--hidden-import", "keyring.backends.Windows" if system == "Windows"
+        else "keyring.backends.macOS",
+        "--copy-metadata", "keyring",
     ]
     # 実行ファイルに埋め込むアイコン (.ico on Windows, .icns on macOS)
     icon_path = ICON_ICO if system == "Windows" else ICON_ICNS
@@ -128,6 +135,12 @@ else:
         "--exclude-module", "swim_worker.gui",
         "--exclude-module", "swim_worker.gui_main",
         "--exclude-module", "swim_worker.icon",
+        # GUI だけが使うモジュール (CLI は .env を pydantic-settings で読む)
+        "--exclude-module", "swim_worker.autostart",
+        "--exclude-module", "swim_worker.settings_store",
+        "--exclude-module", "swim_worker.updater",
+        "--exclude-module", "swim_worker.worker_runner",
+        "--exclude-module", "keyring",
     ]
     PyInstaller.__main__.run([
         "swim_worker/__main__.py",
