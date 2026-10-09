@@ -20,7 +20,7 @@ from swim_worker.gui_helpers import (
     pyinstaller_clean_env,
 )
 from swim_worker.settings_store import load_json, save_json
-from swim_worker.update_verify import UpdateVerifyError, parse_sha256sums
+from swim_worker.update_verify import UpdateVerifyError, parse_sha256sums, verify_sums_signature
 
 logger = logging.getLogger(__name__)
 
@@ -125,15 +125,15 @@ def cleanup_stale_update_files(base: Path, now_ts: float | None = None) -> None:
 
 # --- ダウンロードと検証 ---
 #
-# 流れ: fetch_checksums() で SHA256SUMS を取る → 期待するハッシュが分かってから本体を
+# 流れ: fetch_checksums() で SHA256SUMS と SHA256SUMS.sig を取り、署名を埋め込みの公開鍵で
+# 確かめる (通らなければ本体のダウンロードより前に止まる) → 期待するハッシュが分かってから本体を
 # ストリームで .part に書きつつハッシュを計算 → 一致したら os.replace で置く。
-# W3 (署名) は fetch_checksums() の中で SHA256SUMS.sig を取って検証し、通らなければ例外に
-# すればよい (本体のダウンロードより前に止まる)。
 
 CONNECT_STALL_TIMEOUT = 60.0    # 接続・無通信がこれだけ続いたら諦める (秒)
 MAX_DOWNLOAD_SEC = 30 * 60      # 全体の上限 (遅い回線でも 30 分)
 MAX_ASSET_SIZE = 300 * 1024 * 1024
 MAX_SUMS_SIZE = 64 * 1024
+MAX_SIG_SIZE = 1024
 PROGRESS_INTERVAL_SEC = 0.2
 
 
@@ -155,14 +155,17 @@ class CurlFetcher:
             kw["impersonate"] = self._impersonate
         return Session(**kw)
 
-    def get_text(self, url: str, max_bytes: int = MAX_SUMS_SIZE) -> str:
+    def get_bytes(self, url: str, max_bytes: int = MAX_SUMS_SIZE) -> bytes:
         with self._session() as client:
             resp = client.get(url, allow_redirects=True)
             if resp.status_code != 200:
                 raise RuntimeError(f"{url.rsplit('/', 1)[-1]} 取得失敗: status={resp.status_code}")
             if len(resp.content) > max_bytes:
                 raise RuntimeError(f"{url.rsplit('/', 1)[-1]} が大きすぎます")
-            return resp.content.decode("utf-8")
+            return resp.content
+
+    def get_text(self, url: str, max_bytes: int = MAX_SUMS_SIZE) -> str:
+        return self.get_bytes(url, max_bytes).decode("utf-8")
 
     @contextlib.contextmanager
     def stream(self, url: str):
@@ -185,11 +188,19 @@ def release_base_url(download_url: str) -> str:
 
 
 def fetch_checksums(fetcher, base_url: str) -> str:
-    """同じリリースの SHA256SUMS を取る。
+    """同じリリースの SHA256SUMS と SHA256SUMS.sig を取り、署名を確かめてから SHA256SUMS を返す。
 
-    W3: ここで `SHA256SUMS.sig` も取り、埋め込んだ公開鍵で検証して通らなければ例外にする。
+    署名の無いリリース (sig を取れない)・改ざん・知らない鍵・公開鍵が未設定は例外
+    (UpdateVerifyError か取得失敗の RuntimeError)。
     """
-    return fetcher.get_text(f"{base_url}/SHA256SUMS")
+    sums = fetcher.get_bytes(f"{base_url}/SHA256SUMS", MAX_SUMS_SIZE)
+    try:
+        sig = fetcher.get_bytes(f"{base_url}/SHA256SUMS.sig", MAX_SIG_SIZE)
+    except Exception as e:
+        raise UpdateVerifyError(f"SHA256SUMS.sig を取得できません (署名のないリリース): {e}") from e
+    key_index = verify_sums_signature(sums, sig)
+    logger.info("SHA256SUMS の署名 OK (%s)", "主鍵" if key_index == 0 else "予備鍵")
+    return sums.decode("utf-8")
 
 
 def download_and_verify(download_url: str, dest: Path, *, fetcher=None, on_progress=None,
