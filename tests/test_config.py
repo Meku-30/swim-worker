@@ -10,7 +10,7 @@ def _settings_with_name(name: str) -> Settings:
                     swim_username="u", swim_password="p", worker_name=name)
 
 
-@pytest.mark.parametrize("name", ["GCP-worker", "hyuga_main", "w.1", "a", "x" * 32])
+@pytest.mark.parametrize("name", ["vps-worker", "home_main", "w.1", "a", "x" * 32])
 def test_worker_name_accepts_ascii_names(name):
     assert _settings_with_name(name).worker_name == name
 

@@ -34,8 +34,8 @@ _PARSERS = {
 # Redis whitelist キー (Coordinator が管理)
 PARSE_ENABLED_KEY = "swim:parse_enabled"
 # Worker 単位で parse を無効化するための per-job set のプレフィックス
-# 例: `swim:parse_disabled_workers:collect_pkg_weather` = {"hyuga", "hyuga-main"}
-#     → 上記 2 Worker は global で parse ON でも個別に除外される
+# 例: `swim:parse_disabled_workers:collect_pkg_weather` = {"example"}
+#     → example は global で parse ON でも個別に除外される
 PARSE_DISABLED_WORKERS_PREFIX = "swim:parse_disabled_workers"
 
 # Worker 内キャッシュ: (ttl_until, set[str])

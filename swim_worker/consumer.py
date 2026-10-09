@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import redis.exceptions
 
-from swim_worker import __version__, parsers
+from swim_worker import __version__, parsers, paths
 from swim_worker.auth import SwimClient, SwimUnauthorizedError
 
 logger = logging.getLogger(__name__)
@@ -25,36 +25,10 @@ NOPERM_RETRY_DELAY = 60
 HEARTBEAT_TTL_MULTIPLIER = 2
 
 
-def _startup_marker_path():
-    """起動成功マーカーのパス (GUI/CLI 両対応)。
-
-    PyInstaller frozen: exe 隣の data/.startup_ok
-    それ以外 (開発環境): cwd/data/.startup_ok
-    アップデート時のロールバック機構 (Phase 2) が参照する。
-    """
-    import sys as _sys
-    from pathlib import Path as _Path
-    if getattr(_sys, "frozen", False):
-        base = _Path(_sys.executable).parent
-    else:
-        base = _Path.cwd()
-    return base / "data" / ".startup_ok"
-
-
-def _last_instance_token_path():
-    """前回プロセスの instance_token を保存するファイルパス。
-
-    GUI 自動アップデートで graceful shutdown を経ずに再起動した場合に、
-    新プロセスが「自分の前世代が残した heartbeat lock」を識別して奪うために使う。
-    別マシンで稼働中の同名 Worker の lock は token 不一致で奪わないので安全。
-    """
-    import sys as _sys
-    from pathlib import Path as _Path
-    if getattr(_sys, "frozen", False):
-        base = _Path(_sys.executable).parent
-    else:
-        base = _Path.cwd()
-    return base / "data" / ".last_instance_token"
+# 起動成功マーカー・前回プロセスの token の置き場所は paths.py に集約。
+# gui_helpers とテストがこの名前で参照するので、モジュール属性として残す。
+_startup_marker_path = paths.startup_marker_path
+_last_instance_token_path = paths.last_instance_token_path
 
 # Coordinator への結果送信を zstd で圧縮 (gzip より小さく速い)。
 # Coordinator 側は zstd/gzip/生JSON のいずれも解凍可能 (後方互換)。

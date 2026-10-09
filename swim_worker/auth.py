@@ -8,11 +8,11 @@ import json
 import logging
 import os
 import random
-import sys
 import time
-from pathlib import Path
 
 from curl_cffi.requests import AsyncSession, BrowserType
+
+from swim_worker import paths
 
 logger = logging.getLogger(__name__)
 
@@ -23,29 +23,8 @@ SWIM_TOP_URL = "https://top.swim.mlit.go.jp"
 
 
 def _resolve_cookie_file(override: str = "") -> str:
-    """環境に応じたCookie保存先パスを決定する。
-
-    優先順位:
-      1. override（明示指定、環境変数 COOKIE_FILE 等）
-      2. Docker環境（/app 配下で実行中）→ /app/data/.swim_cookies.json
-      3. PyInstaller exe（frozen）→ exe と同じディレクトリの data/
-      4. それ以外（VPS systemd等）→ ワーキングディレクトリの data/
-    """
-    if override:
-        return override
-
-    cookie_name = ".swim_cookies.json"
-
-    # Docker: /app 配下で実行中
-    if Path("/app").is_dir() and str(Path.cwd()).startswith("/app"):
-        return f"/app/data/{cookie_name}"
-
-    # PyInstaller exe: exe と同じディレクトリ
-    if getattr(sys, "frozen", False):
-        return str(Path(sys.executable).parent / "data" / cookie_name)
-
-    # VPS / ローカル開発: ワーキングディレクトリ
-    return str(Path.cwd() / "data" / cookie_name)
+    """Cookie の保存先 (override > 既定の data/.swim_cookies.json)。決め方は paths.py"""
+    return str(paths.cookie_file_path(override))
 
 # API種別ごとのReferer（ポータルの実際の画面URLを再現）
 _REFERER_MAP = {
