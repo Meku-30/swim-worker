@@ -1,19 +1,68 @@
 name: Build Worker Executables
 
+# タグ (v*) を push すると、テスト → ビルド → リリースを **draft** で作る。
+# 公開は管理者がノート PC で scripts/sign-release.sh <タグ> を実行して行う
+# (SHA256SUMS に Ed25519 で署名し、SHA256SUMS.sig を上げてから公開する。docs/release-signing.md)。
+# Worker (install.sh・固定の更新スクリプト・GUI) は署名のないリリースには更新しない。
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
 
-permissions:
-  contents: write
+# 権限はジョブごとに必要な分だけ (書き込みは release ジョブだけ)
+permissions: {}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # 署名を確かめる公開鍵が埋め込まれていなければ (プレースホルダのまま)、リリースしない
+  release-keys:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Check embedded release public keys
+        run: python3 scripts/release_pubkeys.py check --require
+
+      - name: Check tag matches __version__
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import re; print(re.search(r"__version__ = \"([^\"]+)\"", open("swim_worker/__init__.py").read()).group(1))')
+          if [[ "v${version}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "タグ ${GITHUB_REF_NAME} と swim_worker/__init__.py の __version__ (${version}) が一致しません" >&2
+            exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (hash-locked)
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+
+      - name: Run tests
+        run: python -m pytest -q -rs
+
   build:
+    needs: [release-keys, test]
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -23,22 +72,25 @@ jobs:
             artifact: swim-worker-linux-amd64
           - os: ubuntu-22.04-arm
             artifact: swim-worker-linux-arm64
-          - os: windows-latest
+          # Windows / macOS は -latest を使わず固定 (v1.2.1 のビルド時に -latest が指していた版)
+          - os: windows-2025
             artifact: swim-worker-windows
-          - os: macos-latest
+          - os: macos-26
             artifact: swim-worker-macos
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+      - name: Install dependencies (hash-locked)
+        run: python -m pip install --require-hashes -r requirements-dev.lock
 
       - name: Install tkinter (macOS)
         if: runner.os == 'macOS'
@@ -48,56 +100,72 @@ jobs:
         run: python scripts/build_exe.py
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}
           path: dist/swim-worker*
+          if-no-files-found: error
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 
+      # 成果物が 1 つでも欠けたら失敗する (|| true で黙って欠けたリリースを作らない)
       - name: Prepare release files
         run: |
+          set -euo pipefail
           mkdir -p release
-          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux-amd64 || true
-          cp artifacts/swim-worker-linux-arm64/swim-worker release/swim-worker-linux-arm64 || true
+          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux-amd64
+          cp artifacts/swim-worker-linux-arm64/swim-worker release/swim-worker-linux-arm64
           # 後方互換: 既存 README 手順で swim-worker-linux (=amd64) をDLしているユーザー向け
-          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux || true
-          cp artifacts/swim-worker-macos/swim-worker release/swim-worker-macos || true
-          cp artifacts/swim-worker-windows/swim-worker-gui.exe release/swim-worker-windows.exe || true
+          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux
+          cp artifacts/swim-worker-macos/swim-worker release/swim-worker-macos
+          cp artifacts/swim-worker-windows/swim-worker-gui.exe release/swim-worker-windows.exe
           # .env.example はドットファイルで GitHub Releases 側で勝手に
           # "default.env.example" に名前が変わるため、install.sh は対話で
           # .env を生成する。release には含めない。
           cp scripts/install.sh release/install.sh
+          cp scripts/swim-worker-update.sh release/swim-worker-update.sh
           cp scripts/swim-worker.service release/swim-worker.service
           cp scripts/swim-worker-update.service release/swim-worker-update.service
           cp scripts/swim-worker-update.timer release/swim-worker-update.timer
-          chmod +x release/install.sh
+          chmod +x release/install.sh release/swim-worker-update.sh
           ls -la release/
 
+      # 先頭行の「# swim-worker-release <タグ>」も署名の対象。署名を版に結び付け、
+      # 古い版の署名済みファイルを別のタグとして出せないようにする
       - name: Generate SHA256SUMS
         run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]
           cd release
-          sha256sum * > SHA256SUMS
+          { echo "# swim-worker-release ${GITHUB_REF_NAME}"; sha256sum -- *; } > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
           echo "=== SHA256SUMS ==="
           cat SHA256SUMS
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Create draft release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             release/*
+          fail_on_unmatched_files: true
           generate_release_notes: true
+          # 署名 (scripts/sign-release.sh) してから公開する
+          draft: true
           # タグに "-" が含まれる場合 (v1.2.3-rc1, v1.2.3-beta 等) は
           # prerelease としてマークする。GitHub の /releases/latest API は
           # prerelease を除外するため、既存 Worker に誤ってアップデート通知が
