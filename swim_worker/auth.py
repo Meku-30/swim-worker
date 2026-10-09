@@ -57,11 +57,29 @@ def validate_swim_url(url) -> str:
     return url
 
 
+class RedirectOutsideError(DisallowedUrlError):
+    """応答が SWIM の外へリダイレクトされた (メンテナンス中のお知らせページなど)。
+
+    Coordinator が通常のエラーと区別できるよう、consumer は結果に
+    error_kind: "redirect_outside" を付ける
+    """
+
+    def __init__(self, final_url: str):
+        parts = urlsplit(final_url)
+        # クエリ・フラグメントは出さない (トークン等が付いていることがある)
+        shown = f"{parts.scheme}://{parts.netloc}{parts.path}"[:150]
+        super().__init__(f"SWIM の外へリダイレクトされました (メンテナンス中の可能性): {shown}")
+        self.final_url = final_url
+
+
 def _check_response_url(resp) -> None:
     """リダイレクトで SWIM の外に出ていないか (最終的な URL を確認する)"""
     final = getattr(resp, "url", None)
     if isinstance(final, str) and final:
-        validate_swim_url(final)
+        try:
+            validate_swim_url(final)
+        except DisallowedUrlError:
+            raise RedirectOutsideError(final) from None
 
 
 def _resolve_cookie_file(override: str = "") -> str:

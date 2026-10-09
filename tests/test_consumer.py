@@ -54,6 +54,28 @@ class TestTaskConsumer:
         assert result_data["format"] == "parsed"
         assert isinstance(result_data["data"], list)
 
+    async def test_redirect_outside_sets_error_kind(self):
+        """SWIM の外へのリダイレクトで止めたときだけ、結果に error_kind: redirect_outside を付ける"""
+        from swim_worker.auth import RedirectOutsideError
+        mock_swim = AsyncMock()
+        mock_swim.execute_api.side_effect = RedirectOutsideError("https://maint.example.jp/")
+        mock_redis = make_redis()
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="test-worker", heartbeat_interval=30)
+        consumer._delay_clip_max = consumer._delay_clip_min = 0
+        await consumer.execute_task({"task_id": "t1", "job_type": "collect_notam",
+                                     "params": {"url": "https://web.swim.mlit.go.jp/x", "body": {}}})
+        call = next(c for c in mock_redis.setex.call_args_list if c[0][0] == "results:test-worker:t1")
+        result = json.loads(zstd.ZstdDecompressor().decompress(call[0][2]))
+        assert result["status"] == "error" and result["error_kind"] == "redirect_outside"
+        assert "maint.example.jp" in result["error"]
+        # ほかのエラーの形は変えない (error_kind を付けない)
+        mock_swim.execute_api.side_effect = RuntimeError("boom")
+        await consumer.execute_task({"task_id": "t2", "job_type": "collect_notam",
+                                     "params": {"url": "https://web.swim.mlit.go.jp/x", "body": {}}})
+        call = next(c for c in mock_redis.setex.call_args_list if c[0][0] == "results:test-worker:t2")
+        result = json.loads(zstd.ZstdDecompressor().decompress(call[0][2]))
+        assert result["status"] == "error" and "error_kind" not in result
+
     async def test_execute_task_raw_when_worker_individually_disabled(self):
         """global で enable されていても、per-worker 除外に入っていれば raw 送信"""
         import swim_worker.parsers as _p

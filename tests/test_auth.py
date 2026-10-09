@@ -261,6 +261,22 @@ class TestUrlAllowlistInClient:
                 await client.execute_api(API, {})
         resp.json.assert_not_called()
 
+    async def test_redirect_outside_is_distinguishable(self):
+        """SWIM の外へのリダイレクト (メンテ中のお知らせページ等) は専用の例外 (DisallowedUrlError の
+        サブクラス)。メッセージにはクエリを出さない"""
+        from swim_worker.auth import RedirectOutsideError, DisallowedUrlError
+        client = SwimClient(username="user", password="[REDACTED]")
+        client._is_ready = True
+        client._session = AsyncMock()
+        resp = MagicMock(status_code=200, url="https://maint.example.jp/info?token=[REDACTED]")
+        client._session.post.return_value = resp
+        with patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            with pytest.raises(RedirectOutsideError) as ei:
+                await client.execute_api(API, {})
+        assert isinstance(ei.value, DisallowedUrlError)
+        assert "maint.example.jp" in str(ei.value) and "secret" not in str(ei.value)
+        assert "メンテナンス" in str(ei.value)
+
     async def test_fetch_public_get_rejects_redirect_outside(self):
         from swim_worker.auth import DisallowedUrlError
         client = SwimClient(username="user", password="[REDACTED]")
