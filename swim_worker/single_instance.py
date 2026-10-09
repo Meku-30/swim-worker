@@ -15,6 +15,8 @@ import os
 import sys
 from pathlib import Path
 
+from swim_worker import paths
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,25 +26,12 @@ class AlreadyRunning(RuntimeError):
 
 
 def get_lock_path() -> Path:
-    """ロックファイルの配置場所。
+    """ロックファイルの配置場所 (決め方は paths.lock_path)。
 
-    install.sh 経由で systemd unit (ProtectSystem=strict) 配下で動く場合、
-    /opt/swim-worker/ は読み取り専用で /opt/swim-worker/data/ のみ書き込み可能。
-    そのため、frozen 時は常に `data/` サブディレクトリに置く。
-    data/ 自体は LocalInstanceLock.acquire() 時に作られる (このパス計算では作らない)。
-    初回起動 (data/ 無し) と 2 回目でロックの場所が変わると多重起動を防げないため、
-    data/ の有無で分岐しない。
-
-    優先順:
-      1. PyInstaller frozen (install.sh 配置 / exe 単体配置とも)
-         → {exe.parent}/data/swim-worker.lock (data/ は acquire() 時に作る)
-      2. それ以外 (CLI/Docker/開発)
-         → {cwd}/swim-worker.lock
+    install.sh の systemd unit (ProtectSystem=strict) では /opt/swim-worker/data/ だけが
+    書き込み可能なので、frozen 時は常に data/ の下に置く。data/ は acquire() 時に作る。
     """
-    if getattr(sys, "frozen", False):
-        data_dir = Path(sys.executable).parent / "data"
-        return data_dir / "swim-worker.lock"
-    return Path.cwd() / "swim-worker.lock"
+    return paths.lock_path()
 
 
 class LocalInstanceLock:

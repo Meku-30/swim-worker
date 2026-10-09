@@ -62,10 +62,10 @@ class TestTaskConsumer:
         mock_redis = AsyncMock()
         mock_redis.smembers.return_value = {b"collect_pkg_weather"}  # global enable
         mock_redis.sismember.return_value = True  # この Worker は個別 disable
-        consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="hyuga", heartbeat_interval=30)
+        consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="example", heartbeat_interval=30)
         task = {"task_id": "task-x", "job_type": "collect_pkg_weather", "params": {"url": "https://example.com/api", "body": {}}}
         await consumer.execute_task(task)
-        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:hyuga:task-x"]
+        result_calls = [c for c in mock_redis.setex.call_args_list if c[0][0] == "results:example:task-x"]
         result_data = json.loads(zstd.ZstdDecompressor().decompress(result_calls[0][0][2]))
         assert "format" not in result_data  # 個別 disable → raw 送信
         assert result_data["data"] == {"weatherDTO": {}}
@@ -90,7 +90,7 @@ class TestTaskConsumer:
     async def test_consume_loop_recovers_from_stuck_execute_task(self):
         """execute_task がハングしても _consume_loop 自体は打ち切って次のタスクへ戻れる
 
-        2026-07-20 障害: oracle-worker/GCP-worker/hyuga-main で execute_task が
+        2026-07-20 障害: 複数の Worker で execute_task が
         (おそらくSWIMへのHTTP呼び出しが)ハングし、_consume_loop全体が永久停止。
         heartbeat_loopは別タスクなので生き続け、alive=trueのままタスクだけ
         230件以上溜まり続けた。強制タイムアウトで自己回復できるようにする。
