@@ -126,7 +126,8 @@ class TestAutostart:
     def test_plist_escapes_xml(self, tmp_path):
         import plistlib
         exe = "/Users/a&b/<swim>/swim-worker"
-        data = plistlib.loads(autostart.file_bytes("darwin", [exe], Path("/Users/a&b")))
+        from pathlib import PurePosixPath  # macOS のパス (Windows の CI でも / のまま)
+        data = plistlib.loads(autostart.file_bytes("darwin", [exe], PurePosixPath("/Users/a&b")))
         assert data["ProgramArguments"] == [exe]
         assert data["WorkingDirectory"] == "/Users/a&b"
         assert data["Label"] == "org.swim-worker"
