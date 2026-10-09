@@ -1,13 +1,12 @@
 """PIREPパーサー
 
-parse() は DB 依存なし → Worker でも使える (フルパース移行用)。
-store() のみ SQLAlchemy + models を関数内 import で使用する。
+DB 依存なし (Worker と同じ内容)。DB への保存は coordinator/store.py。
 """
 import json
 import logging
-from datetime import datetime, timedelta, timezone
 
 from . import diagnostics
+from .common import parse_compact_utc
 
 logger = logging.getLogger(__name__)
 
@@ -18,30 +17,7 @@ _IGNORED_KEYS = {
     "shapeDisplayList",  # 地図表示用シンボル定義 (PIREPデータではない)
 }
 
-
-def _parse_dt(s: str | None) -> str | None:
-    """YYYYMMDDhhmm 文字列を ISO 8601 (UTC) 文字列で返す (JSON-safe)"""
-    if not s or len(s) < 12:
-        return None
-    try:
-        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]),
-                        int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc).isoformat()
-    except (ValueError, IndexError):
-        return None
-
-
-_DT_FIELDS = ("observed_at", "effective_end")
-
-
-def _coerce_dt(value):
-    if value is None or isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
+_parse_dt = parse_compact_utc
 
 
 _KNOWN_KEYS = {"turbulenceList", "turbulencePirepList", "pirepList", "airepSpecialList"}
@@ -96,37 +72,3 @@ def parse(raw_data: dict) -> list[dict]:
             "raw_data": item,
         })
     return records
-
-
-async def store(session_factory, records: list[dict]) -> int:
-    if not records:
-        return 0
-    from sqlalchemy import select
-    from coordinator.db.models import Pirep
-    # JSON 経由で str になっている datetime を復元
-    for r in records:
-        for f in _DT_FIELDS:
-            r[f] = _coerce_dt(r.get(f))
-    cns = [r["control_number"] for r in records]
-    async with session_factory() as session:
-        existing = await session.execute(
-            select(Pirep.control_number, Pirep.observed_at).where(Pirep.control_number.in_(cns))
-        )
-        # SWIMはcontrol_numberを使い回すため、control_number単体では重複判定できない。
-        # (control_number, observed_at) の組で判定する
-        # (2026-07-30、これが原因でSMTH/LGT系の新規データが誤って破棄され続けていたバグを修正)。
-        existing_pairs = {
-            (row[0], row[1].replace(tzinfo=timezone.utc) if row[1] and row[1].tzinfo is None else row[1])
-            for row in existing.all()
-        }
-    new_records = [
-        r for r in records
-        if (r["control_number"], r["observed_at"]) not in existing_pairs
-    ]
-    if not new_records:
-        return 0
-    async with session_factory() as session:
-        for r in new_records:
-            session.add(Pirep(**{k: v for k, v in r.items()}, collected_at=datetime.now(timezone.utc)))
-        await session.commit()
-    return len(new_records)

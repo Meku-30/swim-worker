@@ -1,14 +1,14 @@
 """PKG気象パーサー (METAR/TAF/ATIS/RWY-INFO)
 
-parse_pkg() / extract_* は DB 依存なし → Worker でも使える (フルパース移行用)。
-store_pkg() のみ SQLAlchemy + models を関数内 import で使用する。
+DB 依存なし (Worker と同じ内容)。DB への保存は coordinator/store.py。
 """
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from . import diagnostics
+from .common import parse_compact_utc
 
 logger = logging.getLogger(__name__)
 
@@ -28,36 +28,7 @@ _CLOSE_ATIS_PATTERN = re.compile(
     r"ATIS\s+\w{4}(?:\s+[A-Z])?\s*\n\s*CLOSE\s*$", re.DOTALL
 )
 
-
-def _parse_dt(s: str | None) -> str | None:
-    """YYYYMMDDhhmm → ISO 8601 (UTC) 文字列 (JSON-safe)"""
-    if not s or len(s) < 12:
-        return None
-    try:
-        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]),
-                        int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc).isoformat()
-    except (ValueError, IndexError):
-        return None
-
-
-_DT_FIELDS = ("observed_at", "issued_at")
-
-
-def _coerce_dt(value):
-    if value is None or isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
-
-
-def _ensure_utc(dt: datetime | None) -> datetime | None:
-    if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
+_parse_dt = parse_compact_utc
 
 
 def _extract_atis_letter(body: str) -> str | None:
@@ -203,58 +174,3 @@ def extract_routine_metar_airports(parsed_records: list[dict]) -> set[str]:
         r["icao_code"] for r in parsed_records
         if r.get("_type") == "weather" and r.get("type") == "METAR" and r.get("icao_code")
     }
-
-
-async def store_pkg(session_factory, records: list[dict]) -> int:
-    if not records:
-        return 0
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(hours=2)
-
-    # Load existing keys for dedup
-    from sqlalchemy import select
-    from coordinator.db.models import Atis, RunwayInfo, Weather
-    # JSON 経由の str datetime を復元
-    for r in records:
-        for f in _DT_FIELDS:
-            if f in r:
-                r[f] = _coerce_dt(r.get(f))
-    async with session_factory() as session:
-        wx_rows = await session.execute(
-            select(Weather.icao_code, Weather.type, Weather.observed_at).where(Weather.collected_at > cutoff))
-        existing_wx = {(r[0], r[1], _ensure_utc(r[2])) for r in wx_rows.all()}
-        atis_rows = await session.execute(
-            select(Atis.icao_code, Atis.issued_at, Atis.atis_letter).where(Atis.collected_at > cutoff))
-        existing_atis = {(r[0], _ensure_utc(r[1]), r[2]) for r in atis_rows.all()}
-        rwy_rows = await session.execute(
-            select(RunwayInfo.icao_code, RunwayInfo.observed_at).where(RunwayInfo.collected_at > cutoff))
-        existing_rwy = {(r[0], _ensure_utc(r[1])) for r in rwy_rows.all()}
-
-    count = 0
-    async with session_factory() as session:
-        for r in records:
-            rt = r["_type"]
-            fields = {k: v for k, v in r.items() if k != "_type"}
-            if rt == "weather":
-                key = (fields["icao_code"], fields["type"], fields["observed_at"])
-                if key in existing_wx:
-                    continue
-                existing_wx.add(key)
-                session.add(Weather(**fields, collected_at=now))
-                count += 1
-            elif rt == "atis":
-                key = (fields["icao_code"], fields["issued_at"], fields["atis_letter"])
-                if key in existing_atis:
-                    continue
-                existing_atis.add(key)
-                session.add(Atis(**fields, collected_at=now))
-                count += 1
-            elif rt == "runway_info":
-                key = (fields["icao_code"], fields["observed_at"])
-                if key in existing_rwy:
-                    continue
-                existing_rwy.add(key)
-                session.add(RunwayInfo(**fields, collected_at=now))
-                count += 1
-        await session.commit()
-    return count

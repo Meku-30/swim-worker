@@ -15,11 +15,15 @@ ProtectSystem=strict 下で保存失敗のスタックトレースが出てい�
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
 _DIAG_DIR_ENV = "SWIM_PARSER_DIAG_DIR"
+# 保存の上限 (Worker の結果の中身でディスクを埋めない)。超えた分は保存せず DEBUG ログだけ
+MAX_SAMPLES_PER_JOB_TYPE = 500
+MAX_SAMPLE_BYTES = 1024 * 1024
 
 
 def _diag_base_dir() -> str | None:
@@ -38,15 +42,25 @@ def _save_sample(job_type: str, tag: str, payload: dict) -> None:
     if base is None:
         logger.debug("%s: 診断サンプル保存はスキップ (%s 未設定)", job_type, _DIAG_DIR_ENV)
         return
-    directory = os.path.join(base, f"{job_type}_unknown_samples")
+    safe_job = re.sub(r"[^A-Za-z0-9_-]", "_", job_type)[:64]
+    directory = os.path.join(base, f"{safe_job}_unknown_samples")
     try:
         os.makedirs(directory, exist_ok=True)
+        with os.scandir(directory) as it:
+            count = sum(1 for _ in it)
+        if count >= MAX_SAMPLES_PER_JOB_TYPE:
+            logger.debug("%s: 診断サンプルが上限 (%d 件) のため保存しない", job_type, MAX_SAMPLES_PER_JOB_TYPE)
+            return
+        text = json.dumps(payload, ensure_ascii=False, default=str, indent=2)
+        if len(text.encode("utf-8")) > MAX_SAMPLE_BYTES:
+            text = json.dumps({"truncated": True, "keys": sorted(str(k) for k in payload)[:100],
+                               "size": len(text)}, ensure_ascii=False, indent=2)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
         path = os.path.join(directory, f"{tag}_{ts}.json")
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, default=str, indent=2)
+            f.write(text)
         logger.info("%s: 診断サンプルを保存: %s", job_type, path)
-    except OSError as e:
+    except (OSError, ValueError, RecursionError) as e:
         # 診断は本処理に影響させない。スタックトレースは出さず 1 行で
         logger.warning("%s: 診断サンプルの保存に失敗 (%s): %s", job_type, directory, e)
 

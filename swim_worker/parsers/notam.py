@@ -1,11 +1,10 @@
 """NOTAMパーサー
 
-parse() は DB 依存なし → Worker でも使える (フルパース移行用)。
-store() のみ SQLAlchemy + models を関数内 import で使用する。
+DB 依存なし (Worker と同じ内容)。DB への保存は coordinator/store.py。
 """
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from . import diagnostics
 
@@ -25,7 +24,7 @@ def _parse_dt(s: str | None) -> str | None:
 
     返り値を str にすることで parse() 全体の出力を JSON-safe にし、
     Worker が parse() を呼んで結果を JSON で Coordinator に送れるようにする。
-    store() 側では冒頭で datetime.fromisoformat() で datetime に復元する。
+    coordinator/store.py が datetime に復元する。
     """
     if not s or s == "PERM":
         return None
@@ -68,48 +67,3 @@ def parse(raw_data: dict) -> list[dict]:
             "raw_data": raw,
         })
     return records
-
-
-_DT_FIELDS = ("valid_from", "valid_to")
-
-
-def _coerce_dt(value):
-    """parse() が返す ISO 文字列を datetime に復元 (None/既に datetime は素通し)"""
-    if value is None or isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
-
-
-async def store(session_factory, records: list[dict]) -> int:
-    if not records:
-        return 0
-    from sqlalchemy import select
-    from coordinator.db.models import Notam
-    # JSON 経由で parse 結果が str になっている場合は datetime に復元
-    for r in records:
-        for f in _DT_FIELDS:
-            r[f] = _coerce_dt(r.get(f))
-    ids = [r["notam_id"] for r in records]
-    async with session_factory() as session:
-        existing = await session.execute(
-            select(Notam.notam_id).where(Notam.notam_id.in_(ids))
-        )
-        existing_ids = {row[0] for row in existing.all()}
-    new_records = [r for r in records if r["notam_id"] not in existing_ids]
-    if not new_records:
-        return 0
-    async with session_factory() as session:
-        for r in new_records:
-            session.add(Notam(
-                notam_id=r["notam_id"], icao_code=r["icao_code"], body=r["body"],
-                valid_from=r["valid_from"], valid_to=r["valid_to"],
-                category=r["category"], raw_data=r["raw_data"],
-                collected_at=datetime.now(timezone.utc),
-            ))
-        await session.commit()
-    return len(new_records)

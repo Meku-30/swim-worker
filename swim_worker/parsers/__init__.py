@@ -1,13 +1,12 @@
 """SWIM レスポンスパーサー (Coordinator の coordinator/parsers/ と同期)
 
 Worker が SWIM API レスポンスをパースして構造化リストに変換する。
-Coordinator は受け取ったパース済みデータを直接 store するだけ
-(result["format"] == "parsed" の場合)。
+Coordinator は受け取ったパース済みデータを検証してから保存する
+(raw で送った場合も Coordinator 側で同じ parser にかけて同じ検証を通す)。
 
 各 parser ファイルは Coordinator のものと完全一致している必要がある
 (scripts/sync_parsers.sh でコピー、scripts/check_parsers_synced.sh で検証)。
-parse() 系関数は DB 依存なし、store() 系関数は Worker からは呼ばない
-(関数内 import なので Worker 環境に sqlalchemy/models がなくても問題なし)。
+parsers は DB に依存しない純粋なパースだけ (保存は Coordinator の coordinator/store.py、2026-10-08〜)。
 
 job 別パース有効化は Redis set `swim:parse_enabled` で動的制御。
 Coordinator の swim-admin parse-enable/disable で切替。
@@ -100,7 +99,7 @@ def parse_for_job_type(job_type: str, data: dict,
     """job_type に対応する parser を呼んで結果を返す。
 
     SWIM API レスポンスの "ret" ラッパーがあれば剥がしてから parser に渡す
-    (coordinator.result_handler._unwrap_ret と同じ挙動)。
+    (coordinator.parsers.unwrap_ret と同じ挙動)。
     task_params の "_" 始まりキー (例: _icao_code) は Coordinator の raw 経路と同じく
     data にマージする (既存キーは上書きしない)。
     collect_flight_foids は queried_airport が必要なため task_params から抽出して渡す。

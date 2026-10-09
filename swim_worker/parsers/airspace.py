@@ -1,43 +1,19 @@
 """SIGMET/気象状態パーサー
 
-parse() は DB 依存なし → Worker でも使える (フルパース移行用)。
-store() のみ SQLAlchemy + models を関数内 import で使用する。
+DB 依存なし (Worker と同じ内容)。DB への保存は coordinator/store.py。
 """
 import json
 import logging
-from datetime import datetime, timedelta, timezone
 
 from . import diagnostics
+from .common import parse_compact_utc
 
 logger = logging.getLogger(__name__)
 
 _JOB_TYPE = "collect_airspace_data"
 _KNOWN_KEYS = {"airportWeatherConditionResult", "sigmetList"}
 
-
-def _parse_dt(s: str | None) -> str | None:
-    """YYYYMMDDhhmm → ISO 8601 (UTC) 文字列 (JSON-safe)"""
-    if not s or len(s) < 12:
-        return None
-    try:
-        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]),
-                        int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc).isoformat()
-    except (ValueError, IndexError):
-        return None
-
-
-_DT_FIELDS = ("observed_at",)
-
-
-def _coerce_dt(value):
-    if value is None or isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
+_parse_dt = parse_compact_utc
 
 
 def parse(raw_data: dict) -> list[dict]:
@@ -55,38 +31,3 @@ def parse(raw_data: dict) -> list[dict]:
             "raw_text": info.get("bodyDataInformation") or json.dumps(info, ensure_ascii=False, default=str),
             "observed_at": _parse_dt(info.get("timeOfObservation"))})
     return records
-
-
-async def store(session_factory, records: list[dict]) -> int:
-    if not records:
-        return 0
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(hours=2)
-
-    from sqlalchemy import select
-    from coordinator.db.models import Weather
-    # JSON 経由の str datetime を復元
-    for r in records:
-        for f in _DT_FIELDS:
-            r[f] = _coerce_dt(r.get(f))
-    async with session_factory() as session:
-        existing_rows = await session.execute(
-            select(Weather.icao_code, Weather.type, Weather.observed_at)
-            .where(Weather.collected_at > cutoff)
-        )
-        existing = {
-            (r[0], r[1], r[2].replace(tzinfo=timezone.utc) if r[2] and r[2].tzinfo is None else r[2])
-            for r in existing_rows.all()
-        }
-
-    count = 0
-    async with session_factory() as session:
-        for r in records:
-            key = (r["icao_code"], r["type"], r["observed_at"])
-            if key in existing:
-                continue
-            existing.add(key)
-            session.add(Weather(**r, collected_at=now))
-            count += 1
-        await session.commit()
-    return count
