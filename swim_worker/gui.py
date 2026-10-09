@@ -1,20 +1,28 @@
-"""SWIM Worker GUI"""
+"""SWIM Worker GUI
+
+スレッドの決まり: Tk (ウィジェット・Tk 変数・after) を触るのはメインスレッドだけ。
+Worker・トレイ・アップデートのスレッドは self._post(fn, ...) でキューに積み、メインスレッドが
+UI_POLL_MS ごとにまとめて取り出して実行する (ログも同じキューでまとめて画面に足す)。
+"""
 import base64
 import io
 import logging
 import os
+import queue
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
 from swim_worker import __version__
-from swim_worker import autostart, updater
+from swim_worker import autostart, paths, updater
 from swim_worker.gui_helpers import (
     next_rollback_state,
     task_state_text,
     update_prompt_kind,
+    validate_fields,
     write_startup_marker,
 )
 from swim_worker.icon import create_icon
@@ -34,20 +42,20 @@ if sys.platform in ("win32", "darwin"):
         pass
 
 
-# .env のデフォルトパス（exeと同じフォルダ）
 def _get_base_dir() -> Path:
-    """実行ファイルのあるディレクトリを返す"""
-    if getattr(sys, 'frozen', False):
-        return Path(sys.executable).parent
-    return Path(__file__).parent.parent
+    """.env・data/・ログの置き場所 (exe のフォルダ。開発環境ではカレントディレクトリ)"""
+    return paths.base_dir()
 
 
 ENV_PATH = _get_base_dir() / ".env"
-# 空でも起動できる設定欄 (Redis ユーザー名は空なら default ユーザーで認証する)
-OPTIONAL_FIELDS = {"redis_username"}
 GUI_SETTINGS_PATH = _get_base_dir() / "data" / "gui_settings.json"
 UPDATE_SNOOZE_PATH = _get_base_dir() / "data" / "update_snooze.json"
 SNOOZE_DURATION_HOURS = updater.SNOOZE_DURATION_HOURS
+UI_POLL_MS = 100           # キューを取り出す間隔
+LOG_MAX_LINES = 1000       # 画面のログはこれを超えたら古い行を消す
+LOG_KEEP_LINES = 800
+QUIT_GRACEFUL_SEC = 30.0   # 終了時、処理中のタスクを待つ上限
+UPDATE_GRACEFUL_SEC = 60.0  # 更新前、処理中のタスクを待つ上限
 
 
 class UpdateProgressDialog:
@@ -115,24 +123,89 @@ class UpdateProgressDialog:
             pass
 
 
+class CountdownDialog:
+    """自動アップデートの 5 秒カウントダウン (今すぐ / スキップ)。
+
+    Tk 変数を閉包の循環参照に入れない (別スレッドの GC で Tk を触らないように)。
+    """
+
+    def __init__(self, parent: tk.Tk, new_version: str, *, on_update, on_skip,
+                 seconds: int = 5):
+        self._parent = parent
+        self._on_update = on_update
+        self._on_skip = on_skip
+        self._remaining = seconds
+        self._done = False
+        self._win = tk.Toplevel(parent)
+        self._win.title("自動アップデート")
+        self._win.geometry("420x160")
+        self._win.resizable(False, False)
+        self._win.transient(parent)
+        try:
+            self._win.grab_set()
+        except tk.TclError:
+            pass
+        ttk.Label(self._win, text=f"新しいバージョン v{new_version} が利用可能です",
+                  font=("", 10, "bold")).pack(pady=(15, 4))
+        ttk.Label(self._win, text=f"現在: v{__version__}", font=("", 9)).pack(pady=(0, 10))
+        self._msg_var = tk.StringVar(master=self._win, value=self._message())
+        ttk.Label(self._win, textvariable=self._msg_var, font=("", 10)).pack(pady=(0, 8))
+        btn_frame = ttk.Frame(self._win)
+        btn_frame.pack(pady=(0, 10))
+        ttk.Button(btn_frame, text="今すぐ", command=self._update_now).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text=f"スキップ ({SNOOZE_DURATION_HOURS}h)",
+                   command=self._skip).pack(side="left", padx=5)
+        self._win.protocol("WM_DELETE_WINDOW", self._skip)
+        parent.after(1000, self._tick)
+
+    def _message(self) -> str:
+        return f"{self._remaining} 秒後に自動でアップデートします..."
+
+    def _close(self) -> None:
+        self._done = True
+        try:
+            self._win.grab_release()
+        except Exception:
+            pass
+        try:
+            self._win.destroy()
+        except Exception:
+            pass
+
+    def _update_now(self) -> None:
+        if self._done:
+            return
+        self._close()
+        self._on_update()
+
+    def _skip(self) -> None:
+        if self._done:
+            return
+        self._close()
+        self._on_skip()
+
+    def _tick(self) -> None:
+        if self._done:
+            return
+        self._remaining -= 1
+        if self._remaining <= 0:
+            self._update_now()
+            return
+        self._msg_var.set(self._message())
+        self._parent.after(1000, self._tick)
+
+
 class TextHandler(logging.Handler):
-    """ログをtkinter Textウィジェットに表示するハンドラー"""
-    def __init__(self, text_widget: scrolledtext.ScrolledText):
+    """ログを画面に出すハンドラー。どのスレッドから呼ばれてもキューに積むだけ"""
+    def __init__(self, sink):
         super().__init__()
-        self._text = text_widget
+        self._sink = sink  # 文字列を受け取る関数 (WorkerGUI._post_log)
 
     def emit(self, record):
-        msg = self.format(record)
-        def append():
-            self._text.configure(state="normal")
-            self._text.insert(tk.END, msg + "\n")
-            self._text.see(tk.END)
-            # 1000行超えたら古い行を削除
-            lines = int(self._text.index("end-1c").split(".")[0])
-            if lines > 1000:
-                self._text.delete("1.0", f"{lines - 800}.0")
-            self._text.configure(state="disabled")
-        self._text.after(0, append)
+        try:
+            self._sink(self.format(record))
+        except Exception:
+            self.handleError(record)
 
 
 class WorkerGUI:
@@ -145,6 +218,12 @@ class WorkerGUI:
 
         self._runner: WorkerRunner | None = None
         self._worker_running = False
+        # 別スレッドからの UI 操作の受け口 (メインスレッドが after でまとめて取り出す)
+        self._ui_queue: queue.Queue = queue.Queue()
+        self._closed = False
+        self._quitting = False
+        self._tray_color = "gray"
+        self._log_handler: TextHandler | None = None
         # GUI 設定 (auto_update 等) と snooze 情報を永続化
         self._gui_settings: dict = _load_json(GUI_SETTINGS_PATH)
         self._snooze = updater.SnoozeStore(UPDATE_SNOOZE_PATH)
@@ -160,6 +239,7 @@ class WorkerGUI:
         self._build_ui()
         self._set_window_icon()
         self._load_env()
+        self._root.after(UI_POLL_MS, self._pump_ui_queue)
 
     def _build_ui(self):
         root = self._root
@@ -273,10 +353,11 @@ class WorkerGUI:
         self._log_text.pack(fill="both", expand=True)
 
         # ログハンドラー設定
-        handler = TextHandler(self._log_text)
+        handler = TextHandler(self._post_log)
         handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
         logging.root.addHandler(handler)
         logging.root.setLevel(logging.INFO)
+        self._log_handler = handler
 
         self._setup_tray()
 
@@ -287,6 +368,78 @@ class WorkerGUI:
                 "GUI 起動 (v%s) / アップデート自動適用: %s",
                 __version__, auto_state,
             )
+
+    # --- スレッド間 (メインスレッドへの受け渡し) ---
+    def _post(self, fn, *args) -> None:
+        """どのスレッドからでも呼べる。fn(*args) をメインスレッドで実行する"""
+        self._ui_queue.put((fn, args))
+
+    def _post_log(self, line: str) -> None:
+        self._ui_queue.put((None, line))
+
+    def _drain_ui_queue(self) -> None:
+        """キューに溜まったものをまとめて実行する (メインスレッド)"""
+        logs: list[str] = []
+        while True:
+            try:
+                fn, args = self._ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            if fn is None:
+                logs.append(args)
+                continue
+            if logs:
+                self._append_logs(logs)
+                logs = []
+            if self._closed:
+                continue
+            try:
+                fn(*args)
+            except Exception:
+                logging.exception("UI の更新に失敗")
+        if logs:
+            self._append_logs(logs)
+
+    def _pump_ui_queue(self) -> None:
+        if self._closed:
+            return
+        self._drain_ui_queue()
+        if not self._closed:
+            self._root.after(UI_POLL_MS, self._pump_ui_queue)
+
+    def _append_logs(self, lines: list[str]) -> None:
+        if self._closed:
+            return
+        try:
+            self._log_text.configure(state="normal")
+            self._log_text.insert(tk.END, "\n".join(lines) + "\n")
+            n = int(self._log_text.index("end-1c").split(".")[0])
+            if n > LOG_MAX_LINES:
+                self._log_text.delete("1.0", f"{n - LOG_KEEP_LINES}.0")
+            self._log_text.see(tk.END)
+            self._log_text.configure(state="disabled")
+        except tk.TclError:
+            pass  # 画面を閉じた後
+
+    def _set_tray_color(self, color: str) -> None:
+        self._tray_color = color
+        if _HAS_TRAY and self._tray_icon:
+            try:
+                self._tray_icon.icon = create_icon(color=color, size=64)
+            except Exception as e:
+                logging.debug("トレイアイコン更新失敗 (無視): %s", e)
+
+    def _set_ui_running(self, running: bool, status: str | None = None,
+                        tray: str | None = None) -> None:
+        """実行中フラグ・ボタン・設定欄・トレイの色をまとめて切り替える (メインスレッド)"""
+        self._worker_running = running
+        self._start_btn.configure(state="disabled" if running else "normal")
+        self._stop_btn.configure(state="normal" if running else "disabled")
+        for entry in self._entries.values():
+            entry.configure(state="disabled" if running else "normal")
+        if status is not None:
+            self._status_var.set(status)
+        self._set_tray_color(tray or ("green" if running else "gray"))
 
     # --- System tray ---
     def _set_window_icon(self):
@@ -333,37 +486,63 @@ class WorkerGUI:
             self._tray_icon = None
 
     def _tray_show(self, icon=None, item=None):
-        """Show the main window from tray"""
+        """Show the main window from tray (pystray のスレッドから呼ばれる)"""
         def restore():
             self._root.deiconify()
             self._root.state("normal")
             self._root.lift()
             self._root.focus_force()
-        self._root.after(0, restore)
+        self._post(restore)
 
     def _tray_quit(self, icon=None, item=None):
-        """Quit from tray"""
-        if self._tray_icon:
-            self._tray_icon.stop()
-        self._root.after(0, self._force_quit)
+        """Quit from tray (pystray のスレッドから呼ばれる)"""
+        self._post(self._force_quit)
 
     def _force_quit(self):
-        """Force quit the application"""
-        if self._worker_running:
-            self._on_stop()
-        self._root.destroy()
+        """アプリを終了する。Worker が動いていれば、処理中のタスクを終えて止まるのを
+        別スレッドで待ってから画面を閉じる (heartbeat の lock を残さないため)"""
+        if self._quitting:
+            return
+        self._quitting = True
+        runner = self._runner
+        if runner is None or not runner.is_alive():
+            self._destroy()
+            return
+        self._worker_running = False
+        self._status_var.set("終了処理中 (処理中のタスクを終えてから閉じます)...")
+        self._start_btn.configure(state="disabled")
+        self._stop_btn.configure(state="disabled")
+
+        def wait_then_close():
+            if not runner.stop_and_join(QUIT_GRACEFUL_SEC, 10.0):
+                logging.warning("Worker が止まらないまま終了します")
+            self._post(self._destroy)
+
+        threading.Thread(target=wait_then_close, daemon=True, name="swim-worker-quit").start()
+
+    def _destroy(self):
+        """画面を閉じる (メインスレッド)"""
+        if self._closed:
+            return
+        self._closed = True
+        if self._log_handler is not None:
+            logging.root.removeHandler(self._log_handler)
+            self._log_handler = None
+        if self._tray_icon:
+            try:
+                self._tray_icon.stop()
+            except Exception:
+                pass
+        try:
+            self._root.destroy()
+        except tk.TclError:
+            pass
 
     def _quit_for_update(self):
-        """アップデート用の完全終了: exeファイルのロックを確実に解放するため os._exit を使う"""
+        """アップデート用の完全終了: exeファイルのロックを確実に解放するため os._exit を使う
+        (Worker は _do_update が止めてある)"""
         try:
-            if self._worker_running:
-                self._on_stop()
-            if self._tray_icon:
-                try:
-                    self._tray_icon.stop()
-                except Exception:
-                    pass
-            self._root.destroy()
+            self._destroy()
         finally:
             # daemon スレッドが残っていても強制終了 (ファイルロック即解放)
             os._exit(0)
@@ -445,18 +624,12 @@ class WorkerGUI:
 
     def _on_start(self):
         """Worker起動"""
-        # バリデーション
-        for key, entry in self._entries.items():
-            if key in OPTIONAL_FIELDS:
-                continue
-            if not entry.get().strip():
-                messagebox.showerror("エラー", f"{key} が空です。設定を記入してください。")
-                return
-
-        from swim_worker.config import WORKER_NAME_RE, WORKER_NAME_RULE_MESSAGE
-        name = self._entries["worker_name"].get().strip()
-        if not WORKER_NAME_RE.fullmatch(name):
-            messagebox.showerror("エラー", WORKER_NAME_RULE_MESSAGE)
+        if self._quitting:
+            return
+        fields = {k: e.get() for k, e in self._entries.items()}
+        problem = validate_fields(fields)
+        if problem:
+            messagebox.showerror("エラー", problem)
             return
 
         if self._runner is not None and self._runner.is_alive():
@@ -467,25 +640,13 @@ class WorkerGUI:
         if not self._save_env():
             return
 
-        # UIスレッドで値をコピー（別スレッドからのアクセスを避ける）
+        # UIスレッドで値をコピー（別スレッドから Tk を触らない）。パスワードは strip しない
         self._worker_settings = {
-            "redis_host": self._entries["redis_host"].get().strip(),
-            "redis_username": self._entries["redis_username"].get().strip(),
-            "redis_password": self._entries["redis_password"].get(),  # パスワードは strip しない
-            "swim_username": self._entries["swim_username"].get().strip(),
-            "swim_password": self._entries["swim_password"].get(),  # パスワードは strip しない
-            "worker_name": self._entries["worker_name"].get().strip(),
+            k: (v if k in ("redis_password", "swim_password") else v.strip())
+            for k, v in fields.items()
         }
 
-        self._start_btn.configure(state="disabled")
-        self._stop_btn.configure(state="normal")
-        for entry in self._entries.values():
-            entry.configure(state="disabled")
-        self._status_var.set("● 起動中...")
-
-        self._worker_running = True
-        if _HAS_TRAY and self._tray_icon:
-            self._tray_icon.icon = create_icon(color="green", size=64)
+        self._set_ui_running(True, status="● 起動中...")
         self._runner = WorkerRunner(
             self._worker_settings,
             on_status=self._on_worker_status,
@@ -496,39 +657,37 @@ class WorkerGUI:
         self._runner.start()
 
     def _on_stop(self):
-        """Worker停止 (consumer 生成前の Redis リトライ中でも中断できる)"""
+        """Worker停止。処理中のタスクは結果を書いてから止まる (Redis の再試行中ならすぐ止まる)。
+        UI を戻すのは Worker が終わったとき (_handle_worker_finished)"""
         self._worker_running = False
         if self._runner is not None:
-            self._runner.request_stop()
-        if _HAS_TRAY and self._tray_icon:
-            self._tray_icon.icon = create_icon(color="gray", size=64)
-        self._status_var.set("停止処理中...")
+            self._runner.request_stop(graceful=True)
+        self._set_tray_color("gray")
+        self._status_var.set("停止処理中 (処理中のタスクを終えてから止まります)...")
         self._stop_btn.configure(state="disabled")
-        self._root.after(500, self._poll_worker_stopped)
 
-    def _poll_worker_stopped(self):
-        """ワーカースレッドの終了を待ってから UI を起動可能に戻す"""
-        runner = self._runner
-        if runner is not None and runner.is_alive():
-            self._root.after(500, self._poll_worker_stopped)
-            return
-        self._status_var.set("停止中")
-        self._start_btn.configure(state="normal")
-        for entry in self._entries.values():
-            entry.configure(state="normal")
-        logging.info("Worker停止")
-
+    # --- Worker からの知らせ (Worker のスレッドで呼ばれる → メインスレッドへ) ---
     def _on_worker_status(self, text: str):
-        """WorkerRunner から (Worker のスレッドで) 呼ばれる"""
-        self._root.after(0, lambda: self._status_var.set(text))
+        self._post(self._set_status_if_running, text)
+
+    def _set_status_if_running(self, text: str):
+        if self._worker_running:
+            self._status_var.set(text)
 
     def _on_worker_finished(self, outcome: str, message: str):
-        """WorkerRunner から (Worker のスレッドで) 呼ばれる"""
+        self._post(self._handle_worker_finished, outcome, message)
+
+    def _handle_worker_finished(self, outcome: str, message: str):
+        """Worker が終わった (メインスレッド)。どの終わり方でも UI を起動前に戻す"""
+        if self._quitting:
+            return
         if outcome == STOPPED:
-            return  # UI の復帰は _poll_worker_stopped が行う
-        if outcome == DUPLICATE:
+            self._set_ui_running(False, status="停止中")
+            logging.info("Worker停止")
+        elif outcome == DUPLICATE:
+            self._set_ui_running(False, status="重複起動エラー", tray="red")
             # 同じ worker_name の別プロセス/別マシンが稼働中
-            self._root.after(0, lambda m=message: messagebox.showerror(
+            messagebox.showerror(
                 "SWIM Worker - 重複起動",
                 f"同じ Worker 名 '{self._worker_settings['worker_name']}' で"
                 f"別のプロセスが稼働中のため起動できません。\n\n"
@@ -537,19 +696,12 @@ class WorkerGUI:
                 f"  • 前回クラッシュ時の古い heartbeat が残っている\n"
                 f"    (数分で自動解放されます)\n\n"
                 f"別の worker_name を設定するか、もう一方を停止してください。",
-            ))
-            self._root.after(0, lambda: self._status_var.set("重複起動エラー"))
-            self._worker_running = False
-            if _HAS_TRAY and self._tray_icon:
-                self._tray_icon.icon = create_icon(color="red", size=64)
+            )
+        elif outcome == AUTH_ERROR:
+            self._set_ui_running(
+                False, status="Redis 認証エラー (設定欄のユーザー名・パスワードを確認)", tray="red")
         else:
-            status = ("Redis 認証エラー (設定欄のユーザー名・パスワードを確認)"
-                      if outcome == AUTH_ERROR else "エラー")
-            self._root.after(0, lambda s=status: self._status_var.set(s))
-        self._root.after(0, lambda: self._start_btn.configure(state="normal"))
-        self._root.after(0, lambda: self._stop_btn.configure(state="disabled"))
-        for entry in self._entries.values():
-            self._root.after(0, lambda e=entry: e.configure(state="normal"))
+            self._set_ui_running(False, status="エラーで停止しました (ログを確認)", tray="red")
 
     # --- 自動起動 (Windows / macOS) ---
     def _get_startup_path(self) -> Path:
@@ -598,12 +750,12 @@ class WorkerGUI:
 
         # 自動接続: 全フィールドが埋まっていれば起動後に自動開始
         if self._autoconnect_var.get():
-            all_filled = all(e.get().strip() for e in self._entries.values())
-            if all_filled:
+            fields = {k: e.get() for k, e in self._entries.items()}
+            if validate_fields(fields) is None:
                 logging.info("自動接続: Workerを起動します")
                 self._root.after(500, self._on_start)
             else:
-                logging.warning("自動接続: 設定が未入力のためスキップしました")
+                logging.warning("自動接続: 設定が未入力・不正のためスキップしました")
 
         # 更新ヘルパーの起動確認: GUI が 2 秒生存したら成功マーカーを書く
         self._root.after(2000, write_startup_marker)
@@ -613,8 +765,7 @@ class WorkerGUI:
     def _on_task_state_changed(self, state: str, job_type: str = "",
                                 total: int = 0, errors: int = 0):
         """Consumer から別スレッドで呼ばれるタスク状態変化コールバック"""
-        msg = task_state_text(state, job_type, total, errors)
-        self._root.after(0, lambda: self._status_var.set(msg))
+        self._post(self._set_status_if_running, task_state_text(state, job_type, total, errors))
 
     def _check_rollback_marker_after_ready(self) -> None:
         """前回アップデートがロールバックされた場合、ユーザーに通知し再試行を抑止する。
@@ -695,21 +846,23 @@ class WorkerGUI:
         self._snooze.clear()
 
     def _is_auto_update_enabled(self) -> bool:
-        """auto_update 設定が有効か (Linux CLI 版では常に False = 従来挙動)。"""
-        return bool(getattr(self, "_auto_update_var", None)) and bool(
-            self._auto_update_var.get()
-        )
+        """auto_update 設定が有効か (メインスレッドで呼ぶ。Linux では常に False)。"""
+        var = getattr(self, "_auto_update_var", None)
+        return var is not None and bool(var.get())
 
     def _on_update_detected(self, new_version: str):
-        """Consumer から呼ばれる (別スレッド)。
+        """Consumer・GitHub の確認から呼ばれる (別スレッド)。判断はメインスレッドで行う"""
+        self._post(self._handle_update_detected, new_version)
+
+    def _handle_update_detected(self, new_version: str):
+        """新版を知った (メインスレッド)。
 
         - 常にアップデートボタンは表示する
         - auto_update 有効: 5秒カウントダウン → 自動アップデート (キャンセル可)
         - auto_update 無効: 従来通り確認ダイアログ
         - snooze 中のバージョンはポップアップ/カウントダウンをスキップ (ボタンは残す)
         """
-        # UI スレッドで "⬆ アップデート" ボタン表示
-        self._root.after(0, lambda: self._show_update_button(new_version))
+        self._show_update_button(new_version)
 
         # 既にこのバージョンで重複プロンプトを抑制
         if getattr(self, "_update_prompted_version", None) == new_version:
@@ -721,9 +874,9 @@ class WorkerGUI:
         if kind is None:
             logging.info("アップデート v%s は snooze 期間中のためプロンプトを抑制", new_version)
         elif kind == "countdown":
-            self._root.after(0, lambda: self._prompt_auto_update_countdown(new_version))
+            self._prompt_auto_update_countdown(new_version)
         else:
-            self._root.after(0, lambda: self._prompt_update(new_version))
+            self._prompt_update(new_version)
 
     def _show_update_button(self, new_version: str):
         """メインGUIにアップデートボタンを表示する"""
@@ -775,81 +928,12 @@ class WorkerGUI:
             logging.warning("このプラットフォームはアップデート非対応")
             return
 
-        win = tk.Toplevel(self._root)
-        win.title("自動アップデート")
-        win.geometry("420x160")
-        win.resizable(False, False)
-        win.transient(self._root)
-        try:
-            win.grab_set()
-        except tk.TclError:
-            pass
-
-        countdown = [5]
-        cancelled = [False]
-
-        ttk.Label(
-            win,
-            text=f"新しいバージョン v{new_version} が利用可能です",
-            font=("", 10, "bold"),
-        ).pack(pady=(15, 4))
-        ttk.Label(
-            win,
-            text=f"現在: v{__version__}",
-            font=("", 9),
-        ).pack(pady=(0, 10))
-        msg_var = tk.StringVar(value=f"{countdown[0]} 秒後に自動でアップデートします...")
-        ttk.Label(win, textvariable=msg_var, font=("", 10)).pack(pady=(0, 8))
-
-        btn_frame = ttk.Frame(win)
-        btn_frame.pack(pady=(0, 10))
-
-        def do_now():
-            """即座にアップデート開始"""
-            try:
-                win.grab_release()
-            except Exception:
-                pass
-            win.destroy()
+        def start():
             self._clear_snooze()
             self._start_update(new_version, download_url)
 
-        def do_skip():
-            """今回はキャンセル (snooze)"""
-            cancelled[0] = True
-            try:
-                win.grab_release()
-            except Exception:
-                pass
-            win.destroy()
-            self._set_snooze(new_version)
-
-        ttk.Button(btn_frame, text="今すぐ", command=do_now).pack(side="left", padx=5)
-        ttk.Button(
-            btn_frame, text=f"スキップ ({SNOOZE_DURATION_HOURS}h)", command=do_skip
-        ).pack(side="left", padx=5)
-
-        def tick():
-            if cancelled[0]:
-                return
-            countdown[0] -= 1
-            if countdown[0] <= 0:
-                # 自動実行
-                try:
-                    win.grab_release()
-                except Exception:
-                    pass
-                try:
-                    win.destroy()
-                except Exception:
-                    pass
-                self._clear_snooze()
-                self._start_update(new_version, download_url)
-                return
-            msg_var.set(f"{countdown[0]} 秒後に自動でアップデートします...")
-            self._root.after(1000, tick)
-
-        self._root.after(1000, tick)
+        CountdownDialog(self._root, new_version, on_update=start,
+                        on_skip=lambda: self._set_snooze(new_version))
 
     def _start_update(self, new_version: str, download_url: str) -> None:
         """進捗ダイアログを表示してダウンロード開始 (UI スレッドから呼ぶ)。"""
@@ -863,35 +947,55 @@ class WorkerGUI:
             target=self._do_update, args=(new_version, download_url), daemon=True,
         ).start()
 
+    # 進捗ダイアログの更新 (_do_update のスレッドから呼ばれる → メインスレッドへ)
     def _update_dialog_status(self, text: str) -> None:
-        """_do_update スレッドから UI スレッド経由で進捗ダイアログのステータスを更新"""
-        dlg = self._update_progress_dialog
-        if dlg is None:
-            return
-        self._root.after(0, lambda: dlg.set_status(text))
+        self._post(self._with_dialog, "set_status", text)
 
     def _update_dialog_progress(self, percent: float, detail: str = "") -> None:
-        dlg = self._update_progress_dialog
-        if dlg is None:
-            return
-        self._root.after(0, lambda: dlg.set_progress(percent, detail))
+        self._post(self._with_dialog, "set_progress", percent, detail)
 
     def _update_dialog_indeterminate(self, detail: str = "") -> None:
+        self._post(self._with_dialog, "set_indeterminate", detail)
+
+    def _with_dialog(self, method: str, *args) -> None:
         dlg = self._update_progress_dialog
-        if dlg is None:
-            return
-        self._root.after(0, lambda: dlg.set_indeterminate(detail))
+        if dlg is not None:
+            getattr(dlg, method)(*args)
 
     def _close_update_dialog(self) -> None:
+        self._post(self._close_update_dialog_now)
+
+    def _close_update_dialog_now(self) -> None:
         dlg = self._update_progress_dialog
         self._update_progress_dialog = None
-        if dlg is None:
+        if dlg is not None:
+            dlg.close()
+
+    def _show_update_error(self, message: str) -> None:
+        messagebox.showerror("アップデート失敗", f"アップデートに失敗しました:\n{message}")
+
+    def _stop_worker_for_update(self) -> None:
+        """更新の前に Worker を止めて終わるまで待つ (メインスレッドの外で呼ぶ)。
+
+        処理中のタスクは結果を書いてから止まる。UPDATE_GRACEFUL_SEC で終わらなければ中断する。
+        """
+        runner = self._runner
+        if runner is None or not runner.is_alive():
             return
-        self._root.after(0, dlg.close)
+        self._update_dialog_status("Worker を停止中 (処理中のタスクを終えています)...")
+        self._post(self._on_stop)
+        if not runner.stop_and_join(UPDATE_GRACEFUL_SEC, 15.0):
+            # 止まらなくても続ける (os._exit で終わる。heartbeat の lock は次の起動が回収する)
+            logging.warning("Worker が止まらないまま更新を続けます")
 
     def _do_update(self, new_version: str, download_url: str):
-        """新exeをダウンロードし、ヘルパースクリプト経由で置き換え → 再起動"""
+        """新exeをダウンロードし、ヘルパースクリプト経由で置き換え → 再起動 (別スレッド)"""
         try:
+            if not getattr(sys, 'frozen', False):
+                logging.warning("開発環境ではアップデート不可")
+                self._close_update_dialog()
+                return
+            current_exe = Path(sys.executable)
             logging.info("アップデート v%s をダウンロード中...", new_version)
             self._update_dialog_status("ダウンロード中...")
             self._update_dialog_indeterminate("新しいバージョンを取得しています")
@@ -913,31 +1017,8 @@ class WorkerGUI:
             logging.info("ダウンロード完了: %s (%.1f MB)", new_exe, size_mb)
             self._update_dialog_progress(100, f"ダウンロード完了 ({size_mb:.1f} MB)")
 
-            # Worker停止 (停止処理自体を別スレッドに逃がし UI ブロックを回避)
-            if self._worker_running:
-                self._update_dialog_status("Worker を停止中...")
-                stop_done = threading.Event()
+            self._stop_worker_for_update()
 
-                def _stop_async():
-                    try:
-                        # ウィジェット更新と after(500, ...) の予約は Tk スレッドで行う
-                        self._root.after(0, self._on_stop)
-                    except Exception as e:
-                        logging.debug("停止処理エラー (無視): %s", e)
-                    finally:
-                        stop_done.set()
-
-                threading.Thread(target=_stop_async, daemon=True).start()
-                # 最大 15 秒まで停止完了を待つ (進捗ダイアログが動き続ける)
-                stop_done.wait(timeout=15.0)
-
-            # 現在のexeのパス
-            if getattr(sys, 'frozen', False):
-                current_exe = Path(sys.executable)
-            else:
-                logging.warning("開発環境ではアップデート不可")
-                self._close_update_dialog()
-                return
             self._update_dialog_status("差し替えスクリプトを起動中...")
             updater.launch_update_helper(
                 base=base, current_exe=current_exe, new_exe=new_exe, new_version=new_version)
@@ -945,15 +1026,13 @@ class WorkerGUI:
             logging.info("アップデータを起動しました。まもなく再起動します")
             self._update_dialog_status("再起動中...")
             self._update_dialog_progress(100, "ヘルパースクリプトに引き継ぎました")
-            # 1秒後に強制終了 → exe ファイルロック解放 → bat が move 成功
-            self._root.after(1000, self._quit_for_update)
+            # 少し後に強制終了 → exe ファイルロック解放 → bat が move 成功
+            time.sleep(1.0)
+            self._post(self._quit_for_update)
         except Exception as e:
             logging.exception("アップデート失敗")
             self._close_update_dialog()
-            msg = str(e)
-            self._root.after(0, lambda m=msg: messagebox.showerror(
-                "アップデート失敗", f"アップデートに失敗しました:\n{m}"
-            ))
+            self._post(self._show_update_error, str(e))
 
     def _on_unmap(self, event=None):
         """<Unmap>イベント発生時、最小化されていればトレイに格納する"""

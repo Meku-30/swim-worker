@@ -68,18 +68,35 @@ def test_gui_loads_and_saves_redis_username(gui):
         app._root.destroy()
 
 
-@pytest.mark.parametrize("username", ["", "worker-tester"])
-def test_gui_start_accepts_empty_or_set_username(gui, monkeypatch, username):
-    """ユーザー名は空でも起動できる (移行前の .env と互換)。値は Worker の設定に渡る"""
-    _write_env(gui, username)
+def test_gui_start_requires_redis_username(gui, monkeypatch):
+    """Redis のユーザー名は必須 (default ユーザーはサーバー側で使えなくなった)"""
+    _write_env(gui, "")
+    errors = []
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda *a, **kw: errors.append(a))
+    started = []
+    monkeypatch.setattr(gui.WorkerRunner, "start", lambda self: started.append(1))
+    app = gui.WorkerGUI()
+    try:
+        app._entries["worker_name"].insert(0, "tester")
+        app._on_start()
+        assert started == []
+        assert len(errors) == 1 and "Redis ユーザー名" in errors[0][1]
+    finally:
+        app._root.destroy()
+
+
+def test_gui_start_passes_username(gui, monkeypatch):
+    _write_env(gui, "worker-tester")
     errors = []
     monkeypatch.setattr(gui.messagebox, "showerror", lambda *a, **kw: errors.append(a))
     monkeypatch.setattr(gui.WorkerRunner, "start", lambda self: None)
     app = gui.WorkerGUI()
     try:
+        app._entries["worker_name"].insert(0, "tester")
         app._on_start()
         assert errors == []
-        assert app._worker_settings["redis_username"] == username
+        assert app._worker_settings["redis_username"] == "worker-tester"
+        assert app._worker_running is True
     finally:
         app._root.destroy()
 
@@ -263,5 +280,153 @@ def test_passwords_are_not_stripped_when_starting(gui, monkeypatch):
         assert app._worker_settings["swim_password"] == " p a ss "
         app2_fields, _ = app._store.load()
         assert app2_fields["swim_password"] == " p a ss "
+    finally:
+        app._root.destroy()
+
+
+# --- スレッド (W2-3)・停止 (W2-4)・終了時の UI (W2-6) ---
+
+def _forbid_tk_from_other_threads(app, monkeypatch):
+    """メインスレッド以外から Tk (after・変数の get/set) を触ったら記録する"""
+    import threading
+    main = threading.get_ident()
+    bad = []
+    orig_after = app._root.after
+
+    def after(*a, **kw):
+        if threading.get_ident() != main:
+            bad.append(("after", a))
+        return orig_after(*a, **kw)
+    monkeypatch.setattr(app._root, "after", after)
+    for var in (app._status_var, app._autoconnect_var, getattr(app, "_auto_update_var", None)):
+        if var is None:
+            continue
+        for name in ("get", "set"):
+            orig = getattr(var, name)
+
+            def wrapped(*a, _orig=orig, _name=name, **kw):
+                if threading.get_ident() != main:
+                    bad.append((_name, a))
+                return _orig(*a, **kw)
+            monkeypatch.setattr(var, name, wrapped)
+    return bad
+
+
+def _in_thread(fn, *args):
+    import threading
+    t = threading.Thread(target=fn, args=args)
+    t.start()
+    t.join(5)
+
+
+def test_worker_callbacks_do_not_touch_tk_from_other_threads(gui, monkeypatch):
+    import logging
+    import tkinter as tk
+    app = gui.WorkerGUI()
+    try:
+        app._auto_update_var = tk.BooleanVar(master=app._root, value=False)
+        prompts = []
+        monkeypatch.setattr(app, "_prompt_update", lambda v: prompts.append(v))
+        app._worker_running = True
+        bad = _forbid_tk_from_other_threads(app, monkeypatch)
+        _in_thread(app._on_worker_status, "● 接続中 (タスク待ち)")
+        _in_thread(app._on_task_state_changed, "processing", "collect_notams")
+        _in_thread(app._on_update_detected, "9.9.9")
+        _in_thread(logging.info, "スレッドからのログ")
+        assert bad == []
+        app._drain_ui_queue()
+        assert app._status_var.get() == "● 実行中: NOTAM収集"
+        assert prompts == ["9.9.9"]
+        assert "スレッドからのログ" in app._log_text.get("1.0", "end")
+    finally:
+        app._root.destroy()
+
+
+@pytest.mark.parametrize("outcome,status_part,tray", [
+    ("error", "エラー", "red"),
+    ("auth_error", "Redis 認証エラー", "red"),
+    ("duplicate", "重複起動", "red"),
+    ("stopped", "停止中", "gray"),
+])
+def test_worker_finished_resets_ui(gui, monkeypatch, outcome, status_part, tray):
+    _write_env(gui, "worker-tester")
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda *a, **kw: None)
+    monkeypatch.setattr(gui.WorkerRunner, "start", lambda self: None)
+    app = gui.WorkerGUI()
+    try:
+        app._entries["worker_name"].insert(0, "tester")
+        app._on_start()
+        assert app._worker_running and app._tray_color == "green"
+        _in_thread(app._on_worker_finished, outcome, "msg")
+        app._drain_ui_queue()
+        assert app._worker_running is False
+        assert status_part in app._status_var.get()
+        assert app._tray_color == tray
+        assert str(app._start_btn.cget("state")) == "normal"
+        assert str(app._stop_btn.cget("state")) == "disabled"
+        assert all(str(e.cget("state")) == "normal" for e in app._entries.values())
+    finally:
+        app._root.destroy()
+
+
+class _FakeRunner:
+    def __init__(self):
+        import threading
+        self.calls = []
+        self.alive = True
+        self.main = threading.get_ident()
+
+    def is_alive(self):
+        return self.alive
+
+    def request_stop(self, graceful=True):
+        self.calls.append(("request_stop", graceful))
+
+    def stop_and_join(self, graceful_timeout=30.0, hard_timeout=10.0):
+        import threading
+        self.calls.append(("stop_and_join", threading.get_ident() != self.main))
+        self.alive = False
+        return True
+
+
+def test_force_quit_waits_for_worker_outside_ui_thread(gui):
+    import time
+    app = gui.WorkerGUI()
+    runner = _FakeRunner()
+    app._runner = runner
+    app._worker_running = True
+    app._force_quit()
+    # まだ壊していない (Worker の停止を待つ)
+    assert app._root.winfo_exists()
+    deadline = time.monotonic() + 5
+    while not app._closed and time.monotonic() < deadline:
+        app._root.update()
+        time.sleep(0.01)
+    assert app._closed
+    assert ("stop_and_join", True) in runner.calls
+
+
+def test_stop_button_requests_graceful_stop(gui):
+    app = gui.WorkerGUI()
+    try:
+        runner = _FakeRunner()
+        app._runner = runner
+        app._set_ui_running(True)
+        app._on_stop()
+        assert runner.calls == [("request_stop", True)]
+        assert "停止処理中" in app._status_var.get()
+        assert str(app._stop_btn.cget("state")) == "disabled"
+    finally:
+        app._root.destroy()
+
+
+def test_update_stops_worker_with_join_outside_ui_thread(gui, monkeypatch):
+    app = gui.WorkerGUI()
+    try:
+        runner = _FakeRunner()
+        app._runner = runner
+        app._set_ui_running(True)
+        _in_thread(app._stop_worker_for_update)
+        assert ("stop_and_join", True) in runner.calls
     finally:
         app._root.destroy()

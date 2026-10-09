@@ -111,9 +111,9 @@ class SnoozeStore:
 
 
 def cleanup_stale_update_files(base: Path, now_ts: float | None = None) -> None:
-    """3 日以上古い `*.old` / `*.new` / `*.new.exe` を削除 (起動時の軽量ハウスキープ)"""
+    """3 日以上古い `*.old` / `*.new` / `*.new.exe` / `*.part` を削除 (起動時の軽量ハウスキープ)"""
     now_ts = datetime.now().timestamp() if now_ts is None else now_ts
-    for pattern in ("*.old", "*.new", "*.new.exe"):
+    for pattern in ("*.old", "*.new", "*.new.exe", "*.part"):
         for f in base.glob(pattern):
             try:
                 if now_ts - f.stat().st_mtime > STALE_UPDATE_FILE_SEC:

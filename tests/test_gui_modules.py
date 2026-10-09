@@ -505,3 +505,30 @@ class TestWorkerRunnerRetry:
         r.request_stop()
         assert r.join(5)
         assert finished == [worker_runner.STOPPED]
+
+
+class TestValidateFields:
+    OK = {"redis_host": "h", "redis_username": "w", "redis_password": " ",
+          "swim_username": "u", "swim_password": "p", "worker_name": "tester"}
+
+    def test_ok(self):
+        assert gui_helpers.validate_fields(self.OK) is None
+
+    def test_username_required(self):
+        msg = gui_helpers.validate_fields({**self.OK, "redis_username": "  "})
+        assert msg and "Redis ユーザー名" in msg
+
+    def test_empty_password(self):
+        assert "SWIM パスワード" in gui_helpers.validate_fields({**self.OK, "swim_password": ""})
+
+    def test_bad_worker_name(self):
+        assert "Worker 名" in gui_helpers.validate_fields({**self.OK, "worker_name": "田中"})
+
+
+def test_cleanup_removes_stale_partial_downloads(tmp_path):
+    part = tmp_path / "swim-worker-gui.new.exe.part"
+    part.write_bytes(b"x")
+    old = time.time() - 4 * 24 * 3600
+    os.utime(part, (old, old))
+    updater.cleanup_stale_update_files(tmp_path)
+    assert not part.exists()
