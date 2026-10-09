@@ -12,9 +12,10 @@ Type=oneshot
 # install.sh --auto は以下を行う:
 #   1. GitHub /releases/latest と .version を比較 → 同じなら即 exit
 #   2. opt-out ファイル / Redis kill switch / whitelist / major-skip のガード
-#   3. 新バイナリ DL + SHA256 検証
+#   3. 調べたタグに固定して新バイナリ DL + SHA256 検証
 #   4. 旧バイナリをバックアップ → install → systemctl restart swim-worker
-#   5. 60秒後に is-active + NRestarts チェック、失敗ならロールバック
+#   5. 新版が起動成功マーカー (data/.startup_ok) を書くのを最大 120 秒待つ。
+#      書かなければロールバック (旧版も起動しなければ環境の問題として次回再試行)
 ExecStart=/usr/bin/env bash -c '\
     set -e; \
     TMP=$(mktemp); \
@@ -25,8 +26,8 @@ ExecStart=/usr/bin/env bash -c '\
     bash "$TMP" --auto \
 '
 
-# update 処理中のタイムアウト (DL + 60秒検証 + ロールバック余裕)
-TimeoutStartSec=600
+# update 処理中のタイムアウト (DL + 停止待ち最大 90 秒 + 起動確認 120 秒、ロールバック時はその 2 倍)
+TimeoutStartSec=900
 
 # 失敗しても swim-worker 本体の稼働は維持したい (exit 1 でも alarm 出さない)
 SuccessExitStatus=0 1
