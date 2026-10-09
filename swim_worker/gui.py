@@ -1,30 +1,27 @@
 """SWIM Worker GUI"""
-import asyncio
 import base64
 import io
-import json
 import logging
 import os
-import subprocess
 import sys
 import threading
 import tkinter as tk
-from datetime import datetime, timedelta, timezone
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 
-import redis.exceptions
-
 from swim_worker import __version__
-from swim_worker.update_check import check_update_without_redis
+from swim_worker import autostart, updater
 from swim_worker.gui_helpers import (
-    build_macos_update_script,
-    build_windows_update_script,
     next_rollback_state,
-    pyinstaller_clean_env,
+    task_state_text,
+    update_prompt_kind,
     write_startup_marker,
 )
 from swim_worker.icon import create_icon
+from swim_worker.settings_store import (
+    load_env, save_env, set_auto_connect, load_json as _load_json, save_json as _save_json,
+)
+from swim_worker.worker_runner import WorkerRunner, DUPLICATE, AUTH_ERROR
 
 # System tray support (Windows + macOS)
 # 実際の描画は swim_worker.icon.create_icon に委譲するため、ここでは pystray の有無だけ判定。
@@ -48,10 +45,9 @@ def _get_base_dir() -> Path:
 ENV_PATH = _get_base_dir() / ".env"
 # 空でも起動できる設定欄 (Redis ユーザー名は空なら default ユーザーで認証する)
 OPTIONAL_FIELDS = {"redis_username"}
-CA_CERT_PATH = _get_base_dir() / "ca.crt"
 GUI_SETTINGS_PATH = _get_base_dir() / "data" / "gui_settings.json"
 UPDATE_SNOOZE_PATH = _get_base_dir() / "data" / "update_snooze.json"
-SNOOZE_DURATION_HOURS = 24
+SNOOZE_DURATION_HOURS = updater.SNOOZE_DURATION_HOURS
 
 
 class UpdateProgressDialog:
@@ -119,25 +115,6 @@ class UpdateProgressDialog:
             pass
 
 
-def _load_json(path: Path) -> dict:
-    """JSON ファイル読み込み (存在しない/壊れていれば空 dict)"""
-    if not path.exists():
-        return {}
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logging.debug("設定ファイル読み込み失敗 %s: %s", path, e)
-        return {}
-
-
-def _save_json(path: Path, data: dict) -> None:
-    """JSON ファイル書き込み (親ディレクトリ作成込み)"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
 class TextHandler(logging.Handler):
     """ログをtkinter Textウィジェットに表示するハンドラー"""
     def __init__(self, text_widget: scrolledtext.ScrolledText):
@@ -166,15 +143,11 @@ class WorkerGUI:
         self._root.minsize(420, 400)
         self._root.resizable(True, True)
 
-        self._worker_thread: threading.Thread | None = None
+        self._runner: WorkerRunner | None = None
         self._worker_running = False
-        self._consumer = None
-        # ワーカースレッドの asyncio ループ (停止要求をスレッドセーフに渡すため保持)
-        self._worker_loop: asyncio.AbstractEventLoop | None = None
-        # _main() を包む Task (停止時に call_soon_threadsafe(task.cancel) で中断する)
-        self._worker_task: asyncio.Task | None = None
         # GUI 設定 (auto_update 等) と snooze 情報を永続化
         self._gui_settings: dict = _load_json(GUI_SETTINGS_PATH)
+        self._snooze = updater.SnoozeStore(UPDATE_SNOOZE_PATH)
         self._update_progress_dialog: UpdateProgressDialog | None = None
         # 古いアップデート関連ファイルを掃除 (3 日超過の .old / .new、期限切れ snooze)
         self._cleanup_stale_update_files()
@@ -407,63 +380,24 @@ class WorkerGUI:
 
     def _load_env(self):
         """既存の.envから設定を読み込む"""
-        env_map = {
-            "REDIS_HOST": "redis_host",
-            "REDIS_USERNAME": "redis_username",
-            "REDIS_PASSWORD": "redis_password",
-            "SWIM_USERNAME": "swim_username",
-            "SWIM_PASSWORD": "swim_password",
-            "WORKER_NAME": "worker_name",
-        }
-        if not ENV_PATH.exists():
-            return
-        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip()
-            if key == "AUTO_CONNECT":
-                self._autoconnect_var.set(value.lower() == "true")
-                continue
-            field = env_map.get(key)
-            if field and field in self._entries:
+        fields, auto_connect = load_env(ENV_PATH)
+        if auto_connect is not None:
+            self._autoconnect_var.set(auto_connect)
+        for field, value in fields.items():
+            if field in self._entries:
                 self._entries[field].delete(0, tk.END)
                 self._entries[field].insert(0, value)
 
     def _save_env(self):
         """設定を.envに保存"""
-        env_map = {
-            "redis_host": "REDIS_HOST",
-            "redis_username": "REDIS_USERNAME",
-            "redis_password": "REDIS_PASSWORD",
-            "swim_username": "SWIM_USERNAME",
-            "swim_password": "SWIM_PASSWORD",
-            "worker_name": "WORKER_NAME",
-        }
-        lines = []
-        for field, env_key in env_map.items():
-            value = self._entries[field].get().strip()
-            lines.append(f"{env_key}={value}")
-
-        # 固定値
-        lines.append("REDIS_PORT=6380")
-
-        # 自動接続設定
-        lines.append(f"AUTO_CONNECT={'true' if self._autoconnect_var.get() else 'false'}")
-
-        ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        fields = {k: e.get() for k, e in self._entries.items()}
+        save_env(ENV_PATH, fields, bool(self._autoconnect_var.get()))
         logging.info("設定を保存しました")
 
     def _save_autoconnect(self):
         """自動接続チェックボックス変更時に.envを更新"""
-        if not ENV_PATH.exists():
+        if not set_auto_connect(ENV_PATH, bool(self._autoconnect_var.get())):
             return
-        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
-        new_lines = [l for l in lines if not l.strip().startswith("AUTO_CONNECT=")]
-        new_lines.append(f"AUTO_CONNECT={'true' if self._autoconnect_var.get() else 'false'}")
-        ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
         state = "有効" if self._autoconnect_var.get() else "無効"
         logging.info("自動接続を%sにしました", state)
 
@@ -506,8 +440,7 @@ class WorkerGUI:
             messagebox.showerror("エラー", WORKER_NAME_RULE_MESSAGE)
             return
 
-        thread = self._worker_thread
-        if thread is not None and thread.is_alive():
+        if self._runner is not None and self._runner.is_alive():
             messagebox.showinfo("停止処理中", "前回の停止処理が完了していません。しばらく待ってから再度押してください。")
             return
 
@@ -533,39 +466,30 @@ class WorkerGUI:
         self._worker_running = True
         if _HAS_TRAY and self._tray_icon:
             self._tray_icon.icon = create_icon(color="green", size=64)
-        self._worker_thread = threading.Thread(target=self._run_worker, daemon=True)
-        self._worker_thread.start()
+        self._runner = WorkerRunner(
+            self._worker_settings,
+            on_status=self._on_worker_status,
+            on_finished=self._on_worker_finished,
+            on_update_available=self._on_update_detected,
+            on_task_state=self._on_task_state_changed,
+        )
+        self._runner.start()
 
     def _on_stop(self):
         """Worker停止 (consumer 生成前の Redis リトライ中でも中断できる)"""
-        # 先にフラグを落とす。_run_worker 側は create_task 直後にこのフラグを見て、
-        # ループ/Task ができる前に停止が押されていた場合は自分で cancel する (両側で競合を閉じる)
         self._worker_running = False
-        loop = self._worker_loop
-        if loop is not None and not loop.is_closed():
-            # Task.cancel はスレッドセーフでないためループのスレッドで実行する。
-            # まだ run_until_complete 前でもキューに積まれ、ループ開始時に処理される。
-            # consumer.run() 内なら CancelledError で heartbeat/consume が止まり finally が走る
-            try:
-                loop.call_soon_threadsafe(self._cancel_worker_task)
-            except RuntimeError:
-                pass  # ループ終了済み
+        if self._runner is not None:
+            self._runner.request_stop()
         if _HAS_TRAY and self._tray_icon:
             self._tray_icon.icon = create_icon(color="gray", size=64)
         self._status_var.set("停止処理中...")
         self._stop_btn.configure(state="disabled")
         self._root.after(500, self._poll_worker_stopped)
 
-    def _cancel_worker_task(self):
-        """ワーカー Task をキャンセルする (ループのスレッドで実行される)"""
-        t = self._worker_task
-        if t is not None and not t.done():
-            t.cancel()
-
     def _poll_worker_stopped(self):
         """ワーカースレッドの終了を待ってから UI を起動可能に戻す"""
-        thread = self._worker_thread
-        if thread is not None and thread.is_alive():
+        runner = self._runner
+        if runner is not None and runner.is_alive():
             self._root.after(500, self._poll_worker_stopped)
             return
         self._status_var.set("停止中")
@@ -574,164 +498,44 @@ class WorkerGUI:
             entry.configure(state="normal")
         logging.info("Worker停止")
 
-    def _run_worker(self):
-        """ワーカーを別スレッドで実行"""
-        from swim_worker.config import Settings
-        from swim_worker.redis_client import create_redis_client
-        from swim_worker.auth import SwimClient
-        from swim_worker.consumer import TaskConsumer, DuplicateWorkerError
+    def _on_worker_status(self, text: str):
+        """WorkerRunner から (Worker のスレッドで) 呼ばれる"""
+        self._root.after(0, lambda: self._status_var.set(text))
 
-        async def _main():
-            swim_client = None
-            redis_client = None
-            try:
-                # UIスレッドでコピー済みの値を使用 (os.environ には書かず直接構築する)
-                ws = self._worker_settings
-                settings = Settings(
-                    _env_file=None,
-                    redis_host=ws["redis_host"], redis_port=6380,
-                    redis_username=ws["redis_username"],
-                    redis_password=ws["redis_password"], redis_ca_cert="",
-                    swim_username=ws["swim_username"], swim_password=ws["swim_password"],
-                    worker_name=ws["worker_name"],
-                )
-                # CLI と同じファクトリを使う (client_name 等の設定漏れ防止)
-                redis_client = create_redis_client(settings)
-
-                # Redis接続を指数バックオフでリトライ (最大10回)
-                delay = 1.0
-                connected = False
-                for attempt in range(1, 11):
-                    try:
-                        await redis_client.ping()
-                        logging.info("Redis接続成功 (%d回目)", attempt)
-                        connected = True
-                        break
-                    except Exception as e:
-                        # 認証の失敗は待っても直らないので再試行しない (下の except で GitHub の最新版を確認)
-                        if attempt == 10 or isinstance(e, redis.exceptions.AuthenticationError):
-                            raise
-                        logging.warning("Redis接続失敗 (%d/10)、%.1f秒後にリトライ: %s",
-                            attempt, delay, e)
-                        self._root.after(0, lambda a=attempt: self._status_var.set(
-                            f"再試行中 ({a}/10)"))
-                        await asyncio.sleep(delay)
-                        delay = min(delay * 2, 30.0)
-                if not connected:
-                    raise RuntimeError("Redis接続失敗")
-                self._root.after(0, lambda: self._status_var.set("● 接続中 (タスク待ち)"))
-
-                swim_client = SwimClient(
-                    username=settings.swim_username,
-                    password=settings.swim_password,
-                    cookie_file=settings.cookie_file,
-                )
-
-                self._consumer = TaskConsumer(
-                    redis_client=redis_client,
-                    swim_client=swim_client,
-                    worker_name=settings.worker_name,
-                    heartbeat_interval=settings.heartbeat_interval,
-                    request_delay_median=settings.request_delay_median,
-                    request_delay_p99=settings.request_delay_p99,
-                    request_delay_clip_min=settings.request_delay_clip_min,
-                    request_delay_clip_max=settings.request_delay_clip_max,
-                    task_hard_timeout=settings.task_hard_timeout,
-                    blpop_timeout=settings.redis_blpop_timeout,
-                    on_update_available=self._on_update_detected,
-                    on_task_state=self._on_task_state_changed,
-                )
-
-                await self._consumer.run()
-
-            except DuplicateWorkerError as e:
-                # 同じ worker_name の別プロセス/別マシンが稼働中
-                logging.error("重複起動検知: %s", e)
-                msg = str(e)
-                self._root.after(0, lambda m=msg: messagebox.showerror(
-                    "SWIM Worker - 重複起動",
-                    f"同じ Worker 名 '{self._worker_settings['worker_name']}' で"
-                    f"別のプロセスが稼働中のため起動できません。\n\n"
-                    f"考えられる原因:\n"
-                    f"  • 他の PC や VPS で同名ワーカーが動いている\n"
-                    f"  • 前回クラッシュ時の古い heartbeat が残っている\n"
-                    f"    (数分で自動解放されます)\n\n"
-                    f"別の worker_name を設定するか、もう一方を停止してください。",
-                ))
-                self._root.after(0, lambda: self._status_var.set("重複起動エラー"))
-                self._root.after(0, lambda: self._start_btn.configure(state="normal"))
-                self._root.after(0, lambda: self._stop_btn.configure(state="disabled"))
-                self._worker_running = False
-                if _HAS_TRAY and self._tray_icon:
-                    self._tray_icon.icon = create_icon(color="red", size=64)
-                for entry in self._entries.values():
-                    self._root.after(0, lambda e=entry: e.configure(state="normal"))
-            except asyncio.CancelledError:
-                # _on_stop からの停止要求。UI の復帰は _poll_worker_stopped が行う
-                logging.info("Worker 停止要求を受け付けました")
-            except Exception as e:
-                logging.error("エラー: %s", e)
-                auth_failed = isinstance(
-                    e, (redis.exceptions.AuthenticationError, redis.exceptions.NoPermissionError))
-                status = "Redis 認証エラー (設定欄のユーザー名・パスワードを確認)" if auth_failed else "エラー"
-                self._root.after(0, lambda s=status: self._status_var.set(s))
-                if auth_failed:
-                    # Redis に入れないと Coordinator 経由の更新通知が届かないので、GitHub で確かめる
-                    try:
-                        await asyncio.to_thread(
-                            check_update_without_redis, __version__, self._on_update_detected)
-                    except Exception as ue:
-                        logging.warning("GitHub での更新確認に失敗: %s", ue)
-                self._root.after(0, lambda: self._start_btn.configure(state="normal"))
-                self._root.after(0, lambda: self._stop_btn.configure(state="disabled"))
-                for entry in self._entries.values():
-                    self._root.after(0, lambda e=entry: e.configure(state="normal"))
-            finally:
-                if swim_client is not None:
-                    try:
-                        await swim_client.close()
-                    except Exception as e:
-                        logging.debug("SwimClient close 失敗 (無視): %s", e)
-                if redis_client is not None:
-                    try:
-                        await redis_client.aclose()
-                    except Exception as e:
-                        logging.debug("Redis close 失敗 (無視): %s", e)
-                self._consumer = None
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        self._worker_loop = loop  # _on_stop から見えるよう create_task より前に公開する
-        try:
-            self._worker_task = loop.create_task(_main())
-            # _on_stop は _worker_running を落としてから call_soon_threadsafe するので、
-            # ここでフラグが False なら「Task 生成前に停止が押された」と判断して自分で cancel する
-            # (_on_stop 側の call_soon_threadsafe と合わせ、どちらのタイミングでも取りこぼさない)
-            if not self._worker_running:
-                self._worker_task.cancel()  # 起動前に停止が押された場合
-            loop.run_until_complete(self._worker_task)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error("予期しないエラー: %s", e)
-        finally:
-            self._worker_task = None
-            if self._worker_loop is loop:
-                self._worker_loop = None
-            loop.close()
+    def _on_worker_finished(self, outcome: str, message: str):
+        """WorkerRunner から (Worker のスレッドで) 呼ばれる。停止要求以外の終わり方"""
+        if outcome == DUPLICATE:
+            # 同じ worker_name の別プロセス/別マシンが稼働中
+            self._root.after(0, lambda m=message: messagebox.showerror(
+                "SWIM Worker - 重複起動",
+                f"同じ Worker 名 '{self._worker_settings['worker_name']}' で"
+                f"別のプロセスが稼働中のため起動できません。\n\n"
+                f"考えられる原因:\n"
+                f"  • 他の PC や VPS で同名ワーカーが動いている\n"
+                f"  • 前回クラッシュ時の古い heartbeat が残っている\n"
+                f"    (数分で自動解放されます)\n\n"
+                f"別の worker_name を設定するか、もう一方を停止してください。",
+            ))
+            self._root.after(0, lambda: self._status_var.set("重複起動エラー"))
+            self._worker_running = False
+            if _HAS_TRAY and self._tray_icon:
+                self._tray_icon.icon = create_icon(color="red", size=64)
+        else:
+            status = ("Redis 認証エラー (設定欄のユーザー名・パスワードを確認)"
+                      if outcome == AUTH_ERROR else "エラー")
+            self._root.after(0, lambda s=status: self._status_var.set(s))
+        self._root.after(0, lambda: self._start_btn.configure(state="normal"))
+        self._root.after(0, lambda: self._stop_btn.configure(state="disabled"))
+        for entry in self._entries.values():
+            self._root.after(0, lambda e=entry: e.configure(state="normal"))
 
     # --- 自動起動 (Windows / macOS) ---
     def _get_startup_path(self) -> Path:
         """プラットフォーム別の自動起動ファイルパス"""
-        if sys.platform == "darwin":
-            return Path.home() / "Library" / "LaunchAgents" / "org.swim-worker.plist"
-        startup = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
-        return startup / "SWIM Worker.bat"
+        return autostart.startup_path()
 
     def _check_autostart(self) -> bool:
-        if sys.platform not in ("win32", "darwin"):
-            return False
-        return self._get_startup_path().exists()
+        return autostart.is_enabled()
 
     def _sync_autostart_path(self):
         """自動起動ファイル内のexeパスが現在のパスと異なる場合、自動で書き直す。
@@ -739,24 +543,13 @@ class WorkerGUI:
         exeを別フォルダに移動すると、スタートアップフォルダの.bat/plist内に
         残った古いパスが無効になり、Windows再起動時に自動起動しなくなる問題を解消する。
         """
-        if sys.platform not in ("win32", "darwin"):
+        if not autostart.supported():
             return
         if not getattr(sys, "frozen", False):
             return  # 開発環境では何もしない
-        path = self._get_startup_path()
-        if not path.exists():
-            return  # 自動起動未設定ならスキップ
-        # .bat はシステムコードページ (mbcs)、plist は UTF-8
-        read_encoding = "utf-8" if sys.platform == "darwin" else "mbcs"
-        try:
-            content = path.read_text(encoding=read_encoding, errors="replace")
-        except Exception:
+        if not autostart.needs_path_update(self._get_startup_path(), sys.platform, sys.executable):
             return
-        current_exe = sys.executable
-        if current_exe in content:
-            return  # パス一致、更新不要
-        # パスが変わっている → 書き直し
-        logging.info("exeの場所が変わったため自動起動パスを更新: %s", current_exe)
+        logging.info("exeの場所が変わったため自動起動パスを更新: %s", sys.executable)
         try:
             self._autostart_var.set(True)
             self._toggle_autostart()
@@ -766,40 +559,9 @@ class WorkerGUI:
     def _toggle_autostart(self):
         path = self._get_startup_path()
         if self._autostart_var.get():
-            if getattr(sys, 'frozen', False):
-                exe_path = sys.executable
-            else:
-                exe_path = f'python -m swim_worker'
-
-            if sys.platform == "darwin":
-                plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>org.swim-worker</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{exe_path}</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>{_get_base_dir()}</string>
-</dict>
-</plist>
-"""
-                path.write_text(plist_content, encoding="utf-8")
-            else:
-                # Windows .bat はシステムの ANSI コードページで読まれる
-                # パスに日本語が含まれる場合UTF-8だと文字化けするため mbcs (日本語Windows=CP932) で書き込む
-                bat_content = f'@echo off\r\ncd /d "{_get_base_dir()}"\r\nstart "" "{exe_path}"\r\n'
-                path.write_bytes(bat_content.encode("mbcs", errors="replace"))
-            logging.info("自動起動を有効にしました")
+            autostart.enable(path, sys.platform, autostart.launch_command(), _get_base_dir())
         else:
-            if path.exists():
-                path.unlink()
-            logging.info("自動起動を無効にしました")
+            autostart.disable(path)
 
     def run(self):
         """GUIメインループ"""
@@ -825,32 +587,10 @@ class WorkerGUI:
         self._root.mainloop()
 
     # --- タスク状態更新 (Consumer から別スレッドで呼ばれる) ---
-    # SWIM API ジョブタイプの日本語ラベル
-    _JOB_LABELS = {
-        "collect_notams": "NOTAM収集",
-        "collect_pireps": "PIREP収集",
-        "collect_pkg_weather": "PKG気象収集",
-        "collect_airports": "空港一覧取得",
-        "collect_airport_profiles": "空港詳細取得",
-        "collect_airspace_data": "空域データ取得",
-        "collect_flight_foids": "フライト一覧取得",
-        "collect_flight_details": "フライト詳細取得",
-        "fetch_maintenance_info": "メンテ情報取得",
-        "capability_test": "権限テスト",
-    }
-
     def _on_task_state_changed(self, state: str, job_type: str = "",
                                 total: int = 0, errors: int = 0):
         """Consumer から別スレッドで呼ばれるタスク状態変化コールバック"""
-        if state == "processing":
-            label = self._JOB_LABELS.get(job_type, job_type)
-            msg = f"● 実行中: {label}"
-        else:
-            # idle
-            if errors > 0:
-                msg = f"● 接続中 (処理済 {total} 件, エラー {errors})"
-            else:
-                msg = f"● 接続中 (処理済 {total} 件)"
+        msg = task_state_text(state, job_type, total, errors)
         self._root.after(0, lambda: self._status_var.set(msg))
 
     def _check_rollback_marker_after_ready(self) -> None:
@@ -905,27 +645,8 @@ class WorkerGUI:
         - 3 日以上古い `*.old` / `*.new` / `*.new.exe` ファイルを削除
         - 期限切れ の snooze ファイルを削除 (_is_snoozed で処理されるが念のため)
         """
-        base = _get_base_dir()
-        now_ts = datetime.now().timestamp()
-        stale_after_sec = 3 * 24 * 3600  # 3 日
-        for pattern in ("*.old", "*.new", "*.new.exe"):
-            for f in base.glob(pattern):
-                try:
-                    if now_ts - f.stat().st_mtime > stale_after_sec:
-                        f.unlink()
-                        logging.debug("古いアップデートファイルを削除: %s", f.name)
-                except Exception:
-                    pass
-        # 期限切れ snooze も軽く掃除
-        snooze = _load_json(UPDATE_SNOOZE_PATH)
-        until_str = snooze.get("until") if snooze else None
-        if until_str:
-            try:
-                until = datetime.fromisoformat(until_str)
-                if datetime.now(timezone.utc) >= until:
-                    self._clear_snooze()
-            except ValueError:
-                self._clear_snooze()
+        updater.cleanup_stale_update_files(_get_base_dir())
+        self._snooze.cleanup_expired()
 
     # --- 自動アップデート ---
     def _on_auto_update_toggle(self) -> None:
@@ -939,51 +660,16 @@ class WorkerGUI:
             logging.warning("GUI 設定保存失敗: %s", e)
 
     def _is_snoozed(self, version: str) -> bool:
-        """指定バージョンに対して現在 snooze 期間中かを返す。
-
-        別バージョンや期限切れの snooze ファイルが残っていれば自動削除 (ゴミ掃除)。
-        """
-        snooze = _load_json(UPDATE_SNOOZE_PATH)
-        if not snooze:
-            return False
-        if snooze.get("version") != version:
-            # 別バージョンの古い snooze が残っている → 削除
-            self._clear_snooze()
-            return False
-        until_str = snooze.get("until")
-        if not until_str:
-            self._clear_snooze()
-            return False
-        try:
-            until = datetime.fromisoformat(until_str)
-        except ValueError:
-            self._clear_snooze()
-            return False
-        if datetime.now(timezone.utc) >= until:
-            # 期限切れ → 削除
-            self._clear_snooze()
-            return False
-        return True
+        """指定バージョンに対して現在 snooze 期間中かを返す。"""
+        return self._snooze.is_snoozed(version)
 
     def _set_snooze(self, version: str) -> None:
         """「後で」選択時、このバージョンを一定時間スキップする。"""
-        until = datetime.now(timezone.utc) + timedelta(hours=SNOOZE_DURATION_HOURS)
-        data = {"version": version, "until": until.isoformat()}
-        try:
-            _save_json(UPDATE_SNOOZE_PATH, data)
-            logging.info(
-                "アップデート v%s を %d 時間スキップしました", version, SNOOZE_DURATION_HOURS
-            )
-        except Exception as e:
-            logging.debug("snooze 保存失敗 (無視): %s", e)
+        self._snooze.set(version)
 
     def _clear_snooze(self) -> None:
         """snooze 情報を消去 (Yes 選択時や別バージョン検知時)。"""
-        try:
-            if UPDATE_SNOOZE_PATH.exists():
-                UPDATE_SNOOZE_PATH.unlink()
-        except Exception:
-            pass
+        self._snooze.clear()
 
     def _is_auto_update_enabled(self) -> bool:
         """auto_update 設定が有効か (Linux CLI 版では常に False = 従来挙動)。"""
@@ -1007,12 +693,11 @@ class WorkerGUI:
             return
         self._update_prompted_version = new_version
 
-        # snooze 期間中は静かにボタンだけ残す
-        if self._is_snoozed(new_version):
+        kind = update_prompt_kind(snoozed=self._is_snoozed(new_version),
+                                  auto_update=self._is_auto_update_enabled())
+        if kind is None:
             logging.info("アップデート v%s は snooze 期間中のためプロンプトを抑制", new_version)
-            return
-
-        if self._is_auto_update_enabled():
+        elif kind == "countdown":
             self._root.after(0, lambda: self._prompt_auto_update_countdown(new_version))
         else:
             self._root.after(0, lambda: self._prompt_update(new_version))
@@ -1033,13 +718,7 @@ class WorkerGUI:
 
     def _get_download_url(self, version: str) -> str | None:
         """バージョンタグからダウンロードURLを組み立てる (GitHub APIを使わない)"""
-        if sys.platform == "win32":
-            asset = "swim-worker-windows.exe"
-        elif sys.platform == "darwin":
-            asset = "swim-worker-macos"
-        else:
-            return None
-        return f"https://github.com/Meku-30/swim-worker/releases/download/v{version}/{asset}"
+        return updater.download_url(version, sys.platform)
 
     def _prompt_update(self, new_version: str):
         """新バージョン検知時の確認ダイアログ (auto_update=OFF 用)。
@@ -1194,35 +873,10 @@ class WorkerGUI:
             self._update_dialog_status("ダウンロード中...")
             self._update_dialog_indeterminate("新しいバージョンを取得しています")
 
-            # ダウンロード先 (exeと同じディレクトリ)
             base = _get_base_dir()
-            if sys.platform == "win32":
-                new_exe = base / "swim-worker-gui.new.exe"
-            else:
-                new_exe = base / "swim-worker.new"
-
-            from curl_cffi.requests import Session, BrowserType
-            from swim_worker.update_verify import verify_sha256
-            asset_name = download_url.rsplit("/", 1)[-1]
-            sums_url = download_url.rsplit("/", 1)[0] + "/SHA256SUMS"
-            with Session(impersonate=BrowserType.chrome136, timeout=120.0) as client:
-                # stream=False で全体をメモリに読み込む (curl_cffi では stream=True の扱いが不安定)
-                resp = client.get(download_url, allow_redirects=True)
-                if resp.status_code != 200:
-                    raise RuntimeError(f"ダウンロード失敗: status={resp.status_code}")
-                content = resp.content
-                if not content or len(content) < 1024 * 1024:  # 1MB未満は異常
-                    raise RuntimeError(f"ダウンロードサイズ異常: {len(content) if content else 0} bytes")
-                # 同じ release の SHA256SUMS で整合性検証 (install.sh と同等)。
-                # 破損・改竄された DL をそのまま exe として起動しないため必須。
-                self._update_dialog_indeterminate("整合性を検証しています")
-                sums_resp = client.get(sums_url, allow_redirects=True)
-                if sums_resp.status_code != 200:
-                    raise RuntimeError(f"SHA256SUMS 取得失敗: status={sums_resp.status_code}")
-                digest = verify_sha256(content, sums_resp.text, asset_name)
-                logging.info("SHA256 検証 OK: %s (%s…)", asset_name, digest[:16])
-                with new_exe.open("wb") as f:
-                    f.write(content)
+            new_exe = updater.new_exe_path(base)
+            updater.download_and_verify(
+                download_url, new_exe, on_phase=self._update_dialog_indeterminate)
             size_mb = new_exe.stat().st_size / 1024 / 1024
             logging.info("ダウンロード完了: %s (%.1f MB)", new_exe, size_mb)
             self._update_dialog_progress(100, f"ダウンロード完了 ({size_mb:.1f} MB)")
@@ -1253,60 +907,8 @@ class WorkerGUI:
                 self._close_update_dialog()
                 return
             self._update_dialog_status("差し替えスクリプトを起動中...")
-
-            # ヘルパースクリプト作成
-            if sys.platform == "win32":
-                script_path = base / "swim-worker-update.bat"
-                log_path = base / "swim-worker-update.log"
-                old_exe = current_exe.with_suffix(current_exe.suffix + ".old")
-                startup_ok = base / "data" / ".startup_ok"
-                rollback_marker = base / "data" / ".update_rollback.json"
-                script = build_windows_update_script(
-                    base=base, current_exe=current_exe, new_exe=new_exe, old_exe=old_exe,
-                    startup_ok=startup_ok, rollback_marker=rollback_marker,
-                    log_path=log_path, new_version=new_version,
-                )
-                # パスに日本語が含まれる場合に備えて mbcs (システム ANSI) で書き込む
-                script_path.write_bytes(script.encode("mbcs", errors="replace"))
-                # PyInstaller 6.9+ の "Failed to load Python DLL" 対策として
-                # 子プロセスの環境変数から _PYI_* を除去し、PYINSTALLER_RESET_ENVIRONMENT を設定
-                # 参考: https://pyinstaller.org/en/stable/runtime-information.html
-                clean_env = pyinstaller_clean_env(os.environ)
-                # CREATE_NO_WINDOW: コンソールは持つが非表示
-                CREATE_NO_WINDOW = 0x08000000
-                CREATE_NEW_PROCESS_GROUP = 0x00000200
-                CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-                subprocess.Popen(
-                    ["cmd", "/c", str(script_path)],
-                    creationflags=(
-                        CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
-                        | CREATE_BREAKAWAY_FROM_JOB
-                    ),
-                    env=clean_env,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    close_fds=True,
-                )
-            else:  # darwin
-                script_path = base / "swim-worker-update.sh"
-                old_exe = current_exe.with_suffix(current_exe.suffix + ".old")
-                startup_ok = base / "data" / ".startup_ok"
-                rollback_marker = base / "data" / ".update_rollback.json"
-                log_path = base / "swim-worker-update.log"
-                script = build_macos_update_script(
-                    current_exe=current_exe, new_exe=new_exe, old_exe=old_exe,
-                    startup_ok=startup_ok, rollback_marker=rollback_marker,
-                    log_path=log_path, new_version=new_version,
-                )
-                script_path.write_text(script, encoding="utf-8")
-                os.chmod(script_path, 0o755)
-                subprocess.Popen(
-                    ["bash", str(script_path)],
-                    env=pyinstaller_clean_env(os.environ),
-                    start_new_session=True,
-                    close_fds=True,
-                )
+            updater.launch_update_helper(
+                base=base, current_exe=current_exe, new_exe=new_exe, new_version=new_version)
 
             logging.info("アップデータを起動しました。まもなく再起動します")
             self._update_dialog_status("再起動中...")

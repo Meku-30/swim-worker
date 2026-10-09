@@ -49,18 +49,6 @@ def _write_env(g, username: str) -> None:
     )
 
 
-class _NoThread:
-    """Worker スレッドを起動しない代わり"""
-    def __init__(self, *a, **kw):
-        pass
-
-    def start(self):
-        pass
-
-    def is_alive(self):
-        return False
-
-
 def test_gui_loads_and_saves_redis_username(gui):
     _write_env(gui, "worker-tester")
     app = gui.WorkerGUI()
@@ -80,7 +68,7 @@ def test_gui_start_accepts_empty_or_set_username(gui, monkeypatch, username):
     _write_env(gui, username)
     errors = []
     monkeypatch.setattr(gui.messagebox, "showerror", lambda *a, **kw: errors.append(a))
-    monkeypatch.setattr(gui.threading, "Thread", _NoThread)
+    monkeypatch.setattr(gui.WorkerRunner, "start", lambda self: None)
     app = gui.WorkerGUI()
     try:
         app._on_start()
@@ -106,34 +94,30 @@ def test_gui_checks_github_when_redis_auth_fails(gui, monkeypatch):
             pass
 
     import swim_worker.redis_client as rc
+    import swim_worker.update_check as uc
     monkeypatch.setattr(rc, "create_redis_client", lambda settings: _AuthFailRedis())
     calls = []
-    monkeypatch.setattr(gui, "check_update_without_redis",
+    monkeypatch.setattr(uc, "check_update_without_redis",
                         lambda current, notify: calls.append((current, notify)))
     app = gui.WorkerGUI()
     try:
-        app._worker_settings = {
-            "redis_host": "redis.example", "redis_username": "worker-tester",
-            "redis_password": "pw", "swim_username": "u", "swim_password": "p",
-            "worker_name": "tester",
-        }
-        app._worker_running = True
+        app._entries["worker_name"].insert(0, "tester")
         # 実際の GUI と同じく、メインループを回しながら Worker を別スレッドで動かす
-        # (Worker スレッドからの画面更新は root.after 経由でメインループが処理する)
+        # (Worker スレッドからの画面更新はメインループが処理する)
         import time
-        t = threading.Thread(target=app._run_worker, daemon=True)
+        app._on_start()
+        runner = app._runner
         deadline = time.monotonic() + 20
 
         def _poll():
-            if not t.is_alive() or time.monotonic() > deadline:
+            if not runner.is_alive() or time.monotonic() > deadline:
                 app._root.quit()
             else:
                 app._root.after(100, _poll)
 
-        t.start()
         app._root.after(100, _poll)
         app._root.mainloop()
-        assert not t.is_alive(), "認証エラーの後に _run_worker が終わらない"
+        assert not runner.is_alive(), "認証エラーの後に Worker が終わらない"
         assert errors == []
         assert len(calls) == 1
         assert calls[0][0] == gui.__version__
