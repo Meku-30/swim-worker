@@ -82,3 +82,42 @@ class TestMacosUpdateScript:
         assert "pkill" not in s
         assert "NEW_PID=$!" in s
         assert 'kill "$NEW_PID"' in s
+
+
+class TestWindowsUpdateScriptEscaping:
+    def test_percent_in_paths_is_doubled(self):
+        base = Path(r"C:\Users\a%b\swim")
+        s = gui.build_windows_update_script(
+            base=base, current_exe=base / "swim-worker-gui.exe",
+            new_exe=base / "swim-worker-gui.new.exe", old_exe=base / "swim-worker-gui.exe.old",
+            startup_ok=base / "data" / ".startup_ok",
+            rollback_marker=base / "data" / ".update_rollback.json",
+            log_path=base / "swim-worker-update.log", new_version="1.1.3")
+        assert "a%b" not in s
+        assert "a%%b" in s
+        # バッチの変数はそのまま
+        assert "%COUNT%" in s and '"%~f0"' in s
+
+
+class TestEncodeBat:
+    def test_ansi(self):
+        assert gui.encode_bat("@echo off\r\necho あ\r\n", "cp932") == "@echo off\r\necho あ\r\n".encode("cp932")
+
+    def test_utf8_fallback(self):
+        b = gui.encode_bat("@echo off\r\necho ü😀\r\n", "cp932")
+        assert b == "@echo off\r\nchcp 65001 > nul\r\necho ü😀\r\n".encode("utf-8")
+
+
+class TestMacosUpdateScriptQuoting:
+    def test_paths_with_shell_chars_are_quoted(self, tmp_path):
+        import subprocess
+        base = Path('/Users/a$HOME "q" `x`/swim')
+        s = gui.build_macos_update_script(
+            current_exe=base / "swim-worker", new_exe=base / "swim-worker.new",
+            old_exe=base / "swim-worker.old", startup_ok=base / "data" / ".startup_ok",
+            rollback_marker=base / "data" / ".update_rollback.json",
+            log_path=base / "swim-worker-update.log", new_version="1.1.3")
+        assert "'/Users/a$HOME \"q\" `x`/swim/swim-worker'" in s
+        script = tmp_path / "u.sh"
+        script.write_text(s, encoding="utf-8")
+        assert subprocess.run(["bash", "-n", str(script)]).returncode == 0

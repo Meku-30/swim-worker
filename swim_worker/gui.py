@@ -567,9 +567,10 @@ class WorkerGUI:
             return
         if not getattr(sys, "frozen", False):
             return  # 開発環境では何もしない
-        if not autostart.needs_path_update(self._get_startup_path(), sys.platform, sys.executable):
+        if not autostart.needs_rewrite(self._get_startup_path(), sys.platform,
+                                       autostart.launch_command(), _get_base_dir()):
             return
-        logging.info("exeの場所が変わったため自動起動パスを更新: %s", sys.executable)
+        logging.info("自動起動ファイルを今の exe に合わせて書き直します: %s", sys.executable)
         try:
             self._autostart_var.set(True)
             self._toggle_autostart()
