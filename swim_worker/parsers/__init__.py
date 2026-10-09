@@ -54,15 +54,16 @@ async def _refresh_cache(redis_client, worker_name: str | None = None) -> None:
     try:
         members = await redis_client.smembers(PARSE_ENABLED_KEY)
         enabled = {m.decode() if isinstance(m, bytes) else m for m in (members or set())}
-        # Worker 個別除外の適用
-        if worker_name:
-            for jt in list(enabled):
-                key = f"{PARSE_DISABLED_WORKERS_PREFIX}:{jt}"
-                try:
-                    is_disabled = await redis_client.sismember(key, worker_name)
-                except Exception:
-                    is_disabled = False
-                if is_disabled:
+        # Worker 個別除外の適用 (job ごとの SISMEMBER を 1 往復の pipeline で)
+        if worker_name and enabled:
+            jobs = sorted(enabled)
+            pipe = redis_client.pipeline(transaction=False)
+            for jt in jobs:
+                pipe.sismember(f"{PARSE_DISABLED_WORKERS_PREFIX}:{jt}", worker_name)
+            flags = await pipe.execute(raise_on_error=False)
+            for jt, is_disabled in zip(jobs, flags):
+                # 個別の失敗 (例外が入る) は「除外なし」扱い (従来どおり)
+                if is_disabled is True or is_disabled == 1:
                     enabled.discard(jt)
         _cache_enabled = enabled
     except Exception:

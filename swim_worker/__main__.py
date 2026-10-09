@@ -14,6 +14,41 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger(__name__)
 
 
+def install_signal_handlers(loop, consumer) -> None:
+    """SIGINT / SIGTERM で停止する。1 回目は処理中のタスクを終えてから、2 回目は即時。
+
+    Windows の asyncio には add_signal_handler が無い (NotImplementedError) ので、
+    signal.signal で受けてイベントループのスレッドに渡す (Ctrl+C・Ctrl+Break・SIGTERM)。
+    """
+    state = {"count": 0}
+
+    def on_signal() -> None:
+        state["count"] += 1
+        if state["count"] == 1:
+            consumer.request_stop()
+        else:
+            consumer.stop()
+
+    sigs = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):  # Windows の Ctrl+Break
+        sigs.append(signal.SIGBREAK)
+    for sig in sigs:
+        try:
+            loop.add_signal_handler(sig, on_signal)
+            continue
+        except (NotImplementedError, RuntimeError, AttributeError):
+            pass
+
+        def handler(signum, frame) -> None:
+            state["count"] += 1
+            target = consumer.request_stop if state["count"] == 1 else consumer.stop
+            loop.call_soon_threadsafe(target)
+        try:
+            signal.signal(sig, handler)
+        except (ValueError, OSError) as e:  # メインスレッド以外など
+            logger.debug("シグナル %s を登録できません: %s", sig, e)
+
+
 async def main() -> None:
     settings = Settings()
     redis_client = create_redis_client(settings)
@@ -50,9 +85,7 @@ async def main() -> None:
         blpop_timeout=settings.redis_blpop_timeout,
     )
 
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, consumer.stop)
+    install_signal_handlers(asyncio.get_running_loop(), consumer)
 
     try:
         await consumer.run()
