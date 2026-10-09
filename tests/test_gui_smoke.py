@@ -33,9 +33,14 @@ def gui(tmp_path, monkeypatch):
             if isinstance(h, g.TextHandler):
                 root.removeHandler(h)
 
+    import gc
     _drop_text_handlers()
+    gc.collect()
     yield g
     _drop_text_handlers()
+    # 壊した画面の Tk 変数 (StringVar 等) をメインスレッドで回収する。後のテストの
+    # 別スレッドで GC されると、消えた Tcl インタプリタを触って落ちる (Illegal instruction)
+    gc.collect()
 
 
 def _write_env(g, username: str) -> None:
