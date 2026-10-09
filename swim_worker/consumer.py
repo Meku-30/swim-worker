@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import redis.exceptions
 
 from swim_worker import __version__, parsers, paths
-from swim_worker.auth import SwimClient, SwimUnauthorizedError
+from swim_worker.auth import RedirectOutsideError, SwimClient, SwimUnauthorizedError
 from swim_worker.update_check import parse_version
 
 logger = logging.getLogger(__name__)
@@ -410,8 +410,12 @@ class TaskConsumer:
             logger.debug("on_task_state callback エラー: %s", e)
 
     def _make_result(self, task_id: str, status: str, *, data=None, error: str | None = None,
-                     fmt: str | None = None) -> dict:
-        """Coordinator に返す結果 dict (形はここだけで決める)"""
+                     fmt: str | None = None, error_kind: str | None = None) -> dict:
+        """Coordinator に返す結果 dict (形はここだけで決める)。
+
+        error_kind: エラーの種類を Coordinator が見分けるための印 (今は "redirect_outside" =
+        SWIM の外へのリダイレクトで止めた、メンテナンス中の可能性)。ほかのエラーには付けない
+        """
         result = {
             "task_id": task_id, "worker_name": self._worker_name,
             "status": status, "data": data, "error": error,
@@ -419,6 +423,8 @@ class TaskConsumer:
         }
         if fmt:
             result["format"] = fmt
+        if error_kind:
+            result["error_kind"] = error_kind
         return result
 
     async def _write_result(self, task_id: str, result: dict) -> bool:
@@ -468,6 +474,10 @@ class TaskConsumer:
             else:
                 body = params["body"]
                 data = await self._swim.execute_api(url, body)
+        except RedirectOutsideError as e:
+            logger.error("タスク失敗: %s — %s", task_id, e)
+            return self._make_result(task_id, "error", error=str(e),
+                                     error_kind="redirect_outside"), False
         except Exception as e:
             logger.error("タスク失敗: %s — %s", task_id, e)
             return self._make_result(task_id, "error", error=str(e)), False
