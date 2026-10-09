@@ -117,10 +117,12 @@ def test_ip_allow_dropin_content(tmp_path):
 
 
 def test_dropin_written_in_both_modes():
+    """drop-in は本体の unit と一緒に (install_worker_unit) 置く: 通常インストールとバイナリの更新"""
     text = INSTALL_SH.read_text(encoding="utf-8")
     auto = text[text.index("自動更新: v${CURRENT_VERSION}"):text.index("# 通常モード: フルインストール")]
     normal = text[text.index("# 通常モード: フルインストール"):]
-    assert "write_ip_allow_dropin" in auto and "write_ip_allow_dropin" in normal
+    assert "install_worker_unit" in auto and "install_worker_unit" in normal
+    assert "write_ip_allow_dropin" in _bash_function("install_worker_unit")
 
 
 def test_fix_permissions_commands(tmp_path):
