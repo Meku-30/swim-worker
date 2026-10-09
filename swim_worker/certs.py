@@ -1,10 +1,10 @@
 """埋め込みCA証明書
 
 Redis TLS接続用のCA証明書をコード内に保持する。
-外部の ca.crt ファイルが不要になる。
+外部の ca.crt ファイルが不要になる。redis-py には ssl_ca_data として文字列のまま渡す
+(redis_client.py・Dockerfile の HEALTHCHECK)。一時ファイルには書き出さない。
+scripts/install.sh にも同じ証明書を埋め込んでいる (tests/test_install_sh.py が一致を確認)。
 """
-import os
-import tempfile
 
 CA_CERT_PEM = """\
 -----BEGIN CERTIFICATE-----
@@ -38,42 +38,3 @@ bmKpFYjCVWnobdviueeior9ma52p387KUSydPkArU3gY0UTVBNG/yk/1x1351Ql7
 U2NY60E=
 -----END CERTIFICATE-----
 """
-
-_temp_cert_path: str | None = None
-
-
-def _remove_temp_cert() -> None:
-    """プロセス終了時に書き出した一時 CA ファイルを削除する (atexit 用)"""
-    global _temp_cert_path
-    if _temp_cert_path:
-        try:
-            os.remove(_temp_cert_path)
-        except OSError:
-            pass
-        _temp_cert_path = None
-
-
-def get_ca_cert_path() -> str:
-    """CA証明書のファイルパスを返す。
-
-    外部ファイル (./ca.crt) があればそれを使い、
-    なければ埋め込み証明書を一時ファイルに書き出して返す。
-    """
-    global _temp_cert_path
-
-    # 外部ファイルがあればそちらを優先
-    for candidate in ["./ca.crt", os.path.join(os.path.dirname(__file__), "..", "ca.crt")]:
-        if os.path.isfile(candidate):
-            return os.path.abspath(candidate)
-
-    # 埋め込み証明書を一時ファイルに書き出す
-    if _temp_cert_path and os.path.isfile(_temp_cert_path):
-        return _temp_cert_path
-
-    fd, path = tempfile.mkstemp(suffix=".pem", prefix="swim-redis-ca-")
-    with os.fdopen(fd, "w") as f:
-        f.write(CA_CERT_PEM)
-    _temp_cert_path = path
-    import atexit
-    atexit.register(_remove_temp_cert)
-    return path

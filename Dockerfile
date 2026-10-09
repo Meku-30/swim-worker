@@ -9,5 +9,5 @@ RUN useradd --create-home --shell /bin/bash appuser \
 USER appuser
 # CA 証明書はコードに埋め込み済み (swim_worker/certs.py) のため外部ファイル不要
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import redis, os; from swim_worker.certs import get_ca_cert_path; r=redis.Redis(host=os.environ.get('REDIS_HOST',''), port=int(os.environ.get('REDIS_PORT',6380)), password=os.environ.get('REDIS_PASSWORD',''), username=os.environ.get('REDIS_USERNAME') or None, ssl=True, ssl_ca_certs=get_ca_cert_path()); r.ping()" || exit 1
+    CMD python -c "import redis, os; from swim_worker.certs import CA_CERT_PEM; r=redis.Redis(host=os.environ.get('REDIS_HOST',''), port=int(os.environ.get('REDIS_PORT',6380)), password=os.environ.get('REDIS_PASSWORD',''), username=os.environ.get('REDIS_USERNAME') or None, ssl=True, ssl_ca_data=CA_CERT_PEM); r.ping()" || exit 1
 CMD ["python", "-m", "swim_worker"]
