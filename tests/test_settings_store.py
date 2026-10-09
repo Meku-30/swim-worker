@@ -204,12 +204,41 @@ class TestDefaultKeyring:
         monkeypatch.setattr(ss.sys, "platform", "linux")
         assert ss.default_keyring() is None
 
+    def test_macos_does_not_use_keyring(self, monkeypatch):
+        """macOS ではキーチェーンを使わない: アドホック署名のアプリは版ごとに署名が変わり、
+        更新のたびにキーチェーンの確認ダイアログが出て、起動 (更新の起動確認) を止めるため"""
+        monkeypatch.setattr(ss.sys, "platform", "darwin")
+        assert ss.default_keyring() is None
+
     def test_fail_backend_means_none(self, monkeypatch):
         keyring = pytest.importorskip("keyring")
         from keyring.backends import fail
         monkeypatch.setattr(ss.sys, "platform", "win32")
         monkeypatch.setattr(keyring, "get_keyring", lambda: fail.Keyring())
         assert ss.default_keyring() is None
+
+
+class TestMissingSecrets:
+    """以前 keyring に置いていたパスワードが、keyring を使わない環境で読めないとき"""
+
+    def test_reports_missing_when_store_id_but_no_password(self, tmp_path):
+        kr = FakeKeyring()
+        _store(tmp_path, kr).save(FIELDS, auto_connect=True)  # keyring に置いた (.env には無い)
+        st = _store(tmp_path, None)
+        fields, _ = st.load()
+        assert fields["redis_password"] == "" and fields["swim_password"] == ""
+        assert st.missing_secrets == ["redis_password", "swim_password"]
+        # 入れ直して保存すれば .env に入り、もう出ない
+        st.save(FIELDS, auto_connect=True)
+        st2 = _store(tmp_path, None)
+        assert st2.load()[0]["swim_password"] == FIELDS["swim_password"]
+        assert st2.missing_secrets == []
+
+    def test_no_report_for_fresh_env(self, tmp_path):
+        st = _store(tmp_path, None)
+        st.save({**FIELDS, "swim_password": ""}, auto_connect=False)
+        st.load()
+        assert st.missing_secrets == []
 
 
 @pytest.mark.skipif(ss.default_keyring() is None,
