@@ -1,12 +1,11 @@
 """フライト詳細パーサー
 
-parse_foids/parse_details は DB 依存なし → Worker でも使える。
-store_* のみ SQLAlchemy + models を関数内 import で使用する。
+DB 依存なし (Worker と同じ内容)。DB への保存は coordinator/store.py。
 """
 import logging
-from datetime import datetime, timedelta, timezone
 
 from . import diagnostics
+from .common import parse_compact_utc
 
 logger = logging.getLogger(__name__)
 
@@ -19,43 +18,7 @@ _IGNORED_KEYS = {
     "flightRemovalTriggerDTO",  # SWIM側のフライト除去タイマー設定 (静的値、フライトデータではない)
 }
 
-
-def _parse_dt(s: str | None) -> str | None:
-    """YYYYMMDDhhmm → ISO 8601 (UTC) 文字列 (JSON-safe)"""
-    if not s or len(s) < 12:
-        return None
-    try:
-        return datetime(int(s[:4]), int(s[4:6]), int(s[6:8]),
-                        int(s[8:10]), int(s[10:12]), tzinfo=timezone.utc).isoformat()
-    except (ValueError, IndexError):
-        return None
-
-
-_DT_FIELDS = ("eta", "ata", "atd", "eobt", "ssta", "sstd")
-
-
-def _coerce_dt(value):
-    if value is None or isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
-
-
-def coerce_dt_fields(record: dict) -> dict:
-    """record の datetime フィールド (ISO 文字列) を datetime オブジェクトに in-place 復元。
-
-    parse_foids / parse_details は JSON-safe な ISO 文字列を返すため、
-    DB 保存前に datetime オブジェクトへ戻す必要がある。
-    対象フィールド: _DT_FIELDS。同じ record を返す。
-    """
-    for f in _DT_FIELDS:
-        if f in record:
-            record[f] = _coerce_dt(record.get(f))
-    return record
+_parse_dt = parse_compact_utc
 
 
 def parse_foids(raw_data: dict, queried_airport: str | None = None) -> list[dict]:
@@ -106,11 +69,6 @@ def parse_foids(raw_data: dict, queried_airport: str | None = None) -> list[dict
     return records
 
 
-async def store_foids(session_factory, records: list[dict]) -> int:
-    """foidリストは保存不要（coordinatorがfilter_new_foidsで使う）。件数を返す。"""
-    return len(records) if records else 0
-
-
 def parse_details(raw_data: dict) -> list[dict]:
     """FLV911レスポンスからFlightDetailレコードを生成"""
     diagnostics.check_unknown_keys(_JOB_TYPE_DETAILS, raw_data, _KNOWN_DETAILS_KEYS, _IGNORED_KEYS)
@@ -139,28 +97,3 @@ def parse_details(raw_data: dict) -> list[dict]:
         "dep_name_jp": fd.get("dep_AIRPORTNAMEJP"),
         "dest_name_jp": fd.get("dest_AIRPORTNAMEJP"),
     }]
-
-
-async def store_details(session_factory, records: list[dict]) -> int:
-    if not records:
-        return 0
-    from sqlalchemy import select
-    from coordinator.db.models import FlightDetail
-    # JSON 経由の str datetime を復元
-    for r in records:
-        coerce_dt_fields(r)
-    foids = [r["foid"] for r in records]
-    async with session_factory() as session:
-        existing = await session.execute(
-            select(FlightDetail.foid).where(FlightDetail.foid.in_(foids))
-        )
-        existing_foids = {row[0] for row in existing.all()}
-    new_records = [r for r in records if r["foid"] not in existing_foids]
-    if not new_records:
-        return 0
-    now = datetime.now(timezone.utc)
-    async with session_factory() as session:
-        for r in new_records:
-            session.add(FlightDetail(**r, collected_at=now))
-        await session.commit()
-    return len(new_records)

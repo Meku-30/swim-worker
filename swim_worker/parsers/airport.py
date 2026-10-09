@@ -1,7 +1,6 @@
 """空港関連パーサー (一覧/詳細/AIP)
 
-parse_list/parse_detail/parse_aip は DB 依存なし → Worker でも使える。
-store_* のみ SQLAlchemy + models を関数内 import で使用する。
+DB 依存なし (Worker と同じ内容)。DB への保存は coordinator/store.py。
 """
 import logging
 import re
@@ -79,26 +78,6 @@ def parse_list(raw_data: dict) -> list[dict]:
     return records
 
 
-async def store_list(session_factory, records: list[dict]) -> int:
-    if not records:
-        return 0
-    from sqlalchemy import select
-    from coordinator.db.models import Airport
-    async with session_factory() as session:
-        existing = await session.execute(select(Airport.icao_code))
-        existing_codes = {row[0] for row in existing.all()}
-    now = datetime.now(timezone.utc)
-    count = 0
-    async with session_factory() as session:
-        for r in records:
-            if r["icao_code"] in existing_codes:
-                continue
-            session.add(Airport(icao_code=r["icao_code"], name=r["name"], updated_at=now))
-            count += 1
-        await session.commit()
-    return count
-
-
 def parse_detail(raw_data: dict) -> list[dict]:
     # raw_data contains icao_code from the task params + the API response
     diagnostics.check_unknown_keys(_JOB_TYPE_DETAIL, raw_data, _KNOWN_DETAIL_KEYS)
@@ -118,18 +97,6 @@ def parse_detail(raw_data: dict) -> list[dict]:
         "runway_ldg": ret.get("runwayNoLdg") or [],
         "approach": ret.get("approach") or [],
     }]
-
-
-async def store_detail(session_factory, records: list[dict]) -> int:
-    if not records:
-        return 0
-    from coordinator.db.models import AirportDetail
-    now = datetime.now(timezone.utc)
-    async with session_factory() as session:
-        for r in records:
-            session.add(AirportDetail(**r, collected_at=now))
-        await session.commit()
-    return len(records)
 
 
 def parse_aip(raw_data: dict) -> list[dict]:
@@ -212,17 +179,6 @@ def _parse_date_string(value: str) -> str | None:
     return None
 
 
-def _coerce_dt(value):
-    if value is None or isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
-
-
 def _extract_icao_from_section(section: str) -> str:
     """セクション文字列からICAOコードを抽出する (例: "AD 2 RJTT" -> "RJTT")"""
     icao_pattern = re.compile(r"\b([A-Z]{4})\b")
@@ -232,46 +188,3 @@ def _extract_icao_from_section(section: str) -> str:
         if candidate[:2] in ("RJ", "RO"):
             return candidate
     return ""
-
-
-async def store_aip(session_factory, records: list[dict]) -> int:
-    """AIPエントリをDBに保存する (重複チェック: effective_date + section)"""
-    if not records:
-        return 0
-    from sqlalchemy import select
-    from coordinator.db.models import AipEntry
-    # JSON 経由の str datetime を復元
-    for entry in records:
-        if "effective_date" in entry:
-            entry["effective_date"] = _coerce_dt(entry.get("effective_date"))
-    saved = 0
-    async with session_factory() as session:
-        for entry in records:
-            effective_date = entry.get("effective_date")
-            section = entry.get("section", "")
-            description = entry.get("description", "")
-
-            if not section and not effective_date:
-                continue
-
-            icao_code = _extract_icao_from_section(section)
-
-            # 重複チェック
-            query = select(AipEntry).where(AipEntry.section == section)
-            if effective_date is not None:
-                query = query.where(AipEntry.effective_date == effective_date)
-            existing = await session.execute(query)
-            if existing.scalar_one_or_none() is not None:
-                continue
-
-            session.add(AipEntry(
-                icao_code=icao_code,
-                section=section,
-                content=description,
-                pdf_url=None,
-                effective_date=effective_date,
-            ))
-            saved += 1
-
-        await session.commit()
-    return saved

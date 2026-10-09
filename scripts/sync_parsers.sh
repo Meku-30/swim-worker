@@ -15,7 +15,7 @@ if [[ ! -d "$src" ]]; then
 fi
 
 # parse 関数群が DB 非依存になっているのが前提 (関数内 import 化)
-for f in notam.py pirep.py weather.py airspace.py airport.py flight.py diagnostics.py; do
+for f in common.py notam.py pirep.py weather.py airspace.py airport.py flight.py diagnostics.py; do
     cp "$src/$f" "$dst/$f"
     echo "synced: $f"
 done
