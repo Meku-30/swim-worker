@@ -4,22 +4,25 @@
 Worker側のヘッダー設定が正しいか検証する。
 
 使い方:
-  pip install playwright python-dotenv
+  pip install playwright
   playwright install chromium
-  SWIM_USERNAME=xxx SWIM_PASSWORD=xxx python scripts/capture_headers.py
+  python scripts/dev/capture_headers.py
+  (SWIM ID・パスワードは環境変数 SWIM_USERNAME / SWIM_PASSWORD か、無ければ入力を求める)
+  出力 (header_capture_*.json) はセッション Cookie を含むので 0600 で書く。コミットしない
 """
 
 import asyncio
-import json
 import os
+import sys
 from datetime import datetime
 
 from playwright.async_api import async_playwright
-from dotenv import load_dotenv
 
-load_dotenv()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _common import swim_credentials, write_private_json  # noqa: E402
 
-OUTPUT_FILE = f"scripts/header_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+OUTPUT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           f"header_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
 
 
 async def main():
@@ -53,11 +56,7 @@ async def main():
 
     page.on("response", on_response)
 
-    username = os.environ.get("SWIM_USERNAME", "")
-    password = os.environ.get("SWIM_PASSWORD", "")
-    if not username or not password:
-        print("ERROR: SWIM_USERNAME / SWIM_PASSWORD 環境変数を設定してください")
-        return
+    username, password = swim_credentials()
 
     # === ログイン ===
     print("1. ログインページへアクセス...")
@@ -114,8 +113,7 @@ async def main():
     await pw.stop()
 
     # === 結果を保存 ===
-    with open(OUTPUT_FILE, "w") as f:
-        json.dump(captured, f, indent=2, ensure_ascii=False)
+    write_private_json(OUTPUT_FILE, captured)
     print(f"\n保存: {OUTPUT_FILE} ({len(captured)}件)")
 
     # === ヘッダー比較サマリー ===

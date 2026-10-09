@@ -3,7 +3,7 @@
 #
 # やること:
 #   1. ubuntu:22.04 ベースの systemd 付きコンテナを起動
-#   2. 最新 release tag (デフォルト v1.0.0-rc1 等) から install.sh を DL
+#   2. 最新 release (GitHub の releases/latest) のタグから install.sh を DL
 #   3. ダミー .env を食わせて install.sh 実行
 #   4. 各ステップの成否を確認
 #      - 専用ユーザー作成
@@ -19,11 +19,20 @@
 #
 # 使い方:
 #   bash scripts/test-install-docker.sh                   # 最新 release (prerelease 含まず)
-#   RELEASE=v1.0.0-rc1 bash scripts/test-install-docker.sh  # 特定 release 指定
+#   RELEASE=v1.2.3 bash scripts/test-install-docker.sh      # 特定 release 指定
 
 set -euo pipefail
 
-RELEASE="${RELEASE:-v1.0.0-rc1}"   # 現状の最新 prerelease。タグ切り替え時に更新
+# 既定は GitHub の最新リリース (releases/latest のリダイレクト先のタグ)。固定の版を書かない
+if [[ -z "${RELEASE:-}" ]]; then
+    RELEASE=$(curl -fsSI -o /dev/null -w '%{redirect_url}' \
+        https://github.com/Meku-30/swim-worker/releases/latest | sed -n 's#.*/releases/tag/##p')
+fi
+if [[ ! "$RELEASE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+    echo "リリースのタグを決められません ('${RELEASE}')。RELEASE=vX.Y.Z で指定してください" >&2
+    exit 1
+fi
+RELEASE_VERSION="${RELEASE#v}"
 IMAGE="ubuntu:22.04"
 CONTAINER_NAME="swim-worker-install-test"
 
@@ -147,15 +156,12 @@ fi
 
 step "6. install.sh --auto のバージョン比較早期 exit 検証"
 # .version と /releases/latest のタグが同じ → 早期 exit (何も起きない)
-# /releases/latest が v0.9.5 (現状) で .version に "0.9.5" を入れて試す
-docker exec "$CONTAINER_NAME" bash -c '\
-    echo "0.9.5" > /opt/swim-worker/.version; \
-    bash /tmp/install.sh --auto 2>&1 | head -3 \
-'
-OUT=$(docker exec "$CONTAINER_NAME" bash -c '\
-    echo "0.9.5" > /opt/swim-worker/.version; \
+# (RELEASE が最新でないときは「最新版です」にならないので、既定の最新版で走らせること)
+OUT=$(docker exec -e V="$RELEASE_VERSION" "$CONTAINER_NAME" bash -c '\
+    echo "$V" > /opt/swim-worker/.version; \
     bash /tmp/install.sh --auto 2>&1 | head -3 \
 ')
+echo "$OUT"
 if echo "$OUT" | grep -q "最新版です"; then
     ok "--auto が現行==最新で早期 exit"
 else

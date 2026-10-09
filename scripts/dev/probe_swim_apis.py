@@ -5,8 +5,8 @@
 PKG成功時の weatherDTO の位置（トップレベル vs ret 内）も検証する。
 
 使い方:
-    python3 scripts/test_swim_apis.py --user 'ID' --password 'PASS'
-    python3 scripts/test_swim_apis.py  # 環境変数 SWIM_USERNAME/SWIM_PASSWORD
+    python3 scripts/dev/probe_swim_apis.py [--user ID]
+    (パスワードは環境変数 SWIM_PASSWORD か、無ければ入力を求める)
 """
 import argparse
 import asyncio
@@ -17,10 +17,9 @@ from datetime import datetime, timedelta, timezone
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import swim_worker.auth as _auth_module
-_auth_module.COOKIE_FILE = "/tmp/.swim_test_cookies.json"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _common import add_repo_to_path, swim_credentials, temp_cookie_file  # noqa: E402
+add_repo_to_path()
 
 from swim_worker.auth import SwimClient, SwimAuthError, SWIM_PORTAL_URL
 
@@ -102,8 +101,8 @@ async def test_login(client: SwimClient):
     print("=" * 60)
     print("1. ログイン（3段階フロー）")
     print("=" * 60)
-    if os.path.exists(_auth_module.COOKIE_FILE):
-        os.remove(_auth_module.COOKIE_FILE)
+    if os.path.exists(COOKIE_PATH):
+        os.remove(COOKIE_PATH)
     try:
         start = time.monotonic()
         await client.login()
@@ -119,7 +118,7 @@ async def test_login(client: SwimClient):
     print(f"\n{'=' * 60}")
     print("2. Cookie復元")
     print("=" * 60)
-    client2 = SwimClient(username=client._username, password=client._password)
+    client2 = SwimClient(username=client._username, password=client._password, cookie_file=COOKIE_PATH)
     try:
         start = time.monotonic()
         await client2.login()
@@ -353,18 +352,15 @@ async def test_flight(client: SwimClient):
 
 async def main():
     parser = argparse.ArgumentParser(description="SWIM全APIテスト")
-    parser.add_argument("--user", default=os.environ.get("SWIM_USERNAME", ""))
-    parser.add_argument("--password", default=os.environ.get("SWIM_PASSWORD", ""))
+    parser.add_argument("--user", default="", help="SWIM ID (省略時は SWIM_USERNAME か入力)")
     args = parser.parse_args()
 
-    if not args.user or not args.password:
-        print("使い方: python3 scripts/test_swim_apis.py --user 'ID' --password 'PASS'")
-        sys.exit(1)
+    user, secret = swim_credentials(args.user)
 
     jst = datetime.now(timezone(timedelta(hours=9)))
     print(f"SWIM全APIテスト — {jst.strftime('%Y-%m-%d %H:%M JST')}")
 
-    client = SwimClient(username=args.user, password=args.password)
+    client = SwimClient(username=user, password=secret, cookie_file=COOKIE_PATH)
     try:
         ok = await test_login(client)
         if not ok:
@@ -380,8 +376,8 @@ async def main():
         print(f"\n[UNEXPECTED ERROR] {e}")
     finally:
         await client.close()
-        if os.path.exists(_auth_module.COOKIE_FILE):
-            os.remove(_auth_module.COOKIE_FILE)
+        if os.path.exists(COOKIE_PATH):
+            os.remove(COOKIE_PATH)
 
     # サマリー
     print(f"\n{'=' * 60}")
@@ -396,4 +392,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    with temp_cookie_file() as COOKIE_PATH:
+        asyncio.run(main())
