@@ -122,11 +122,11 @@ sudo bash install.sh
 
 install.sh が以下を自動で行います:
 
-- お使いのアーキテクチャ (amd64 / arm64) に合うバイナリを DL し、SHA256 で整合性検証
+- 最新版のタグを調べ、お使いのアーキテクチャ (amd64 / arm64) に合うバイナリをそのタグから DL し、SHA256 で整合性検証
 - 専用ユーザー `swim-worker` (システムアカウント、ログイン不可) を作成
-- `/opt/swim-worker/` にバイナリ配置
-- `.env` を対話式に作成 (入力値は `chmod 600` で保護)
-- systemd サービスとして登録 (自動起動)
+- `/opt/swim-worker/` にバイナリ配置 (root の持ち物。Worker が書けるのは `data/` だけ)
+- `.env` を対話式に作成 (`root:swim-worker` の `640`。Worker は読むだけ、他のユーザーは読めない)
+- systemd サービスとして登録 (自動起動)。LAN 内の機器への通信は閉じ、名前解決のサーバーと Redis だけ通す設定 (`/etc/systemd/system/swim-worker.service.d/10-ip-allow.conf`) も置く
 
 対話で以下を聞かれるので、管理者から教えてもらった値と、あなたの SWIM 認証情報を入力してください:
 
@@ -154,7 +154,8 @@ sudo systemctl status swim-worker
 sudo journalctl -u swim-worker -f     # ライブログ
 sudo systemctl stop swim-worker       # 停止
 sudo systemctl disable --now swim-worker swim-worker-update.timer && \
-  sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer} && \
+  sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer} \
+    /etc/systemd/system/swim-worker.service.d && \
   sudo userdel swim-worker            # 完全削除
 ```
 
@@ -166,7 +167,9 @@ install.sh は `swim-worker-update.timer` (6時間間隔 + 最大2時間ラン�
 1. 新バイナリを DL + SHA256 検証
 2. 旧バイナリを `.old` として保持
 3. swim-worker を再起動
-4. 60秒後に動作検証 → 不調なら自動ロールバック
+4. 新しい版が Redis につながって登録まで済む (起動成功マーカー `data/.startup_ok` を書く) のを最大 120 秒待つ → 済まなければ自動ロールバック
+
+LAN 内の DNS サーバーや Redis の IP が変わった場合は、`sudo bash install.sh` をもう一度実行すると通信の許可が書き直されます。
 
 **自動更新を止めたい場合** (Pi 管理者向け):
 
@@ -246,7 +249,7 @@ pip install -r requirements.txt
 python -m swim_worker
 ```
 
-停止: `Ctrl+C`
+停止: `Ctrl+C` (処理中のタスクを終えてから止まる。もう一度押すと即停止。Windows でも同じ)
 
 ### GUI 版 / 開発用 (オプション)
 

@@ -126,7 +126,11 @@ SWIMポータルはリクエスト種別によってヘッダーパターンが�
 5. サービスページへの遷移GET（`Sec-Fetch-Site: same-site`）
 6. SPA初期化リクエスト群
 
-ステップ5はサービスページのセッションを確立するために必要で、これを省略すると後続のAPI呼び出しが失敗することがあります。
+ステップ5はサービスページのセッションを確立するために必要で、これを省略すると後続のAPI呼び出しが失敗することがあります。遷移先はログイン応答の `redirectUrl` に従いますが、`https://*.swim.mlit.go.jp` 以外を指していれば従わず既定のポータルへ遷移します。
+
+### アクセス先の制限
+
+Worker がアクセスするのは `https://<サブドメイン>.swim.mlit.go.jp` (ポート 443、ユーザー情報なし) だけです。Coordinator から届くタスクの URL がこの範囲になければ、SWIM へ何も送らずにタスクを失敗にします。リダイレクト後の最終 URL も同じ範囲か確認します。Cookie は `Secure` 付きで扱います。
 
 ### SPA初期化
 
@@ -146,7 +150,7 @@ SWIMポータルはリクエスト種別によってヘッダーパターンが�
 
 ### Cookie永続化
 
-ログイン成功後のセッションCookieをファイルに保存し、再起動時に復元します。有効なCookieがあればログインAPIを呼ばないため、ポータルへの認証リクエストを削減できます。
+ログイン成功後のセッションCookieをファイルに保存し、再起動時に復元します。有効なCookieがあればログインAPIを呼ばないため、ポータルへの認証リクエストを削減できます。稼働中も 10 分おきに保存し直すので、異常終了しても次回の起動で復元できます。復元を試すのは起動後の最初のログインだけで、失効した Cookie を何度も試しません。ログイン失敗の抑制中は Cookie の復元も含めてポータルにアクセスしません。
 
 ---
 
@@ -189,12 +193,14 @@ curl | bash install.sh
    - swim-worker-update.service / .timer
 3. SHA256SUMS で整合性検証
 4. 専用システムユーザー swim-worker を作成 (uid 999, nologin)
-5. /opt/swim-worker/ に配置 (chmod 755 swim-worker:swim-worker)
-6. .env を対話生成 (値は単引用符で囲み、chmod 600)
-7. systemd unit 配置 + 自動更新 timer を enable --now
+5. /opt/swim-worker/ に配置 (ディレクトリ・バイナリ・.version は root:root、data/ だけ swim-worker の 750)
+6. .env を対話生成 (値は単引用符で囲み、root:swim-worker の 640。Worker は読むだけ)
+7. systemd unit 配置 + 通信許可の drop-in + 自動更新 timer を enable --now
 ```
 
-**RELEASE_TAG 環境変数**で特定バージョンを指定可能 (検証/手動ロールバック用)。通常は /releases/latest (最新 stable) を使う。
+**RELEASE_TAG 環境変数**で特定バージョンを指定可能 (検証/手動ロールバック用)。通常は GitHub API で最新 stable のタグを調べ、そのタグ (`releases/download/<タグ>`) に固定してダウンロードする。`releases/latest/download` はタグを調べてからダウンロードするまでの間に別の版が公開されると `.version` と中身がずれるため使わない。タグが取れない・形式が `vX.Y.Z` でなければ失敗する。
+
+以前の install.sh は /opt/swim-worker 全体を swim-worker ユーザーの持ち物にしていた。`--auto` (自動更新) のたびに所有者を上の形に直すので、既存のインストールも次の自動更新で移行される。
 
 ### systemd hardening
 
@@ -202,7 +208,10 @@ curl | bash install.sh
 - `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp`, `PrivateDevices`
 - `CapabilityBoundingSet=` (全 capability 剥奪)
 - `RestrictAddressFamilies=AF_INET AF_INET6`
-- `SystemCallFilter=@system-service`
+- `SystemCallFilter=@system-service`、`SystemCallArchitectures=native`
+- `UMask=0077`
+- `IPAddressDeny=` で LAN (10/8・172.16/12・192.168/16)・リンクローカル (169.254/16・fe80::/10)・CGNAT (100.64/10)・fc00::/7 への通信を閉じる。ループバックは閉じない (systemd-resolved の 127.0.0.53)。名前解決のサーバー (家庭のルーター、クラウドのメタデータ DNS など) と Redis がこの範囲にある環境は、install.sh が `/etc/resolv.conf` と `.env` の Redis ホストから `swim-worker.service.d/10-ip-allow.conf` に `IPAddressAllow=` を書く (通常インストール・自動更新のたび)
+- `MemoryDenyWriteExecute` は無効のまま (curl_cffi が使う cffi のクロージャが書き込み+実行可能なメモリを使うため)
 - `MemoryMax=256M`
 - `After=time-sync.target` (Pi の RTC なし環境で TLS 証明書検証失敗を回避)
 
@@ -217,7 +226,9 @@ curl | bash install.sh
 5. **Staged rollout whitelist**: Coordinator 側に更新対象の whitelist が設定されている場合、含まれる worker_name のみ更新
 6. **Major version skip**: メジャーバージョン変更 (例: 0.x → 1.x) は自動更新しない (手動必須)
 
-更新時は旧バイナリを `swim-worker.old` として保持、60秒後に `is-active` + `NRestarts < 2` で検証、失敗すれば自動ロールバック。
+更新時は旧バイナリを `swim-worker.old` として保持し、再起動の前に起動成功マーカー (`data/.startup_ok`) を消す。新しい版が Redis に接続して登録まで済むとマーカーを書くので、それを最大 120 秒待ち、書かれなければ自動ロールバックする。旧版に戻しても起動しない場合は版ではなく環境 (Redis・ネットワークの停止など) の問題として `.failed-version` を書かず、次回の自動更新で同じ版を再試行する。Redis の認証に失敗している Worker はマーカーを書けないので、60 秒後に稼働しているかだけを見る。
+
+GUI 版 (Windows / macOS) の自動更新の案内も、Worker 本体が上の 4〜6 (管理者の一時停止・段階配布・メジャー版) と同じ判定をしてから出す。
 
 **kill switch / staged rollout の制御は管理者が Coordinator 側で行う。** 手順は Coordinator 側の運用ドキュメント（非公開）を参照。
 
@@ -269,6 +280,17 @@ Worker は Redis 接続に `CLIENT SETNAME {worker_name}` で名前を付け、C
 Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを検出すると `/app/data/{job_type}_unknown_samples/` に生レスポンスの断片を保存していた。このパスは Coordinator コンテナ用で、Worker では Windows GUI がシステムドライブ直下に `\app\data\…` を作成して書き続け、systemd (`ProtectSystem=strict`) の Linux ではディレクトリ作成に失敗して毎回スタックトレース付きの ERROR ログが出ていた。
 
 修正 (v1.1.2, 2026-09-12 リリース): 保存先を環境変数 `SWIM_PARSER_DIAG_DIR` による明示オプトインにし、未設定 (= Worker) では保存せず DEBUG ログのみとした。Worker の利用者に見せるログは、接続状態・タスクの開始/成功/失敗・バージョン通知など利用者が対処できる事象に限る方針。既に作成された `\app\data\*_unknown_samples\` は自動削除しないので、手動で削除する。
+
+### 次のリリースでの変更 (2026-10-08 総点検)
+
+- 新版の案内 (GUI の自動更新の通知) は管理者の一時停止・段階配布・メジャー版スキップを通ったときだけ出す (install.sh --auto と同じ判定)。Coordinator・GitHub から来るバージョンは `X.Y.Z` 以外を受け付けない
+- タスクの URL を `https://*.swim.mlit.go.jp` に限定 (上の「アクセス先の制限」)
+- 結果の書き込みは接続エラーなら短い間隔で計 3 回試す。失敗しても集計・GUI の表示は戻す。強制タイムアウトでも失敗の結果を返す (Coordinator が配布のタイムアウトまで待たない)
+- Redis の認証失敗は 60 秒おきに再試行 (接続エラーは従来どおり 5 秒)
+- 生存確認 (heartbeat) は自分のものだけを延長し、同じ Worker 名の別プロセスが持っていたら止まる
+- 停止 (SIGTERM・Ctrl+C) は処理中のタスクの結果を書いてから止まる。2 回目は即停止。Windows の CLI でも同じ
+- install.sh: タグに固定したダウンロード、起動成功マーカーでのロールバック判定、/opt/swim-worker の所有者の見直し、通信先の制限 (上の各節)
+- Docker の HEALTHCHECK は埋め込み CA を一時ファイルに書かずに渡す
 
 ### v1.2.1 での変更 (2026-10-06)
 
