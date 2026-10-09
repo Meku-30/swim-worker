@@ -117,8 +117,10 @@ def test_update_script_passes_shellcheck():
 @pytest.mark.parametrize("v,ok", [
     ("OpenSSL 3.0.13 30 Jan 2024", True),
     ("OpenSSL 3.5.0 8 Apr 2025", True),
-    ("OpenSSL 1.1.1w  11 Sep 2023", True),
-    ("OpenSSL 1.1.1  11 Sep 2018", True),
+    # pkeyutl の -rawin (Ed25519 で SHA256SUMS をそのまま確かめる) は 3.0 から
+    ("OpenSSL 3.0.0 7 sep 2021", True),
+    ("OpenSSL 1.1.1w  11 Sep 2023", False),
+    ("OpenSSL 1.1.1  11 Sep 2018", False),
     ("OpenSSL 1.1.0l  10 Sep 2019", False),
     ("OpenSSL 1.0.2u  20 Dec 2019", False),
     ("LibreSSL 3.3.6", False),
@@ -127,6 +129,20 @@ def test_update_script_passes_shellcheck():
 def test_openssl_version_ok(v, ok):
     r = _run(_function(UPDATE_SH, "openssl_version_ok") + f'openssl_version_ok "{v}"')
     assert (r.returncode == 0) is ok
+
+
+def test_require_openssl_explains_old_openssl(tmp_path):
+    """1.1.1 では分かりやすいエラー (3.0 以上が要ること・今の版) で止まる"""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "openssl").write_text('#!/bin/sh\necho "OpenSSL 1.1.1w  11 Sep 2023"\n')
+    (bindir / "openssl").chmod(0o755)
+    r = subprocess.run(["/bin/bash", "-c", 'die() { echo "DIE: $*" >&2; exit 1; }\n'
+                        + _function(UPDATE_SH, "openssl_version_ok")
+                        + _function(UPDATE_SH, "require_openssl") + "require_openssl"],
+                       capture_output=True, text=True, env={"PATH": f"{bindir}:/usr/bin:/bin"})
+    assert r.returncode != 0
+    assert "OpenSSL 3.0 以上" in r.stderr and "1.1.1w" in r.stderr
 
 
 def test_require_openssl_fails_without_openssl(tmp_path):
