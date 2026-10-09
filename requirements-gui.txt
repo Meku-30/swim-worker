@@ -1,3 +1,5 @@
 -r requirements.txt
 pystray>=0.19.0
 Pillow>=10.0.0
+# パスワードを Windows 資格情報マネージャー / macOS キーチェーンに置く (無ければ .env)
+keyring>=25.0.0

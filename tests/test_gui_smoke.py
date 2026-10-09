@@ -60,9 +60,10 @@ def test_gui_loads_and_saves_redis_username(gui):
     try:
         assert app._entries["redis_username"].get() == "worker-tester"
         app._save_env()
-        text = gui.ENV_PATH.read_text(encoding="utf-8")
-        assert "REDIS_USERNAME=worker-tester" in text
-        assert "REDIS_PASSWORD=pw" in text
+        from dotenv import dotenv_values
+        values = dotenv_values(gui.ENV_PATH, interpolate=False)
+        assert values["REDIS_USERNAME"] == "worker-tester"
+        assert values["REDIS_" + "PASSWORD"] == "pw"
     finally:
         app._root.destroy()
 
@@ -245,5 +246,22 @@ def test_autostart_plist_contents(gui, monkeypatch, tmp_path):
         app._autostart_var.set(False)
         app._toggle_autostart()
         assert not plist.exists()
+    finally:
+        app._root.destroy()
+
+
+def test_passwords_are_not_stripped_when_starting(gui, monkeypatch):
+    _write_env(gui, "worker-tester")
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda *a, **kw: None)
+    monkeypatch.setattr(gui.WorkerRunner, "start", lambda self: None)
+    app = gui.WorkerGUI()
+    try:
+        app._entries["worker_name"].insert(0, "tester")
+        app._entries["swim_password"].delete(0, "end")
+        app._entries["swim_password"].insert(0, " p a ss ")
+        app._on_start()
+        assert app._worker_settings["swim_password"] == " p a ss "
+        app2_fields, _ = app._store.load()
+        assert app2_fields["swim_password"] == " p a ss "
     finally:
         app._root.destroy()

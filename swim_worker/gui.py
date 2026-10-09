@@ -19,7 +19,7 @@ from swim_worker.gui_helpers import (
 )
 from swim_worker.icon import create_icon
 from swim_worker.settings_store import (
-    load_env, save_env, set_auto_connect, load_json as _load_json, save_json as _save_json,
+    SettingsStore, load_json as _load_json, save_json as _save_json,
 )
 from swim_worker.worker_runner import WorkerRunner, DUPLICATE, AUTH_ERROR
 
@@ -148,6 +148,8 @@ class WorkerGUI:
         # GUI 設定 (auto_update 等) と snooze 情報を永続化
         self._gui_settings: dict = _load_json(GUI_SETTINGS_PATH)
         self._snooze = updater.SnoozeStore(UPDATE_SNOOZE_PATH)
+        # .env とパスワード (Windows・macOS は OS の資格情報ストア)
+        self._store = SettingsStore(ENV_PATH)
         self._update_progress_dialog: UpdateProgressDialog | None = None
         # 古いアップデート関連ファイルを掃除 (3 日超過の .old / .new、期限切れ snooze)
         self._cleanup_stale_update_files()
@@ -379,8 +381,12 @@ class WorkerGUI:
         logging.info("システムトレイに格納しました")
 
     def _load_env(self):
-        """既存の.envから設定を読み込む"""
-        fields, auto_connect = load_env(ENV_PATH)
+        """既存の.envと資格情報ストアから設定を読み込む"""
+        try:
+            fields, auto_connect = self._store.load()
+        except Exception as e:
+            logging.warning("設定の読み込みに失敗: %s", e)
+            return
         if auto_connect is not None:
             self._autoconnect_var.set(auto_connect)
         for field, value in fields.items():
@@ -388,15 +394,28 @@ class WorkerGUI:
                 self._entries[field].delete(0, tk.END)
                 self._entries[field].insert(0, value)
 
-    def _save_env(self):
-        """設定を.envに保存"""
+    def _save_env(self) -> bool:
+        """設定を保存 (.env は 0600、パスワードは使えれば OS の資格情報ストア)"""
         fields = {k: e.get() for k, e in self._entries.items()}
-        save_env(ENV_PATH, fields, bool(self._autoconnect_var.get()))
-        logging.info("設定を保存しました")
+        try:
+            where = self._store.save(fields, bool(self._autoconnect_var.get()))
+        except Exception as e:
+            logging.error("設定の保存に失敗: %s", e)
+            messagebox.showerror("エラー", f"設定を保存できませんでした:\n{e}")
+            return False
+        if where == "keyring":
+            logging.info("設定を保存しました (パスワードは OS の資格情報ストアに保存)")
+        else:
+            logging.info("設定を保存しました")
+        return True
 
     def _save_autoconnect(self):
         """自動接続チェックボックス変更時に.envを更新"""
-        if not set_auto_connect(ENV_PATH, bool(self._autoconnect_var.get())):
+        try:
+            if not self._store.set_auto_connect(bool(self._autoconnect_var.get())):
+                return
+        except Exception as e:
+            logging.warning("自動接続の設定を保存できません: %s", e)
             return
         state = "有効" if self._autoconnect_var.get() else "無効"
         logging.info("自動接続を%sにしました", state)
@@ -445,15 +464,16 @@ class WorkerGUI:
             return
 
         # 設定保存してから起動
-        self._save_env()
+        if not self._save_env():
+            return
 
         # UIスレッドで値をコピー（別スレッドからのアクセスを避ける）
         self._worker_settings = {
             "redis_host": self._entries["redis_host"].get().strip(),
             "redis_username": self._entries["redis_username"].get().strip(),
-            "redis_password": self._entries["redis_password"].get().strip(),
+            "redis_password": self._entries["redis_password"].get(),  # パスワードは strip しない
             "swim_username": self._entries["swim_username"].get().strip(),
-            "swim_password": self._entries["swim_password"].get().strip(),
+            "swim_password": self._entries["swim_password"].get(),  # パスワードは strip しない
             "worker_name": self._entries["worker_name"].get().strip(),
         }
 
