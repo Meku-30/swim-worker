@@ -8,7 +8,9 @@ import json
 import logging
 import os
 import random
+import re
 import time
+from urllib.parse import urlsplit
 
 from curl_cffi.requests import AsyncSession, BrowserType
 
@@ -20,6 +22,46 @@ SWIM_LOGIN_URL = "https://top.swim.mlit.go.jp/swim/api/login"
 SWIM_SESSION_CHECK_URL = "https://web.swim.mlit.go.jp/service/api/accounts/summary"
 SWIM_PORTAL_URL = "https://web.swim.mlit.go.jp"
 SWIM_TOP_URL = "https://top.swim.mlit.go.jp"
+SWIM_DEFAULT_REDIRECT_URL = f"{SWIM_PORTAL_URL}/service/portal?lang=ja"
+
+# タスクで指定された URL のうち、Worker がアクセスしてよいもの: https://<サブドメイン>.swim.mlit.go.jp
+# (ポートは既定の 443 だけ、ユーザー情報なし)。Coordinator が配るのは web.swim (収集 API) と
+# top.swim (公開のお知らせ API) で、どちらもこの範囲。Redis 経由で任意の URL を叩かせない。
+_ALLOWED_HOST_RE = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+swim\.mlit\.go\.jp", re.IGNORECASE)
+
+
+class DisallowedUrlError(ValueError):
+    """許可していない URL (SWIM 以外のホスト・http・別ポート等)"""
+
+
+def validate_swim_url(url) -> str:
+    """url が https://*.swim.mlit.go.jp なら url を返し、それ以外は DisallowedUrlError。
+
+    パーサーの解釈の差 (バックスラッシュ・ユーザー情報・制御文字) を突かれないよう、
+    印字可能な ASCII 以外・空白・バックスラッシュ・@ を含むものは一律に断る。
+    """
+    if not isinstance(url, str) or not url:
+        raise DisallowedUrlError("URL が空です")
+    if any(not (0x21 <= ord(c) <= 0x7E) or c == "\\" for c in url):
+        raise DisallowedUrlError(f"URL に使えない文字があります: {url[:100]!r}")
+    parts = urlsplit(url)
+    if parts.scheme.lower() != "https":
+        raise DisallowedUrlError(f"https 以外の URL は使えません: {url[:100]}")
+    netloc = parts.netloc
+    if "@" in netloc or "[" in netloc:
+        raise DisallowedUrlError(f"許可していない URL です: {url[:100]}")
+    host, _, port = netloc.partition(":")
+    if port not in ("", "443") or not _ALLOWED_HOST_RE.fullmatch(host):
+        raise DisallowedUrlError(f"SWIM 以外の URL は使えません: {url[:100]}")
+    return url
+
+
+def _check_response_url(resp) -> None:
+    """リダイレクトで SWIM の外に出ていないか (最終的な URL を確認する)"""
+    final = getattr(resp, "url", None)
+    if isinstance(final, str) and final:
+        validate_swim_url(final)
 
 
 def _resolve_cookie_file(override: str = "") -> str:
@@ -163,6 +205,9 @@ class SwimUnauthorizedError(SwimAuthError):
 class SwimClient:
     """SWIM APIクライアント（Worker用）"""
 
+    # 動いている間も Cookie を保存する間隔 (秒)。異常終了・停電でも次回起動時に復元できるように
+    COOKIE_SAVE_INTERVAL = 600.0
+
     def __init__(self, username: str, password: str, cookie_file: str = "",
                  login_backoff_base: float = 60.0,
                  login_backoff_max: float = 1800.0) -> None:
@@ -185,9 +230,13 @@ class SwimClient:
         self._extra_delay: float = 0.0  # 追加遅延（秒）
         # 訪問済みブラウズ画面（セッション中に1回GETしたURL）
         self._visited_pages: set[str] = set()
+        # 保存済み Cookie の復元は起動後の最初のログインだけ試す
+        # (以後の再ログインで失効した同じ Cookie を何度も試さない)
+        self._cookie_restore_tried = False
+        self._last_cookie_save = 0.0  # time.monotonic() 基準
         logger.info("Cookie保存先: %s", self._cookie_file)
 
-    def _save_cookies(self) -> None:
+    def _save_cookies(self, log_level: int = logging.INFO) -> None:
         """セッションCookieをファイルに保存"""
         if self._session is None:
             return
@@ -205,7 +254,8 @@ class SwimClient:
                 os.chmod(self._cookie_file, 0o600)
             except OSError:
                 pass
-            logger.info("Cookie保存: %d個 → %s", len(cookies), self._cookie_file)
+            self._last_cookie_save = time.monotonic()
+            logger.log(log_level, "Cookie保存: %d個 → %s", len(cookies), self._cookie_file)
         except Exception as e:
             logger.warning("Cookie保存失敗: %s", e)
 
@@ -224,10 +274,24 @@ class SwimClient:
             logger.warning("Cookie読み込み失敗: %s", e)
         return None
 
+    def _maybe_save_cookies(self) -> None:
+        if time.monotonic() - self._last_cookie_save >= self.COOKIE_SAVE_INTERVAL:
+            self._save_cookies(log_level=logging.DEBUG)
+
     async def login(self) -> None:
         """SWIMにログインしてセッションCookieを取得する"""
-        # まず保存済みCookieを試す
-        saved = self._load_cookies()
+        # ログイン抑制中は SWIM に一切アクセスしない (Cookie の復元も含む)
+        remaining = self._login_blocked_until - time.monotonic()
+        if remaining > 0:
+            raise SwimAuthError(
+                f"ログイン抑制中 (連続失敗 {self._login_failures} 回、残り {remaining:.0f} 秒)"
+            )
+
+        # 起動後の最初のログインだけ、保存済みCookieを試す
+        saved = None
+        if not self._cookie_restore_tried:
+            self._cookie_restore_tried = True
+            saved = self._load_cookies()
         if saved:
             if self._session is not None:
                 await self._session.close()
@@ -237,12 +301,10 @@ class SwimClient:
                 timeout=60.0,
             )
             for name, value in saved.items():
-                self._session.cookies.set(name, value, domain=".mlit.go.jp")
+                self._session.cookies.set(name, value, domain=".mlit.go.jp", secure=True)
             # web.swim へのナビゲーションを再現（ブックマークから再アクセスを模倣）
             try:
-                await self._session.get(
-                    f"{SWIM_PORTAL_URL}/service/portal?lang=ja", headers=_NAV_HEADERS,
-                )
+                await self._session.get(SWIM_DEFAULT_REDIRECT_URL, headers=_NAV_HEADERS)
                 await asyncio.sleep(random.uniform(0.5, 1.0))
             except Exception as e:
                 logger.debug("Cookie復元後のナビゲーション失敗: %s", e)
@@ -257,12 +319,6 @@ class SwimClient:
             except Exception:
                 pass
             logger.info("保存済みCookie失効、再ログイン")
-
-        remaining = self._login_blocked_until - time.monotonic()
-        if remaining > 0:
-            raise SwimAuthError(
-                f"ログイン抑制中 (連続失敗 {self._login_failures} 回、残り {remaining:.0f} 秒)"
-            )
 
         logger.info("SWIMポータルにログイン開始")
         all_cookies: dict[str, str] = {}
@@ -286,24 +342,32 @@ class SwimClient:
                 if resp.status_code != 200:
                     raise SwimAuthError(f"ログインAPI失敗 (status={resp.status_code})")
 
+                # JSON でない応答は従来どおり通す (Cookie が取れていれば成功扱い)
                 try:
                     data = resp.json()
+                except ValueError:
+                    data = {}
+                if not isinstance(data, dict):
+                    raise SwimAuthError("ログインAPIの応答が不正です")
+                if data:
                     status_code = data.get("statusCode", -1)
                     if status_code != 0:
                         msg = data.get("message", "unknown")
                         raise SwimAuthError(f"ログインAPIエラー (statusCode={status_code}, message={msg})")
-                except (ValueError, KeyError):
-                    pass
 
                 if not resp.cookies:
                     raise SwimAuthError("ログイン後にCookieを取得できませんでした")
 
-                # 3. web.swim への遷移（ログインレスポンスの redirectUrl に従う）
-                redirect_url = f"{SWIM_PORTAL_URL}/service/portal?lang=ja"
-                try:
-                    redirect_url = data.get("datas", {}).get("redirectUrl", redirect_url)
-                except Exception:
-                    pass
+                # 3. web.swim への遷移（ログインレスポンスの redirectUrl に従う。
+                #    SWIM の外を指していたら従わず既定のポータルへ）
+                redirect_url = SWIM_DEFAULT_REDIRECT_URL
+                datas = data.get("datas")
+                candidate = datas.get("redirectUrl") if isinstance(datas, dict) else None
+                if candidate:
+                    try:
+                        redirect_url = validate_swim_url(candidate)
+                    except DisallowedUrlError as e:
+                        logger.warning("ログイン後の遷移先を無視: %s", e)
                 await asyncio.sleep(random.uniform(0.5, 1.5))
                 await tmp.get(redirect_url, headers={
                     **_NAV_HEADERS,
@@ -336,7 +400,7 @@ class SwimClient:
         )
         # Cookie domain は .mlit.go.jp（2026-04-06実測確認、省略すると403）
         for name, value in all_cookies.items():
-            self._session.cookies.set(name, value, domain=".mlit.go.jp")
+            self._session.cookies.set(name, value, domain=".mlit.go.jp", secure=True)
 
         self._is_ready = True
         self._visited_pages.clear()
@@ -465,7 +529,9 @@ class SwimClient:
 
         capability テストは 403 を「未権限」として扱うため `retry_on_auth_error=False` で呼ぶ
         (再ログインと Cookie 破棄を避ける)。
+        url が https://*.swim.mlit.go.jp でなければ何もせず DisallowedUrlError。
         """
+        validate_swim_url(url)
         if not self._is_ready or self._session is None:
             await self.login()
         assert self._session is not None
@@ -493,6 +559,7 @@ class SwimClient:
             raise SwimAuthError(f"APIエラー: {e}") from e
         elapsed = time.monotonic() - start
         self._last_response_time = elapsed
+        _check_response_url(resp)
 
         # 応答が遅い場合、追加遅延を増やす（サーバー負荷軽減）
         if elapsed > self._slow_threshold:
@@ -516,7 +583,9 @@ class SwimClient:
         # レスポンス処理時間シミュレーション（ブラウザのDOM更新・レンダリング）
         # 実ブラウザはレスポンスサイズやJS処理量で変動するため、ばらつきを持たせる
         await asyncio.sleep(random.expovariate(3.0) + 0.05)  # 中央値~0.38秒、稀に1-2秒
-        return resp.json()
+        data = resp.json()
+        self._maybe_save_cookies()
+        return data
 
     async def fetch_public_get(self, url: str, params: dict | None = None,
                                headers: dict | None = None) -> dict:
@@ -524,7 +593,9 @@ class SwimClient:
 
         SwimClientの認証済みセッションを使わず、毎回一時セッションを生成する。
         top.swim.mlit.go.jp/swim/api/informations 等の公開APIで使用。
+        url が https://*.swim.mlit.go.jp でなければ DisallowedUrlError。
         """
+        validate_swim_url(url)
         merged_headers = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
@@ -538,6 +609,7 @@ class SwimClient:
 
         async with AsyncSession(impersonate=_BROWSER_TYPE, timeout=60.0) as client:
             resp = await client.get(url, params=params or {}, headers=merged_headers)
+            _check_response_url(resp)
             if resp.status_code != 200:
                 raise SwimAuthError(f"公開GET APIエラー (status={resp.status_code})")
             return resp.json()

@@ -59,7 +59,7 @@ class TestSwimClient:
         mock_resp.json.return_value = {"data": "test"}
         client._session.post.return_value = mock_resp
 
-        result = await client.execute_api("https://example.com/api", {"key": "val"})
+        result = await client.execute_api("https://web.swim.mlit.go.jp/service/api/test", {"key": "val"})
         assert result == {"data": "test"}
 
     async def test_execute_api_retries_on_403(self):
@@ -75,7 +75,7 @@ class TestSwimClient:
         resp_200.json.return_value = {"data": "ok"}
         client._session.post.side_effect = [resp_403, resp_200]
 
-        result = await client.execute_api("https://example.com/api", {})
+        result = await client.execute_api("https://web.swim.mlit.go.jp/service/api/test", {})
         assert result == {"data": "ok"}
         client._relogin.assert_called_once()
 
@@ -88,7 +88,7 @@ class TestSwimClient:
         client._relogin = AsyncMock()
         with patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(SwimAuthError, match="403"):
-                await client.execute_api("https://example/api", {}, retry_on_auth_error=False)
+                await client.execute_api("https://web.swim.mlit.go.jp/service/api/test", {}, retry_on_auth_error=False)
         client._relogin.assert_not_called()
         assert session.post.await_count == 1
 
@@ -102,7 +102,7 @@ class TestSwimClient:
         client._relogin = AsyncMock()
         with patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(SwimUnauthorizedError) as ei:
-                await client.execute_api("https://example/api", {}, retry_on_auth_error=False)
+                await client.execute_api("https://web.swim.mlit.go.jp/service/api/test", {}, retry_on_auth_error=False)
         assert ei.value.status_code == 403
         assert isinstance(ei.value, SwimAuthError)
 
@@ -116,7 +116,7 @@ class TestSwimClient:
         client._relogin = AsyncMock()
         with patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
             with pytest.raises(SwimUnauthorizedError):
-                await client.execute_api("https://example/api", {})
+                await client.execute_api("https://web.swim.mlit.go.jp/service/api/test", {})
         client._relogin.assert_awaited_once()
 
 
@@ -189,3 +189,205 @@ class TestLoginBackoff:
             await client.login()
             assert client._login_failures == 0
             assert client._login_blocked_until == 0.0
+
+
+API = "https://web.swim.mlit.go.jp/f2aspr/web/FLV920/LGV358"
+
+
+class TestUrlAllowlist:
+    """W1-2: タスクの URL は https://*.swim.mlit.go.jp だけ"""
+
+    def test_allowed(self):
+        from swim_worker.auth import validate_swim_url
+        for url in (API,
+                    "https://top.swim.mlit.go.jp/swim/api/informations",
+                    "https://web.swim.mlit.go.jp:443/f2dnrq/web/FUV201/USV001",
+                    "https://WEB.SWIM.MLIT.GO.JP/x"):
+            validate_swim_url(url)
+
+    def test_rejected(self):
+        from swim_worker.auth import validate_swim_url, DisallowedUrlError
+        for url in ("http://web.swim.mlit.go.jp/x",
+                    "https://example.com/api",
+                    "https://web.swim.mlit.go.jp.example.com/x",
+                    "https://evilswim.mlit.go.jp/x",
+                    "https://swim.mlit.go.jp/x",
+                    "https://mlit.go.jp/x",
+                    "https://user@web.swim.mlit.go.jp/x",
+                    "https://user:pw@web.swim.mlit.go.jp/x",
+                    "https://web.swim.mlit.go.jp:8443/x",
+                    "https://example.com\\@web.swim.mlit.go.jp/x",
+                    "https://web.swim.mlit.go.jp./x",
+                    "https://10.0.0.1/x",
+                    "https:///x",
+                    "file:///etc/passwd",
+                    "", None, 123):
+            with pytest.raises(DisallowedUrlError):
+                validate_swim_url(url)
+
+
+@pytest.mark.asyncio
+class TestUrlAllowlistInClient:
+    async def test_execute_api_rejects_before_any_request(self):
+        from swim_worker.auth import DisallowedUrlError
+        client = SwimClient(username="user", password="[REDACTED]")
+        client.login = AsyncMock()
+        client._session = AsyncMock()
+        client._is_ready = True
+        with pytest.raises(DisallowedUrlError):
+            await client.execute_api("https://example.com/api", {})
+        client.login.assert_not_called()
+        client._session.post.assert_not_called()
+        client._session.get.assert_not_called()
+
+    async def test_fetch_public_get_rejects(self):
+        from swim_worker.auth import DisallowedUrlError
+        client = SwimClient(username="user", password="[REDACTED]")
+        with patch("swim_worker.auth.AsyncSession") as MockSession:
+            with pytest.raises(DisallowedUrlError):
+                await client.fetch_public_get("https://example.com/informations")
+            MockSession.assert_not_called()
+
+    async def test_execute_api_rejects_redirect_outside(self):
+        from swim_worker.auth import DisallowedUrlError
+        client = SwimClient(username="user", password="[REDACTED]")
+        client._is_ready = True
+        client._session = AsyncMock()
+        resp = MagicMock(status_code=200, url="https://example.com/landing")
+        resp.json.return_value = {"x": 1}
+        client._session.post.return_value = resp
+        with patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            with pytest.raises(DisallowedUrlError):
+                await client.execute_api(API, {})
+        resp.json.assert_not_called()
+
+    async def test_fetch_public_get_rejects_redirect_outside(self):
+        from swim_worker.auth import DisallowedUrlError
+        client = SwimClient(username="user", password="[REDACTED]")
+        tmp = AsyncMock()
+        tmp.get.return_value = MagicMock(status_code=200, url="https://example.com/")
+        tmp.__aenter__ = AsyncMock(return_value=tmp)
+        tmp.__aexit__ = AsyncMock(return_value=False)
+        with patch("swim_worker.auth.AsyncSession", return_value=tmp):
+            with pytest.raises(DisallowedUrlError):
+                await client.fetch_public_get("https://top.swim.mlit.go.jp/swim/api/informations")
+
+
+def _login_session(json_value=None, json_exc=None):
+    resp = MagicMock(status_code=200)
+    if json_exc is not None:
+        resp.json.side_effect = json_exc
+    else:
+        resp.json.return_value = json_value
+    resp.cookies = {"MSMSI": "v"}
+    tmp = AsyncMock()
+    tmp.post.return_value = resp
+    tmp.get.return_value = MagicMock(status_code=200)
+    tmp.cookies = {"MSMSI": "v"}
+    tmp.__aenter__ = AsyncMock(return_value=tmp)
+    tmp.__aexit__ = AsyncMock(return_value=False)
+    persistent = AsyncMock()
+    persistent.cookies = MagicMock()
+    return tmp, persistent
+
+
+@pytest.mark.asyncio
+class TestLoginDetails:
+    async def test_redirect_url_outside_swim_is_not_followed(self):
+        tmp, persistent = _login_session({"statusCode": 0, "datas": {"redirectUrl": "https://example.com/x"}})
+        with patch("swim_worker.auth.AsyncSession", side_effect=[tmp, persistent]), \
+             patch.object(SwimClient, "_load_cookies", return_value=None), \
+             patch.object(SwimClient, "_save_cookies"), \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            client = SwimClient(username="user", password="[REDACTED]")
+            await client.login()
+        urls = [c.args[0] for c in tmp.get.call_args_list]
+        assert "https://example.com/x" not in urls
+        assert "https://web.swim.mlit.go.jp/service/portal?lang=ja" in urls
+
+    async def test_redirect_url_inside_swim_is_followed(self):
+        target = "https://web.swim.mlit.go.jp/service/portal?lang=en"
+        tmp, persistent = _login_session({"statusCode": 0, "datas": {"redirectUrl": target}})
+        with patch("swim_worker.auth.AsyncSession", side_effect=[tmp, persistent]), \
+             patch.object(SwimClient, "_load_cookies", return_value=None), \
+             patch.object(SwimClient, "_save_cookies"), \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            client = SwimClient(username="user", password="[REDACTED]")
+            await client.login()
+        assert target in [c.args[0] for c in tmp.get.call_args_list]
+
+    async def test_cookies_are_set_secure(self):
+        tmp, persistent = _login_session({"statusCode": 0, "datas": {}})
+        with patch("swim_worker.auth.AsyncSession", side_effect=[tmp, persistent]), \
+             patch.object(SwimClient, "_load_cookies", return_value=None), \
+             patch.object(SwimClient, "_save_cookies"), \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            client = SwimClient(username="user", password="[REDACTED]")
+            await client.login()
+        calls = persistent.cookies.set.call_args_list
+        assert calls and all(c.kwargs.get("secure") is True for c in calls)
+
+    async def test_non_json_login_response_does_not_crash(self):
+        """W1-6: resp.json() が失敗しても NameError にならず既定の遷移先へ進む"""
+        tmp, persistent = _login_session(json_exc=ValueError("not json"))
+        with patch("swim_worker.auth.AsyncSession", side_effect=[tmp, persistent]), \
+             patch.object(SwimClient, "_load_cookies", return_value=None), \
+             patch.object(SwimClient, "_save_cookies"), \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()), \
+             patch("swim_worker.auth.logger") as log:
+            client = SwimClient(username="user", password="[REDACTED]")
+            await client.login()
+        assert client._is_ready
+        assert "https://web.swim.mlit.go.jp/service/portal?lang=ja" in [c.args[0] for c in tmp.get.call_args_list]
+        assert not any("NameError" in str(c) for c in log.mock_calls)
+
+    async def test_saved_cookies_are_tried_only_on_first_login(self):
+        """W1-6: 保存済み Cookie の復元は起動後の最初のログインだけ (失効した Cookie を何度も試さない)"""
+        saved = {"MSMSI": "old"}
+        restore = AsyncMock()
+        restore.get.return_value = MagicMock(status_code=401)
+        restore.cookies = MagicMock()
+        tmp1, p1 = _login_session({"statusCode": 0, "datas": {}})
+        tmp2, p2 = _login_session({"statusCode": 0, "datas": {}})
+        with patch("swim_worker.auth.AsyncSession", side_effect=[restore, tmp1, p1, tmp2, p2]), \
+             patch.object(SwimClient, "_load_cookies", return_value=saved) as load, \
+             patch.object(SwimClient, "_save_cookies"), \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()):
+            client = SwimClient(username="user", password="[REDACTED]")
+            await client.login()
+            await client.login()
+        assert load.call_count == 1
+        assert tmp1.post.await_count == 1 and tmp2.post.await_count == 1
+
+    async def test_suppressed_login_does_not_touch_swim_even_with_saved_cookies(self):
+        """W1-6: ログイン抑制中は保存済み Cookie の復元 (SWIM へのアクセス) もしない"""
+        with patch("swim_worker.auth.AsyncSession") as MockSession, \
+             patch.object(SwimClient, "_load_cookies", return_value={"MSMSI": "v"}) as load:
+            client = SwimClient(username="user", password="[REDACTED]")
+            client._login_failures = 2
+            import time as _t
+            client._login_blocked_until = _t.monotonic() + 100
+            with pytest.raises(SwimAuthError, match="抑制中"):
+                await client.login()
+        MockSession.assert_not_called()
+        load.assert_not_called()
+
+    async def test_cookies_saved_periodically_after_api_success(self):
+        """W1-6: 長く動いている間も Cookie を定期的に保存する (異常終了しても次回復元できる)"""
+        now = {"t": 1000.0}
+        client = SwimClient(username="user", password="[REDACTED]")
+        client._is_ready = True
+        client._session = AsyncMock()
+        resp = MagicMock(status_code=200, url=API)
+        resp.json.return_value = {}
+        client._session.post.return_value = resp
+        client._visited_pages.add("https://web.swim.mlit.go.jp/f2aspr/browse/flv850s001")
+        with patch.object(SwimClient, "_save_cookies") as save, \
+             patch("swim_worker.auth.asyncio.sleep", new=AsyncMock()), \
+             patch("swim_worker.auth.time.monotonic", side_effect=lambda: now["t"]):
+            client._last_cookie_save = 1000.0
+            await client.execute_api(API, {})
+            assert save.call_count == 0
+            now["t"] += client.COOKIE_SAVE_INTERVAL + 1
+            await client.execute_api(API, {})
+            assert save.call_count == 1
