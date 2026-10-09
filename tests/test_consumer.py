@@ -5,20 +5,23 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from swim_worker.consumer import TaskConsumer
+from tests.conftest import make_redis
 
 
 @pytest.mark.asyncio
 class TestTaskConsumer:
     async def test_send_heartbeat(self):
+        """heartbeat は自分の token のとき (または切れているとき) だけ延長する (Lua の CAS)"""
         mock_redis = AsyncMock()
+        mock_redis.eval.return_value = 1
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(), worker_name="test-worker", heartbeat_interval=30)
         await consumer.send_heartbeat()
-        mock_redis.setex.assert_called_once()
-        args = mock_redis.setex.call_args[0]
-        assert args[0] == "heartbeat:test-worker"
-        assert args[1] == 60  # heartbeat_interval(30) × HEARTBEAT_TTL_MULTIPLIER(2)
-        # value は instance_token (UUID 文字列)
-        assert isinstance(args[2], str) and len(args[2]) >= 32
+        mock_redis.eval.assert_awaited_once()
+        args = mock_redis.eval.call_args.args
+        assert args[1] == 1 and args[2] == "heartbeat:test-worker"
+        assert args[3] == consumer._instance_token
+        assert int(args[4]) == 60  # heartbeat_interval(30) × HEARTBEAT_TTL_MULTIPLIER(2)
+        mock_redis.setex.assert_not_called()
 
     async def test_register_worker_new(self):
         mock_redis = AsyncMock()
@@ -40,7 +43,7 @@ class TestTaskConsumer:
         _p._cache_expires_at = 0.0  # キャッシュリセット
         mock_swim = AsyncMock()
         mock_swim.execute_api.return_value = {"weatherDTO": {}}
-        mock_redis = AsyncMock()
+        mock_redis = make_redis()
         mock_redis.smembers.return_value = {b"collect_pkg_weather"}
         mock_redis.sismember.return_value = False  # per-worker 個別無効化なし
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="test-worker", heartbeat_interval=30)
@@ -59,7 +62,7 @@ class TestTaskConsumer:
         _p._cache_expires_at = 0.0
         mock_swim = AsyncMock()
         mock_swim.execute_api.return_value = {"weatherDTO": {}}
-        mock_redis = AsyncMock()
+        mock_redis = make_redis()
         mock_redis.smembers.return_value = {b"collect_pkg_weather"}  # global enable
         mock_redis.sismember.return_value = True  # この Worker は個別 disable
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="example", heartbeat_interval=30)
@@ -76,7 +79,7 @@ class TestTaskConsumer:
         _p._cache_expires_at = 0.0
         mock_swim = AsyncMock()
         mock_swim.execute_api.return_value = {"weatherDTO": {}}
-        mock_redis = AsyncMock()
+        mock_redis = make_redis()
         mock_redis.smembers.return_value = set()  # whitelist 空
         mock_redis.sismember.return_value = False
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=mock_swim, worker_name="test-worker", heartbeat_interval=30)
@@ -210,7 +213,7 @@ class TestTaskConsumer:
     async def test_heartbeat_loop_periodically_reports_version(self):
         """_heartbeat_loop は _VERSION_CHECK_INTERVAL ごとに report_version を呼ぶ
         (Redis 揮発時の worker_versions/platforms 自動復旧用)"""
-        mock_redis = AsyncMock()
+        mock_redis = make_redis()
         mock_redis.sismember.return_value = True
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
                                 worker_name="test-worker", heartbeat_interval=30)
@@ -246,7 +249,7 @@ class TestTaskConsumer:
         (Coordinator は CLIENT LIST の name= で Worker IP を取るため、ダッシュボードの
         IP/状態テーブルから Worker が消える)。
         """
-        mock_redis = AsyncMock()
+        mock_redis = make_redis()
         mock_redis.sismember.return_value = True
         mock_redis.blpop.side_effect = asyncio.CancelledError()
         consumer = TaskConsumer(mock_redis, AsyncMock(), "test-worker")
@@ -338,11 +341,11 @@ class TestTaskConsumer:
         swim.execute_api.side_effect = fake_execute
         consumer = TaskConsumer(mock_redis, swim, "test-worker")
         with patch("swim_worker.consumer.asyncio.sleep", new=AsyncMock()):
-            await consumer._run_capability_test("t1", {"tests": [
+            await consumer.execute_task({"task_id": "t1", "job_type": "capability_test", "params": {"tests": [
                 {"job_type": "a", "url": "ok", "body": {}},
                 {"job_type": "b", "url": "forbidden", "body": {}},
                 {"job_type": "c", "url": "boom", "body": {}},
-            ]})
+            ]}})
         assert mock_redis.setex.call_args.args[0] == "results:test-worker:t1"
         stored = mock_redis.setex.call_args.args[2]
         import zstandard as zstd, json

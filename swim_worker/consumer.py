@@ -23,7 +23,23 @@ logger = logging.getLogger(__name__)
 RESULT_TTL = 3600  # 結果の有効期限（秒）
 # Redis ACL の権限不足 (設定の誤り) の時の待ち時間 (秒)。直るまでログを溢れさせない
 NOPERM_RETRY_DELAY = 60
+# Redis の認証失敗 (パスワードの作り直し・ユーザー削除等) の時の待ち時間 (秒)。
+# 待っても直らないことが多いので、接続エラー (5 秒) より長く待つ
+AUTH_RETRY_DELAY = 60
 HEARTBEAT_TTL_MULTIPLIER = 2
+# 結果の書き込みに失敗したときの再試行の間隔 (秒)。3 回試す
+RESULT_WRITE_RETRY_DELAYS = (1.0, 2.0)
+
+# heartbeat の延長は「自分の token のとき (または切れているとき)」だけ。
+# 別プロセスが同じ名前で lock を取っていたら上書きしない (戻り値 0)
+HEARTBEAT_CAS_SCRIPT = """
+local v = redis.call('GET', KEYS[1])
+if (not v) or v == ARGV[1] then
+  redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
+  return 1
+end
+return 0
+"""
 
 # Coordinator が置く最新版と、自動更新の制御 (install.sh --auto と同じキー)
 LATEST_VERSION_KEY = "swim:latest_worker_version"
@@ -96,6 +112,11 @@ class TaskConsumer:
         self._delay_clip_max = request_delay_clip_max
         self._running = False
         self._tasks: list[asyncio.Task] = []
+        self._consume_task: asyncio.Task | None = None
+        # タスクを取り出してから結果を書き終えるまで True (停止要求はこの間は待つ)
+        self._executing = False
+        # heartbeat の所有確認を EVAL で行えるか (Redis の ACL に EVAL が無ければ GET→SETEX)
+        self._heartbeat_cas = True
         # 新バージョン検知時に呼ばれるコールバック (GUI連携用)
         # シグネチャ: callback(latest_version: str) -> None
         self._on_update_available = on_update_available
@@ -123,11 +144,12 @@ class TaskConsumer:
         await self._redis.sadd("workers:pending", self._worker_name)
         logger.info("Worker '%s' を登録しました (pending)", self._worker_name)
 
-    async def _run_capability_test(self, task_id: str, params: dict) -> None:
-        """capability_test ジョブ: 複数のテストリクエストを実行して結果を返す。
+    async def _run_capability_test(self, task_id: str, params: dict) -> dict:
+        """capability_test ジョブ: 複数のテストリクエストを実行して結果 dict を返す。
 
         params: {"tests": [{"job_type": str, "url": str, "body": dict}, ...]}
-        返却: {job_type: {"ok": bool, "error": str | None, "reason": None | "unauthorized" | "transient"}, ...}
+        data: {"capabilities": {job_type: {"ok": bool, "error": str | None,
+                                           "reason": None | "unauthorized" | "transient"}, ...}}
         """
         tests = params.get("tests") or []
         results: dict[str, dict] = {}
@@ -150,20 +172,12 @@ class TaskConsumer:
                 # 一時障害 (5xx/タイムアウト/接続/セッション失効等) — Coordinator は前回結果を維持する
                 results[jt] = {"ok": False, "error": str(e)[:300], "reason": "transient"}
                 logger.warning("capability 一時障害: %s — %s", jt, e)
-        result = {
-            "task_id": task_id,
-            "worker_name": self._worker_name,
-            "status": "success",
-            "data": {"capabilities": results},
-            "error": None,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await self._redis.setex(self._result_key(task_id), RESULT_TTL, _encode_result(result))
         logger.info("capability_test 完了: %s (ok=%d, ng=%d)",
             task_id[:8],
             sum(1 for r in results.values() if r["ok"]),
             sum(1 for r in results.values() if not r["ok"]),
         )
+        return self._make_result(task_id, "success", data={"capabilities": results})
 
     async def report_version(self) -> None:
         """自身のバージョンと OS 情報を Redis に保存する。
@@ -362,14 +376,34 @@ class TaskConsumer:
             logger.debug("instance token 永続化失敗 (無視): %s", e)
 
     async def send_heartbeat(self) -> None:
-        """heartbeat を更新する。値は instance_token で所有者を識別する。
+        """heartbeat を延長する。値は instance_token で所有者を識別する。
 
+        自分の token のとき (または切れているとき) だけ延長する。別プロセスが同じ名前で
+        lock を持っていたら上書きせず DuplicateWorkerError (同名の 2 台目が動いている)。
+        Redis の ACL に EVAL が無い間は GET で確かめてから SETEX する (非原子だが所有確認はする)。
         worker_manager 側は EXISTS しか見ないため値の変更は影響しない。
         """
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
-        await self._redis.setex(
-            f"heartbeat:{self._worker_name}", ttl, self._instance_token,
-        )
+        key = f"heartbeat:{self._worker_name}"
+        if self._heartbeat_cas:
+            try:
+                ok = await self._redis.eval(
+                    HEARTBEAT_CAS_SCRIPT, 1, key, self._instance_token, str(ttl))
+            except redis.exceptions.NoPermissionError:
+                self._heartbeat_cas = False
+                logger.info("Redis の ACL に EVAL がないため、heartbeat の所有確認は GET→SETEX で行います")
+            else:
+                if ok in (0, "0", b"0"):
+                    raise DuplicateWorkerError(
+                        f"heartbeat:{self._worker_name} を別のプロセスが持っています"
+                        f" (同じ Worker 名で別の Worker が動いています)")
+                return
+        current = _as_str(await self._redis.get(key))
+        if current is not None and current != self._instance_token:
+            raise DuplicateWorkerError(
+                f"heartbeat:{self._worker_name} を別のプロセスが持っています"
+                f" (同じ Worker 名で別の Worker が動いています)")
+        await self._redis.setex(key, ttl, self._instance_token)
 
     async def _release_instance_lock(self) -> None:
         """自分の instance_token を持つ heartbeat キーだけを削除する。
@@ -400,25 +434,50 @@ class TaskConsumer:
         except Exception as e:
             logger.debug("on_task_state callback エラー: %s", e)
 
-    async def execute_task(self, task: dict) -> None:
-        """タスクを実行し結果をRedisに書き込む"""
-        task_id = task.get("task_id")
-        job_type = task.get("job_type")
-        if not task_id or not job_type:
-            logger.error("不正なタスク（task_id/job_type欠落）: %s", str(task)[:200])
-            return
-        params = task.get("params") or {}
-        logger.info("タスク実行開始: %s (type=%s)", task_id, job_type)
-        self._notify_state("processing", job_type=job_type)
+    def _make_result(self, task_id: str, status: str, *, data=None, error: str | None = None,
+                     fmt: str | None = None) -> dict:
+        """Coordinator に返す結果 dict (形はここだけで決める)"""
+        result = {
+            "task_id": task_id, "worker_name": self._worker_name,
+            "status": status, "data": data, "error": error,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if fmt:
+            result["format"] = fmt
+        return result
 
-        # capability_test: 複数のテストリクエストを順に実行し各結果を返す
-        if job_type == "capability_test":
-            await self._run_capability_test(task_id, params)
+    async def _write_result(self, task_id: str, result: dict) -> bool:
+        """結果を書く。接続の一時的な失敗は短い間隔で再試行する。書けたら True"""
+        payload = _encode_result(result)
+        delays = (*RESULT_WRITE_RETRY_DELAYS, None)
+        for attempt, delay in enumerate(delays, start=1):
+            try:
+                await self._redis.setex(self._result_key(task_id), RESULT_TTL, payload)
+                return True
+            except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
+                if delay is None:
+                    logger.error("結果の書き込みに失敗 (%d 回試行): %s — %s", attempt, task_id, e)
+                    return False
+                logger.warning("結果の書き込みに失敗、%.0f秒後に再試行: %s — %s", delay, task_id, e)
+                await asyncio.sleep(delay)
+            except Exception as e:
+                logger.error("結果の書き込みに失敗: %s — %s", task_id, e)
+                return False
+        return False
+
+    async def _finish_task(self, task_id: str, result: dict, success: bool) -> None:
+        """結果を書き、集計して GUI に idle を伝える (書き込みに失敗しても集計・通知はする)"""
+        written = False
+        try:
+            written = await self._write_result(task_id, result)
+        finally:
             self._task_total += 1
+            if not (success and written):
+                self._task_errors += 1
             self._notify_state("idle")
-            return
 
-        success = False
+    async def _run_api_task(self, task_id: str, job_type: str, params: dict) -> tuple[dict, bool]:
+        """SWIM API を呼んで結果 dict を作る。戻り値は (結果, 成功したか)"""
         try:
             raw = random.lognormvariate(self._delay_mu, self._delay_sigma)
             delay = max(self._delay_clip_min, min(self._delay_clip_max, raw))
@@ -434,66 +493,70 @@ class TaskConsumer:
             else:
                 body = params["body"]
                 data = await self._swim.execute_api(url, body)
+        except Exception as e:
+            logger.error("タスク失敗: %s — %s", task_id, e)
+            return self._make_result(task_id, "error", error=str(e)), False
 
-            # Worker 側で parse まで行い、Coordinator には構造化データを送る
-            # (帯域削減: 未使用フィールド/メタデータが落ちる)。
-            # 有効化する job_type は Redis whitelist `swim:parse_enabled` で動的制御、
-            # さらに per-worker 除外 `swim:parse_disabled_workers:<job_type>` も考慮。
-            # 未登録 or Redis 不通時は raw 送信 (現状維持 = 安全側)。
-            if await parsers.supports(job_type, self._redis,
-                                      worker_name=self._worker_name):
+        # Worker 側で parse まで行い、Coordinator には構造化データを送る
+        # (帯域削減: 未使用フィールド/メタデータが落ちる)。
+        # 有効化する job_type は Redis whitelist `swim:parse_enabled` で動的制御、
+        # さらに per-worker 除外 `swim:parse_disabled_workers:<job_type>` も考慮。
+        # 未登録 or Redis 不通時は raw 送信 (現状維持 = 安全側)。
+        result = self._make_result(task_id, "success", data=data)
+        try:
+            if await parsers.supports(job_type, self._redis, worker_name=self._worker_name):
                 try:
-                    parsed = parsers.parse_for_job_type(job_type, data,
-                                                        task_params=params)
-                    result = {
-                        "task_id": task_id, "worker_name": self._worker_name,
-                        "status": "success", "format": "parsed",
-                        "data": parsed, "error": None,
-                        "completed_at": datetime.now(timezone.utc).isoformat(),
-                    }
+                    parsed = parsers.parse_for_job_type(job_type, data, task_params=params)
+                    result = self._make_result(task_id, "success", data=parsed, fmt="parsed")
                 except Exception as e:
                     # パース失敗時は raw を送って Coordinator 側のフロー (parse → store) に任せる
                     logger.warning("Worker パース失敗、raw 送信にフォールバック (%s): %s", job_type, e)
-                    result = {
-                        "task_id": task_id, "worker_name": self._worker_name,
-                        "status": "success", "data": data, "error": None,
-                        "completed_at": datetime.now(timezone.utc).isoformat(),
-                    }
-            else:
-                result = {
-                    "task_id": task_id, "worker_name": self._worker_name,
-                    "status": "success", "data": data, "error": None,
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
-                }
-            logger.info("タスク成功: %s", task_id)
-            success = True
         except Exception as e:
-            result = {
-                "task_id": task_id, "worker_name": self._worker_name,
-                "status": "error", "data": None, "error": str(e),
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            }
-            logger.error("タスク失敗: %s — %s", task_id, e)
+            logger.debug("パース可否の確認に失敗、raw 送信: %s", e)
+        logger.info("タスク成功: %s", task_id)
+        return result, True
 
-        await self._redis.setex(self._result_key(task_id), RESULT_TTL, _encode_result(result))
-        self._task_total += 1
-        if not success:
-            self._task_errors += 1
-        self._notify_state("idle")
+    async def execute_task(self, task: dict) -> None:
+        """タスクを実行し結果をRedisに書き込む"""
+        task_id = task.get("task_id")
+        job_type = task.get("job_type")
+        if not task_id or not job_type:
+            logger.error("不正なタスク（task_id/job_type欠落）: %s", str(task)[:200])
+            return
+        params = task.get("params") or {}
+        logger.info("タスク実行開始: %s (type=%s)", task_id, job_type)
+        self._notify_state("processing", job_type=job_type)
+
+        try:
+            if job_type == "capability_test":
+                # capability_test: 複数のテストリクエストを順に実行し各結果を返す
+                result, success = await self._run_capability_test(task_id, params), True
+            else:
+                result, success = await self._run_api_task(task_id, job_type, params)
+        except asyncio.CancelledError:
+            # 強制タイムアウト・即時停止。強制タイムアウトの結果は _consume_loop が書く
+            raise
+        except Exception as e:
+            logger.error("タスク失敗: %s — %s", task_id, e)
+            result, success = self._make_result(task_id, "error", error=str(e)), False
+        await self._finish_task(task_id, result, success)
 
     def _result_key(self, task_id: str) -> str:
         """結果のキー。Redis ACL で各 Worker が自分の名前の下にしか書けないよう、名前を入れる"""
         return f"results:{self._worker_name}:{task_id}"
 
     async def _ensure_registered(self) -> None:
-        """approved にも pending にもいなければ再登録する"""
-        is_approved = await self._redis.sismember("workers:approved", self._worker_name)
-        is_pending = await self._redis.sismember("workers:pending", self._worker_name)
+        """approved にも pending にもいなければ再登録する (確認は 1 往復の pipeline)"""
+        pipe = self._redis.pipeline(transaction=False)
+        pipe.sismember("workers:approved", self._worker_name)
+        pipe.sismember("workers:pending", self._worker_name)
+        is_approved, is_pending = await pipe.execute()
         if not is_approved and not is_pending:
             await self.register()
 
     async def _heartbeat_loop(self) -> None:
-        while self._running:
+        # 停止要求のあとも、処理中のタスクが終わるまでは heartbeat を続ける
+        while self._running or self._executing:
             try:
                 await self.send_heartbeat()
                 await self._ensure_registered()
@@ -505,6 +568,15 @@ class TaskConsumer:
                     # Redis 揮発時の自動復旧を兼ねて worker_versions/platforms も再登録
                     # (起動時のみだと Redis が空になった時に Worker 再起動まで復活しない)
                     await self.report_version()
+            except DuplicateWorkerError:
+                raise
+            except redis.exceptions.AuthenticationError as e:
+                logger.error(
+                    "Redis の認証に失敗（ハートビート、REDIS_USERNAME / REDIS_PASSWORD を確認）、"
+                    "%d秒後にリトライ: %s", AUTH_RETRY_DELAY, e,
+                )
+                await asyncio.sleep(AUTH_RETRY_DELAY)
+                continue
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
                 logger.warning("Redis接続エラー（ハートビート）、5秒後にリトライ: %s", e)
                 await asyncio.sleep(5)
@@ -513,6 +585,27 @@ class TaskConsumer:
                 logger.warning("ハートビート送信失敗: %s", e)
             await asyncio.sleep(self._heartbeat_interval)
 
+    async def _run_one(self, raw) -> None:
+        """取り出した 1 件を実行する。強制タイムアウトでも error の結果を書く"""
+        task = json.loads(raw)
+        try:
+            await asyncio.wait_for(self.execute_task(task), timeout=self._task_hard_timeout)
+        except asyncio.TimeoutError:
+            task_id = task.get("task_id") if isinstance(task, dict) else None
+            logger.error(
+                "タスク強制タイムアウト (%.0f秒超過、consume_loop継続): %s",
+                self._task_hard_timeout, task_id,
+            )
+            if task_id:
+                # Coordinator が配布のタイムアウトまで待たずに失敗と分かるよう error を返す
+                await self._finish_task(task_id, self._make_result(
+                    task_id, "error",
+                    error=f"Worker 側の強制タイムアウト ({self._task_hard_timeout:.0f}秒)"), False)
+            else:
+                self._task_total += 1
+                self._task_errors += 1
+                self._notify_state("idle")
+
     async def _consume_loop(self) -> None:
         queue_key = f"tasks:{self._worker_name}"
         while self._running:
@@ -520,20 +613,13 @@ class TaskConsumer:
                 item = await self._redis.blpop(queue_key, timeout=self._blpop_timeout)
                 if item is None:
                     continue
-                _, raw = item
-                task = json.loads(raw)
+                # ここから結果を書き終えるまでは停止要求でも中断しない
+                self._executing = True
                 try:
-                    await asyncio.wait_for(self.execute_task(task), timeout=self._task_hard_timeout)
-                except asyncio.TimeoutError:
-                    logger.error(
-                        "タスク強制タイムアウト (%.0f秒超過、consume_loop継続): %s",
-                        self._task_hard_timeout, task.get("task_id"),
-                    )
-                    # execute_task 内の集計/通知には到達していないのでここで補う
-                    # (GUI が「処理中」のまま固まるのを防ぐ)
-                    self._task_total += 1
-                    self._task_errors += 1
-                    self._notify_state("idle")
+                    _, raw = item
+                    await self._run_one(raw)
+                finally:
+                    self._executing = False
             except asyncio.CancelledError:
                 break
             except redis.exceptions.NoPermissionError as e:
@@ -542,6 +628,12 @@ class TaskConsumer:
                     "%d秒後にリトライ: %s", NOPERM_RETRY_DELAY, e,
                 )
                 await asyncio.sleep(NOPERM_RETRY_DELAY)
+            except redis.exceptions.AuthenticationError as e:
+                logger.error(
+                    "Redis の認証に失敗（コンシューマー、REDIS_USERNAME / REDIS_PASSWORD を確認）、"
+                    "%d秒後にリトライ: %s", AUTH_RETRY_DELAY, e,
+                )
+                await asyncio.sleep(AUTH_RETRY_DELAY)
             except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError) as e:
                 logger.warning("Redis接続エラー（コンシューマー）、5秒後にリトライ: %s", e)
                 await asyncio.sleep(5)
@@ -582,21 +674,49 @@ class TaskConsumer:
             marker.write_text(__version__, encoding="utf-8")
         except Exception as e:
             logger.debug("startup marker 作成失敗 (無視): %s", e)
+        if not self._running:
+            # 起動処理中に停止要求が来た
+            await self._release_instance_lock()
+            logger.info("Worker '%s' 停止", self._worker_name)
+            return
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         consume_task = asyncio.create_task(self._consume_loop())
+        self._consume_task = consume_task
         self._tasks = [heartbeat_task, consume_task]
         try:
-            await asyncio.gather(heartbeat_task, consume_task)
+            # どちらかが終わったら止める。heartbeat が DuplicateWorkerError (同名の別プロセスが
+            # lock を取った) で終わったときは呼び出し元へ伝える
+            done, _ = await asyncio.wait(self._tasks, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                if not t.cancelled() and t.exception() is not None:
+                    raise t.exception()
         except asyncio.CancelledError:
             pass
         finally:
             self._running = False
+            for t in self._tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*self._tasks, return_exceptions=True)
             # instance lock を自分の所有下にある場合のみ解放する。
             # これにより次回起動時に TTL 待ちなく即再起動できる。
             await self._release_instance_lock()
             logger.info("Worker '%s' 停止", self._worker_name)
 
+    def request_stop(self) -> None:
+        """停止要求 (SIGTERM 等): 新しいタスクは取らず、処理中のタスクは結果を書いてから止まる"""
+        if not self._running:
+            return
+        self._running = False
+        if self._executing:
+            logger.info("停止要求: 処理中のタスクを終えてから停止します")
+        else:
+            logger.info("停止要求: 停止します")
+            if self._consume_task is not None and not self._consume_task.done():
+                self._consume_task.cancel()  # BLPOP の待ちを中断
+
     def stop(self) -> None:
+        """即時停止 (処理中のタスクも中断する)"""
         self._running = False
         for task in self._tasks:
             task.cancel()
