@@ -96,17 +96,23 @@ if system in ("Windows", "Darwin"):
         "--hidden-import", "PIL",
         "--hidden-import", "PIL.Image",
         "--hidden-import", "PIL.ImageDraw",
-        # パスワードの保存先 (Windows 資格情報マネージャー / macOS キーチェーン)。
-        # keyring はバックエンドを entry point (メタデータ) で探すので、メタデータも同梱する
-        # (pyinstaller-hooks-contrib の hook-keyring と同じ。hook が無い環境でも効くよう明示)
-        "--hidden-import", "keyring",
-        "--hidden-import", "keyring.backends.Windows" if system == "Windows"
-        else "keyring.backends.macOS",
-        "--copy-metadata", "keyring",
         # 更新物の署名の検証 (Ed25519)。cryptography は pyinstaller の hook で入るが明示する
         "--hidden-import", "cryptography.hazmat.primitives.asymmetric.ed25519",
         "--hidden-import", "cryptography.hazmat.primitives.serialization",
     ]
+    if system == "Windows":
+        # パスワードの保存先 (Windows 資格情報マネージャー)。
+        # keyring はバックエンドを entry point (メタデータ) で探すので、メタデータも同梱する
+        # (pyinstaller-hooks-contrib の hook-keyring と同じ。hook が無い環境でも効くよう明示)
+        gui_args += [
+            "--hidden-import", "keyring",
+            "--hidden-import", "keyring.backends.Windows",
+            "--copy-metadata", "keyring",
+        ]
+    else:
+        # macOS はキーチェーンを使わない (アドホック署名で版ごとに確認ダイアログが出て、
+        # 更新後の起動確認を止めうる)。パスワードは .env (0600)。swim_worker/settings_store.py
+        gui_args += ["--exclude-module", "keyring"]
     # 実行ファイルに埋め込むアイコン (.ico on Windows, .icns on macOS)
     icon_path = ICON_ICO if system == "Windows" else ICON_ICNS
     if icon_path.exists():

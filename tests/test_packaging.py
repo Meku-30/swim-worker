@@ -164,3 +164,10 @@ def test_release_refuses_existing_release_for_tag():
     step = steps[idx]
     assert "gh api" in step["run"] and "exit 1" in step["run"] and "--paginate" in step["run"]
     assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+
+
+def test_keyring_is_bundled_only_on_windows():
+    """macOS の GUI はキーチェーンを使わない (確認ダイアログで起動が止まる) ので keyring を入れない"""
+    text = (ROOT / "scripts" / "build_exe.py").read_text(encoding="utf-8")
+    assert "keyring.backends.macOS" not in text
+    assert '"--hidden-import", "keyring.backends.Windows"' in text

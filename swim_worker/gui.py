@@ -759,7 +759,17 @@ class WorkerGUI:
 
         # 更新ヘルパーの起動確認: GUI が 2 秒生存したら成功マーカーを書く
         self._root.after(2000, write_startup_marker)
+        # 以前の版が OS の資格情報ストアに置いたパスワードを読めない (macOS はキーチェーンを
+        # 使わなくなった) ときは、起動確認のあとで入れ直しを促す
+        if getattr(self._store, "missing_secrets", None):
+            self._root.after(3000, self._ask_reenter_passwords)
         self._root.mainloop()
+
+    def _ask_reenter_passwords(self):
+        messagebox.showwarning(
+            "パスワードの入れ直し",
+            "保存していたパスワードを読めませんでした。\n"
+            "Redis と SWIM のパスワードを入れ直して「保存」を押してください。")
 
     # --- タスク状態更新 (Consumer から別スレッドで呼ばれる) ---
     def _on_task_state_changed(self, state: str, job_type: str = "",

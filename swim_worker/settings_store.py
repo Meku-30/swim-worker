@@ -3,8 +3,13 @@
 - .env は GUI と CLI で共通の形式 (KEY=VALUE)。値は単引用符で囲んで書き
   (python-dotenv と同じ解釈: `\\` と `\'` だけをエスケープ)、手で足したキー・コメントは残す。
   書き換えは同じフォルダの一時ファイル (0600) に書いてから os.replace で置き換える
-- パスワード (Redis・SWIM) は、Windows (資格情報マネージャー)・macOS (キーチェーン) では
-  keyring に置き、.env には書かない。keyring が使えない・失敗したときは .env に書く
+- パスワード (Redis・SWIM) は、Windows (資格情報マネージャー) では keyring に置き、.env には
+  書かない。keyring が使えない・失敗したときは .env に書く
+- macOS は keyring (キーチェーン) を使わず .env (0600) に書く。配布するアプリはアドホック署名で
+  版ごとに署名が変わり、更新のたびにキーチェーンの確認ダイアログが出る。設定の読み込みは
+  画面が出る前なので、確認待ちのまま更新の起動確認 (120 秒) に間に合わずロールバックしうる
+- keyring を使わない環境で、以前 keyring に置いたパスワードが .env に無ければ (SECRET_STORE_ID
+  はあるのにパスワードが空) missing_secrets に入れる。GUI は入れ直しを促す
 - 既存の .env にパスワードがあれば、keyring に移して読み戻せたら .env から消す
   (失敗したら .env に残す)
 - GUI は Worker にパスワードをメモリで渡す (os.environ・.env を経由しない)。
@@ -43,8 +48,11 @@ _LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
 
 
 def default_keyring():
-    """Windows・macOS で使える keyring のバックエンド。使えなければ None (.env に保存)"""
-    if sys.platform not in ("win32", "darwin"):
+    """Windows で使える keyring のバックエンド。使えなければ None (.env に保存)。
+
+    macOS は使わない (モジュールの説明: 更新のたびにキーチェーンの確認が出て起動を止める)
+    """
+    if sys.platform != "win32":
         return None
     try:
         import keyring
@@ -139,6 +147,8 @@ class SettingsStore:
     def __init__(self, env_path: Path, keyring=_AUTO):
         self.env_path = env_path
         self._keyring = default_keyring() if keyring is SettingsStore._AUTO else keyring
+        # load() が見つけた、以前 keyring に置いたまま読めないパスワードの欄
+        self.missing_secrets: list[str] = []
 
     @property
     def uses_keyring(self) -> bool:
@@ -177,6 +187,13 @@ class SettingsStore:
         auto = values.get("AUTO_CONNECT")
         auto_connect = None if auto is None else auto.strip().lower() == "true"
         if self._keyring is None:
+            # 以前の版 (keyring を使っていた) が .env から消したパスワードは読めない。入れ直してもらう
+            self.missing_secrets = []
+            if values.get(SECRET_STORE_ID_KEY):
+                self.missing_secrets = [f for f in SECRET_FIELDS if not fields[f]]
+                if self.missing_secrets:
+                    logger.warning("保存したパスワードを読めません (以前の版は OS の資格情報ストアに"
+                                   "保存していました)。設定画面で入れ直して保存してください")
             return fields, auto_connect
 
         updates: dict[str, str | None] = {}
