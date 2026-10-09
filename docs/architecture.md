@@ -174,7 +174,7 @@ Worker 単体の挙動に加えて、Coordinator 側でもポータルへのア�
 
 | プラットフォーム | 配布形態 | アーキ | 自動更新 |
 |----------------|---------|-------|---------|
-| Windows | `swim-worker-windows.exe` (PyInstaller GUI) | amd64 | GUI からポップアップ経由で更新 (DL 後に同 release の `SHA256SUMS` で検証) |
+| Windows | `swim-worker-windows.exe` (PyInstaller GUI) | amd64 | GUI からポップアップ経由で更新 (同 release の署名済み `SHA256SUMS` で検証) |
 | macOS | `swim-worker-macos` (PyInstaller GUI) | arm64 (Apple Silicon) のみ | Windows と同様 |
 | Linux / Raspberry Pi | `swim-worker-linux-{amd64,arm64}` + `install.sh` + systemd unit | amd64 / arm64 | systemd timer による自動更新 |
 
@@ -186,21 +186,35 @@ Linux CLI バイナリは glibc 2.35+ 互換 (`ubuntu-22.04` runner でビルド
 curl | bash install.sh
   ↓
 1. uname -m でアーキテクチャ自動判定 (amd64 / arm64)
-2. GitHub Releases から以下を DL:
+2. GitHub Releases (タグに固定) から SHA256SUMS と SHA256SUMS.sig を DL し、
+   埋め込みの公開鍵で署名を、先頭行で版を検証 (通らなければここで中止。下の「更新物の署名」)
+3. 以下を DL し、SHA256SUMS でハッシュを検証:
    - swim-worker-linux-{ARCH}
-   - SHA256SUMS
    - swim-worker.service
    - swim-worker-update.service / .timer
-3. SHA256SUMS で整合性検証
+   - swim-worker-update.sh (固定の更新スクリプト)
 4. 専用システムユーザー swim-worker を作成 (uid 999, nologin)
 5. /opt/swim-worker/ に配置 (ディレクトリ・バイナリ・.version は root:root、data/ だけ swim-worker の 750)
 6. .env を対話生成 (値は単引用符で囲み、root:swim-worker の 640。Worker は読むだけ)
-7. systemd unit 配置 + 通信許可の drop-in + 自動更新 timer を enable --now
+7. systemd unit・固定の更新スクリプト (/usr/local/libexec/swim-worker/update.sh、root:root 0755)
+   配置 + 通信許可の drop-in + 自動更新 timer を enable --now
 ```
+
+署名の検証に OpenSSL 1.1.1 以上 (`openssl pkeyutl -rawin`) を使う。古い openssl ではインストール・更新を失敗させる。
 
 **RELEASE_TAG 環境変数**で特定バージョンを指定可能 (検証/手動ロールバック用)。通常は GitHub API で最新 stable のタグを調べ、そのタグ (`releases/download/<タグ>`) に固定してダウンロードする。`releases/latest/download` はタグを調べてからダウンロードするまでの間に別の版が公開されると `.version` と中身がずれるため使わない。タグが取れない・形式が `vX.Y.Z` でなければ失敗する。
 
 以前の install.sh は /opt/swim-worker 全体を swim-worker ユーザーの持ち物にしていた。`--auto` (自動更新) のたびに所有者を上の形に直すので、既存のインストールも次の自動更新で移行される。
+
+### 更新物の署名
+
+リリースは CI が **draft** で作り、管理者が自分の端末にだけ置いた Ed25519 の秘密鍵 (パスフレーズ付き) で `SHA256SUMS` に署名して `SHA256SUMS.sig` (生の 64 バイト) を上げてから公開する (`scripts/sign-release.sh`、手順は [release-signing.md](release-signing.md))。CI (GitHub) には秘密鍵を置かないので、CI やリポジトリへの書き込み権限だけでは Worker が受け付けるリリースを作れない。
+
+- 公開鍵は `swim_worker/release_keys.py` (GUI)・`scripts/install.sh`・`scripts/swim-worker-update.sh` に埋め込む (元は `scripts/release_pubkeys/*.pub.pem`、`scripts/set-release-pubkeys.sh` で書く。3 か所の一致はテストで確かめる)。ふだんは 1 本、鍵を計画的に入れ替えるときだけ 2 本まで
+- `SHA256SUMS` の先頭行は `# swim-worker-release vX.Y.Z` (CI が書く)。署名はこの行ごとなので版に結び付き、古い版の署名済みファイルを別のタグとして出しても通らない
+- 検証側 (install.sh・固定の更新スクリプト・GUI) は (1) 埋め込みの公開鍵のどれかで署名が通る、(2) 先頭行の版が取りに行ったタグと一致、(3) 自動更新では今の版より新しい、を確かめてから本体を落とす。署名のないリリースには更新しない
+- 公開鍵が未設定のままだとリリース CI が失敗する (`scripts/release_pubkeys.py check --require`)
+- install.sh・更新スクリプト・GUI の古い版 (署名に対応する前) は、署名に対応した版へは従来どおり SHA256 だけで更新される。そこから先は署名が必須
 
 ### systemd hardening
 
@@ -215,20 +229,27 @@ curl | bash install.sh
 - `MemoryMax=256M`
 - `After=time-sync.target` (Pi の RTC なし環境で TLS 証明書検証失敗を回避)
 
+`swim-worker-update.service` (root で動く) は、更新に要る場所 (`/opt/swim-worker`・`/etc/systemd/system`・`/usr/local/libexec/swim-worker`・ロック) 以外を書けなくする: `ProtectSystem=full` + `ReadWritePaths=`、`ProtectHome=true`、`PrivateTmp`、`PrivateDevices`、`NoNewPrivileges`、カーネル・cgroup の保護、`RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`、`SystemCallArchitectures=native`。
+
 ### 自動更新機構
 
-`swim-worker-update.timer` が 6時間 + 最大2時間ランダムずらしで起動し、`install.sh --auto` を実行。以下のガードを順に評価:
+`swim-worker-update.timer` が 6時間 + 最大2時間ランダムずらしで起動し、固定の更新スクリプト `/usr/local/libexec/swim-worker/update.sh` を実行。以下のガードを順に評価し、**ダウンロードの前に**止められるものは止める:
 
-1. **バージョン比較**: 現行 == 最新なら service 無触で早期 exit
-2. **ダウングレード防止**: 現行 > 最新なら skip (prerelease 検証中の保護)
-3. **ローカル opt-out**: `/opt/swim-worker/.no-auto-update` があれば skip
-4. **Coordinator kill switch**: Coordinator 側で自動更新が有効化されていなければ skip。この確認は Redis へ TLS 接続して行い、install.sh に埋め込んだ CA 証明書 (Worker 本体の `certs.py` と同一) でサーバー証明書を検証する (v1.1.0 以前は検証なしで AUTH を送っていた)
-5. **Staged rollout whitelist**: Coordinator 側に更新対象の whitelist が設定されている場合、含まれる worker_name のみ更新
-6. **Major version skip**: メジャーバージョン変更 (例: 0.x → 1.x) は自動更新しない (手動必須)
+1. **ローカル opt-out**: `/opt/swim-worker/.no-auto-update` があれば skip
+2. **バージョン比較**: 現行 == 最新なら service 無触で早期 exit
+3. **ダウングレード防止**: 現行 > 最新なら skip (prerelease 検証中の保護)
+4. **ロールバック済みの版**: 前回ロールバックした版 (`.failed-version`) なら skip
+5. **Coordinator kill switch**: Coordinator 側で自動更新が有効化されていなければ skip。この確認は Redis へ TLS 接続して行い、更新スクリプトに埋め込んだ CA 証明書 (Worker 本体の `certs.py` と同一) でサーバー証明書を検証する (v1.1.0 以前は検証なしで AUTH を送っていた)
+6. **Staged rollout whitelist**: Coordinator 側に更新対象の whitelist が設定されている場合、含まれる worker_name のみ更新
+7. **Major version skip**: メジャーバージョン変更 (例: 0.x → 1.x) は自動更新しない (手動必須)
+
+通ったら、そのタグの `SHA256SUMS` と `SHA256SUMS.sig` を取って署名と版を検証し、`install.sh` を取ってハッシュを確かめ、`SWIM_UPDATE_TAG=<タグ> bash install.sh --auto` を実行する。install.sh はバイナリ・更新スクリプト・unit を同じ検証で差し替え、再起動して起動を確かめる。
+
+**旧方式からの移行**: v1.2.x までの `swim-worker-update.service` は最新の `install.sh` を取って `--auto` で実行していた。新しい install.sh は `SWIM_UPDATE_TAG` なしの `--auto` で呼ばれると、更新スクリプトと unit を最新リリースから (署名を確かめて) 置き直してから更新スクリプトに処理を任せる。手作業なしで、次の自動更新のサイクルで新方式に移る。
 
 更新時は旧バイナリを `swim-worker.old` として保持し、再起動の前に起動成功マーカー (`data/.startup_ok`) を消す。新しい版が Redis に接続して登録まで済むとマーカーを書くので、それを最大 120 秒待ち、書かれなければ自動ロールバックする。旧版に戻しても起動しない場合は版ではなく環境 (Redis・ネットワークの停止など) の問題として `.failed-version` を書かず、次回の自動更新で同じ版を再試行する。Redis の認証に失敗している Worker はマーカーを書けないので、60 秒後に稼働しているかだけを見る。
 
-GUI 版 (Windows / macOS) の自動更新の案内も、Worker 本体が上の 4〜6 (管理者の一時停止・段階配布・メジャー版) と同じ判定をしてから出す。
+GUI 版 (Windows / macOS) の自動更新の案内も、Worker 本体が上の 5〜7 (管理者の一時停止・段階配布・メジャー版) と同じ判定をしてから出す。
 
 **kill switch / staged rollout の制御は管理者が Coordinator 側で行う。** 手順は Coordinator 側の運用ドキュメント（非公開）を参照。
 
@@ -283,11 +304,11 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 
 ### 次のリリースでの変更 (2026-10-08 総点検)
 
-- 新版の案内 (GUI の自動更新の通知) は管理者の一時停止・段階配布・メジャー版スキップを通ったときだけ出す (install.sh --auto と同じ判定)。Coordinator・GitHub から来るバージョンは `X.Y.Z` 以外を受け付けない
+- 新版の案内 (GUI の自動更新の通知) は管理者の一時停止・段階配布・メジャー版スキップを通ったときだけ出す (Linux の自動更新と同じ判定)。Coordinator・GitHub から来るバージョンは `X.Y.Z` 以外を受け付けない
 - タスクの URL を `https://*.swim.mlit.go.jp` に限定 (上の「アクセス先の制限」)
 - 結果の書き込みは接続エラーなら短い間隔で計 3 回試す。失敗しても集計・GUI の表示は戻す。強制タイムアウトでも失敗の結果を返す (Coordinator が配布のタイムアウトまで待たない)
 - Redis の認証失敗は 60 秒おきに再試行 (接続エラーは従来どおり 5 秒)
-- 生存確認 (heartbeat) は自分のものだけを延長し、同じ Worker 名の別プロセスが持っていたら止まる
+- 生存確認 (heartbeat) は自分のものだけを延長し (GET で確かめてから SETEX)、同じ Worker 名の別プロセスが持っていたら止まる
 - 停止 (SIGTERM・Ctrl+C) は処理中のタスクの結果を書いてから止まる。2 回目は即停止。Windows の CLI でも同じ
 - install.sh: タグに固定したダウンロード、起動成功マーカーでのロールバック判定、/opt/swim-worker の所有者の見直し、通信先の制限 (上の各節)
 - Docker の HEALTHCHECK は埋め込み CA を一時ファイルに書かずに渡す
@@ -298,6 +319,9 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 - GUI の停止・終了・更新前の停止は、処理中のタスクの結果を書いてから止まるのを待つ (待つのは画面の外のスレッド。一定時間で中断)。どの終わり方 (エラー・重複起動・認証エラー) でも、ボタン・設定欄・トレイの色を起動前に戻す
 - GUI の画面 (Tk) を触るのはメインスレッドだけにした。Worker・トレイ・更新のスレッドはキューに積み、メインスレッドがまとめて反映する (ログも)
 - GUI の更新のダウンロードはストリームで書きながらハッシュを計算し、先に `SHA256SUMS` を取る。無通信 60 秒・全体 30 分で諦める。進捗を MB で表示する
+- 更新物の署名: リリースは draft で作って管理者が署名してから公開し、install.sh・固定の更新スクリプト・GUI は署名と版を確かめてからしか更新しない (上の「更新物の署名」)。Linux の自動更新は固定の更新スクリプトに移した (上の「自動更新機構」)。OpenSSL 1.1.1 以上が要る
+- CI: 権限はジョブごと、Actions はコミット SHA に固定、ビルドの前にテスト、成果物が欠けたら失敗、runner を固定。依存はハッシュ付きでロック (`requirements.lock`・`requirements-dev.lock`、`--require-hashes`)
+- heartbeat の所有確認は GET → SETEX (Redis の EVAL は使わない)
 - 自動起動ファイル: macOS の plist は XML をエスケープし、Windows の .bat はパスの `%` をエスケープ、システムの文字コードで書けない文字があれば UTF-8 で書く。更新用のスクリプトも同様
 - `gui.py` を分割 (`settings_store.py`・`autostart.py`・`updater.py`・`worker_runner.py`)。調査用スクリプトは `scripts/dev/` へ
 
