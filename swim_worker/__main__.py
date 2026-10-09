@@ -9,6 +9,7 @@ from swim_worker.redis_client import create_redis_client
 from swim_worker.auth import SwimClient
 from swim_worker.consumer import TaskConsumer, DuplicateWorkerError
 from swim_worker.single_instance import LocalInstanceLock, AlreadyRunning
+from swim_worker import dns_check
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -51,6 +52,8 @@ def install_signal_handlers(loop, consumer) -> None:
 
 async def main() -> None:
     settings = Settings()
+    # systemd の通信許可 (install.sh の drop-in) が今の DNS サーバーを通すか (塞がれていれば警告)
+    dns_check.check_at_startup()
     redis_client = create_redis_client(settings)
 
     # Redis接続を指数バックオフでリトライ (最大10回)
@@ -61,6 +64,8 @@ async def main() -> None:
             logger.info("Redis接続成功 (%d回目)", attempt)
             break
         except Exception as e:
+            if sys.platform.startswith("linux") and dns_check.is_name_resolution_error(e):
+                logger.error("Redis のホスト名を名前解決できません。%s", dns_check.FIX_HINT)
             if attempt == 10:
                 logger.error("Redis接続失敗 (10回試行、諦めます): %s", e)
                 sys.exit(1)
