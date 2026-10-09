@@ -21,7 +21,7 @@ from swim_worker.icon import create_icon
 from swim_worker.settings_store import (
     SettingsStore, load_json as _load_json, save_json as _save_json,
 )
-from swim_worker.worker_runner import WorkerRunner, DUPLICATE, AUTH_ERROR
+from swim_worker.worker_runner import WorkerRunner, DUPLICATE, AUTH_ERROR, STOPPED
 
 # System tray support (Windows + macOS)
 # 実際の描画は swim_worker.icon.create_icon に委譲するため、ここでは pystray の有無だけ判定。
@@ -523,7 +523,9 @@ class WorkerGUI:
         self._root.after(0, lambda: self._status_var.set(text))
 
     def _on_worker_finished(self, outcome: str, message: str):
-        """WorkerRunner から (Worker のスレッドで) 呼ばれる。停止要求以外の終わり方"""
+        """WorkerRunner から (Worker のスレッドで) 呼ばれる"""
+        if outcome == STOPPED:
+            return  # UI の復帰は _poll_worker_stopped が行う
         if outcome == DUPLICATE:
             # 同じ worker_name の別プロセス/別マシンが稼働中
             self._root.after(0, lambda m=message: messagebox.showerror(
