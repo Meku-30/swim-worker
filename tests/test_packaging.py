@@ -152,3 +152,15 @@ def test_release_is_draft_complete_and_version_bound():
     assert all("latest" not in inc["os"] for inc in build["strategy"]["matrix"]["include"])
     upload = next(s for s in build["steps"] if "upload-artifact" in s.get("uses", ""))
     assert upload["with"]["if-no-files-found"] == "error"
+
+
+def test_release_refuses_existing_release_for_tag():
+    """同じタグで CI を再実行しても draft が二重にできない: 既にリリース (draft 含む) があれば失敗"""
+    rel = yaml.safe_load((WORKFLOWS / "build-release.yml").read_text(encoding="utf-8"))
+    steps = rel["jobs"]["release"]["steps"]
+    idx = next(i for i, s in enumerate(steps) if s.get("name") == "Refuse existing release for this tag")
+    create = next(i for i, s in enumerate(steps) if "action-gh-release" in s.get("uses", ""))
+    assert idx < create
+    step = steps[idx]
+    assert "gh api" in step["run"] and "exit 1" in step["run"] and "--paginate" in step["run"]
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
