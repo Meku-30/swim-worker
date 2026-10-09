@@ -247,3 +247,128 @@ class TestWorkerRunner:
         r = worker_runner.WorkerRunner(SETTINGS)
         r.request_stop()
         _run_until_done(r)
+
+
+# --- updater のダウンロード (ストリーム・検証) ---
+
+import hashlib
+import contextlib
+
+
+class FakeFetcher:
+    def __init__(self, files: dict, status: dict | None = None, chunk=1000):
+        self.files = files
+        self.status = status or {}
+        self.chunk = chunk
+        self.requested = []
+
+    def get_text(self, url, max_bytes=1 << 20):
+        self.requested.append(url)
+        name = url.rsplit("/", 1)[-1]
+        if self.status.get(name, 200) != 200 or name not in self.files:
+            raise RuntimeError(f"{name} 取得失敗: status={self.status.get(name, 404)}")
+        return self.files[name].decode()
+
+    @contextlib.contextmanager
+    def stream(self, url):
+        self.requested.append(url)
+        name = url.rsplit("/", 1)[-1]
+        data = self.files.get(name, b"")
+        chunks = (data[i:i + self.chunk] for i in range(0, len(data), self.chunk))
+        yield self.status.get(name, 200 if name in self.files else 404), len(data), chunks
+
+
+BASE = "https://github.com/Meku-30/swim-worker/releases/download/v9.9.9"
+ASSET = "swim-worker-windows.exe"
+
+
+def _release(content: bytes, digest: str | None = None):
+    digest = digest or hashlib.sha256(content).hexdigest()
+    return {ASSET: content, "SHA256SUMS": f"{digest}  {ASSET}\n".encode()}
+
+
+class TestDownloadAndVerify:
+    def test_streams_verifies_and_reports_progress(self, tmp_path):
+        content = os.urandom(2 * 1024 * 1024 + 7)
+        f = FakeFetcher(_release(content), chunk=256 * 1024)
+        progress = []
+        dest = tmp_path / "swim-worker-gui.new.exe"
+        n = updater.download_and_verify(f"{BASE}/{ASSET}", dest, fetcher=f,
+                                        on_progress=lambda d, t: progress.append((d, t)))
+        assert n == len(content)
+        assert dest.read_bytes() == content
+        assert progress[-1] == (len(content), len(content))
+        assert len(progress) >= 2
+        # SHA256SUMS を先に取る (W3 で署名を検証してから本体を落とすため)
+        assert f.requested[0].endswith("/SHA256SUMS")
+        assert not list(tmp_path.glob("*.part"))
+
+    def test_hash_mismatch_leaves_nothing(self, tmp_path):
+        content = os.urandom(2 * 1024 * 1024)
+        f = FakeFetcher(_release(content, digest="0" * 64))
+        dest = tmp_path / "new.exe"
+        with pytest.raises(Exception, match="SHA256"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", dest, fetcher=f)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_missing_entry_fails_before_download(self, tmp_path):
+        f = FakeFetcher({ASSET: b"x", "SHA256SUMS": b"abc  other\n"})
+        with pytest.raises(Exception, match="エントリ"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
+        assert len(f.requested) == 1
+
+    def test_http_error(self, tmp_path):
+        content = os.urandom(2 * 1024 * 1024)
+        f = FakeFetcher(_release(content), status={ASSET: 404})
+        with pytest.raises(RuntimeError, match="404"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_too_small_is_rejected(self, tmp_path):
+        f = FakeFetcher(_release(b"tiny"))
+        with pytest.raises(RuntimeError, match="サイズ"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
+
+    def test_too_large_is_cut(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(updater, "MAX_ASSET_SIZE", 3 * 1024 * 1024)
+        content = os.urandom(4 * 1024 * 1024)
+        f = FakeFetcher(_release(content), chunk=512 * 1024)
+        with pytest.raises(RuntimeError, match="大きすぎ"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_wall_clock_limit(self, tmp_path):
+        content = os.urandom(2 * 1024 * 1024)
+        f = FakeFetcher(_release(content), chunk=64 * 1024)
+        t = iter(range(0, 10 ** 6, 100))
+        with pytest.raises(RuntimeError, match="時間"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f,
+                                        clock=lambda: next(t))
+
+
+def test_curl_fetcher_streams_from_local_server(tmp_path):
+    """curl_cffi の stream=True で実際に落とせる (ローカルの HTTP サーバー)"""
+    pytest.importorskip("curl_cffi")
+    import http.server
+    import threading
+    import functools
+    content = os.urandom(2 * 1024 * 1024 + 3)
+    srv_dir = tmp_path / "srv"
+    srv_dir.mkdir()
+    for name, data in _release(content).items():
+        (srv_dir / name).write_bytes(data)
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(srv_dir))
+    handler.log_message = lambda *a, **k: None
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    th = threading.Thread(target=httpd.serve_forever, daemon=True)
+    th.start()
+    try:
+        url = f"http://127.0.0.1:{httpd.server_address[1]}/{ASSET}"
+        dest = tmp_path / "n.exe"
+        progress = []
+        updater.download_and_verify(url, dest, fetcher=updater.CurlFetcher(impersonate=None),
+                                    on_progress=lambda d, t: progress.append((d, t)))
+        assert dest.read_bytes() == content
+        assert progress[-1] == (len(content), len(content))
+    finally:
+        httpd.shutdown()
