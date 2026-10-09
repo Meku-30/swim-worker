@@ -20,7 +20,14 @@ from swim_worker.gui_helpers import (
     pyinstaller_clean_env,
 )
 from swim_worker.settings_store import load_json, save_json
-from swim_worker.update_verify import UpdateVerifyError, parse_sha256sums, verify_sums_signature
+from swim_worker import __version__
+from swim_worker.update_check import parse_version
+from swim_worker.update_verify import (
+    UpdateVerifyError,
+    check_release_line,
+    parse_sha256sums,
+    verify_sums_signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,25 +194,43 @@ def release_base_url(download_url: str) -> str:
     return download_url.rsplit("/", 1)[0]
 
 
-def fetch_checksums(fetcher, base_url: str) -> str:
-    """同じリリースの SHA256SUMS と SHA256SUMS.sig を取り、署名を確かめてから SHA256SUMS を返す。
+def fetch_checksums(fetcher, base_url: str, current_version: str | None = None) -> str:
+    """同じリリースの SHA256SUMS と SHA256SUMS.sig を取り、確かめてから SHA256SUMS を返す。
 
-    署名の無いリリース (sig を取れない)・改ざん・知らない鍵・公開鍵が未設定は例外
-    (UpdateVerifyError か取得失敗の RuntimeError)。
+    確かめること: (1) 埋め込みの公開鍵での署名、(2) 署名された先頭行の版が URL のタグと一致、
+    (3) current_version があれば、その版より新しい。
+    署名の無いリリース (sig を取れない)・改ざん・知らない鍵・公開鍵が未設定・別の版のファイル・
+    古い版は例外 (UpdateVerifyError か取得失敗の RuntimeError)。
     """
+    tag = base_url.rstrip("/").rsplit("/", 1)[-1]
+    new = parse_version(tag)
+    if new is None or not tag.startswith("v"):
+        raise UpdateVerifyError(f"ダウンロード先のタグが不正です: {tag!r}")
+    if current_version is not None:
+        cur = parse_version(current_version)
+        if cur is None or new <= cur:
+            raise UpdateVerifyError(
+                f"{tag} は今の版 (v{current_version}) より新しくないため更新しません")
     sums = fetcher.get_bytes(f"{base_url}/SHA256SUMS", MAX_SUMS_SIZE)
     try:
         sig = fetcher.get_bytes(f"{base_url}/SHA256SUMS.sig", MAX_SIG_SIZE)
     except Exception as e:
         raise UpdateVerifyError(f"SHA256SUMS.sig を取得できません (署名のないリリース): {e}") from e
     key_index = verify_sums_signature(sums, sig)
-    logger.info("SHA256SUMS の署名 OK (%s)", "主鍵" if key_index == 0 else "予備鍵")
+    check_release_line(sums, tag)
+    logger.info("SHA256SUMS の署名 OK (%s, %d 本目の鍵)", tag, key_index + 1)
     return sums.decode("utf-8")
 
 
+_RUNNING_VERSION = object()
+
+
 def download_and_verify(download_url: str, dest: Path, *, fetcher=None, on_progress=None,
-                        on_phase=None, clock=time.monotonic) -> int:
-    """exe をストリームでダウンロードし、SHA256SUMS と一致したら dest に置く。
+                        on_phase=None, clock=time.monotonic,
+                        current_version=_RUNNING_VERSION) -> int:
+    """exe をストリームでダウンロードし、署名を確かめた SHA256SUMS と一致したら dest に置く。
+
+    current_version (既定は動いている版) より新しい版でなければ断る。None で確認しない。
 
     途中で失敗したら何も残さない。戻り値は書いたバイト数。
     on_progress(済んだバイト数, 全体のバイト数 or None)・on_phase(text) は
@@ -215,7 +240,9 @@ def download_and_verify(download_url: str, dest: Path, *, fetcher=None, on_progr
     asset_name = download_url.rsplit("/", 1)[-1]
     if on_phase:
         on_phase("チェックサムを取得しています")
-    sums_text = fetch_checksums(fetcher, release_base_url(download_url))
+    if current_version is _RUNNING_VERSION:
+        current_version = __version__
+    sums_text = fetch_checksums(fetcher, release_base_url(download_url), current_version)
     expected = parse_sha256sums(sums_text).get(asset_name)
     if not expected:
         raise UpdateVerifyError(f"SHA256SUMS に {asset_name} のエントリがありません")

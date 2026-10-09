@@ -14,13 +14,18 @@
 #   sudo RELEASE_TAG=v1.0.0-rc1 bash install.sh
 #   (通常は省略して最新 stable を使う)
 #
-# 自動更新モード (systemd timer から呼ばれる):
-#   sudo bash install.sh --auto
-#   (常に最新の stable を追従、prerelease は拾わない)
+# 自動更新 (--auto):
+#   ふだんは固定の更新スクリプト /usr/local/libexec/swim-worker/update.sh
+#   (swim-worker-update.service が実行) が、一時停止・段階配布・メジャー版を確かめ、
+#   署名を確かめたこの install.sh を SWIM_UPDATE_TAG=<タグ> 付きの --auto で実行する。
+#   SWIM_UPDATE_TAG なしの --auto (旧 update.service が最新の install.sh を取って実行する場合・
+#   手で sudo bash install.sh --auto した場合) は、更新スクリプトと unit を (署名を確かめて)
+#   置き直してから、その更新スクリプトに処理を任せる (旧方式からの移行)
 #
 # やること:
 #   - 最新 stable のタグを調べ、そのタグに固定して GitHub Releases からダウンロード
-#   - SHA256SUMS で整合性検証
+#   - SHA256SUMS の署名 (SHA256SUMS.sig、Ed25519) を埋め込みの公開鍵で検証し、
+#     各ファイルのハッシュを SHA256SUMS で検証 (署名のないリリースは入れない。OpenSSL 1.1.1 以上が必要)
 #   - 専用ユーザー swim-worker を作成 (システムアカウント、シェルなし)
 #   - /opt/swim-worker/ に配置 + /opt/swim-worker/.version 書き込み
 #     (/opt/swim-worker は root の持ち物。Worker が書けるのは data/ だけ、.env は読むだけ)
@@ -28,12 +33,13 @@
 #   - systemd unit 配置 + enable (起動は手動)
 #   - 名前解決のサーバー・Redis への通信を許可する drop-in を配置
 #     (unit は LAN・リンクローカル宛ての通信を閉じているため)
+#   - 固定の更新スクリプトを /usr/local/libexec/swim-worker/update.sh に配置
 #   - swim-worker-update.timer を配置 + enable (6h 毎の自動更新チェック)
 #
 # 削除方法:
 #   sudo systemctl disable --now swim-worker swim-worker-update.timer
 #   sudo rm -rf /opt/swim-worker /etc/systemd/system/swim-worker*.{service,timer} \
-#     /etc/systemd/system/swim-worker.service.d
+#     /etc/systemd/system/swim-worker.service.d /usr/local/libexec/swim-worker
 #   sudo userdel swim-worker
 
 set -euo pipefail
@@ -46,43 +52,20 @@ UPDATE_SERVICE_FILE="/etc/systemd/system/swim-worker-update.service"
 UPDATE_TIMER_FILE="/etc/systemd/system/swim-worker-update.timer"
 VERSION_FILE="${INSTALL_DIR}/.version"
 UPDATE_LOCK="/var/lock/swim-worker-update.lock"
+# 固定の更新スクリプト (swim-worker-update.service が実行する。root:root 0755)
+UPDATER_DIR="/usr/local/libexec/swim-worker"
+UPDATER_PATH="${UPDATER_DIR}/update.sh"
 
-# Redis TLS 用 CA 証明書 (swim_worker/certs.py の CA_CERT_PEM と同一。公開鍵なので秘匿不要)。
-# --auto の kill switch 確認で Redis に AUTH (パスワード送信) するため、
-# 証明書検証なし (CERT_NONE) では MITM でパスワードを窃取されうる。必ず検証する。
-# tests/test_install_sh.py が certs.py との一致を検証している。
-read -r -d '' REDIS_CA_PEM <<'CAEOF' || true
------BEGIN CERTIFICATE-----
-MIIFETCCAvmgAwIBAgIUa37Dpr6cCRedc6aFqB0Lxita18UwDQYJKoZIhvcNAQEL
-BQAwGDEWMBQGA1UEAwwNc3dpbS1yZWRpcy1jYTAeFw0yNjAzMzEyMTA2MzdaFw0z
-NjAzMjgyMTA2MzdaMBgxFjAUBgNVBAMMDXN3aW0tcmVkaXMtY2EwggIiMA0GCSqG
-SIb3DQEBAQUAA4ICDwAwggIKAoICAQCRhkoOXWg0ewc/HFxp59EO1nws/g6x+czH
-Vbclrwiu5rty1AYcZs7OggqDAi+Uju7eJTvQxhWE2uOk3yYYWT3VcJsD3nblZAuA
-i6gi6rIOM47fweVyUAyuFRdGibCTqqvvRye5SQxG6QJa4PZTl/GeAz90MqThES50
-jkhSe2esA5TRGNTJI8yshD/JVjCRdu6sPuzK1X9LwDcAJqKCTrPtnAxU0j53ub/r
-8gORWwgxFhiY8eRK5TMmENeqcplntx69DC4RenxqnxA8vaF3R40Vsqmufpfvvxph
-KlEtzWXCeXznnOTkTnVejVir0gvzQjETcnXp4oQJyEgvBv6DGGJojlbWhlcwMpnY
-aLsE74Uq+nS27vlvH1UZlyc++TACqbCvYm9bwVJkUeVcMJRqp3zzXHXmTDqWB7YY
-CbPQNuXIwjEiTpEm3SykqaFQhlxEFjpB0u6rQGfWEwB8pF5SiYOruam0rz8x2M6i
-jQ9KcOOeo8eKuV1UDwM7P9bCt0EMr3Vd51ttancdWk+GG4YmSf1gHZwmbJuJpBCB
-YAiHFptliSRT0IvQ0haILvCz7Fc06g5YSFYGtcFP4UBdbh2yTnsrw78qHnjeb9vi
-BszxexdElFAk5xaG1WKl0VYs1FrWdVcngi2BRkS/zSCjILOeBfSxLBGgEGgFv8Gd
-GUzuycDUnwIDAQABo1MwUTAdBgNVHQ4EFgQUngQHZ7JSi0eCv0gsvpKwu9p332Qw
-HwYDVR0jBBgwFoAUngQHZ7JSi0eCv0gsvpKwu9p332QwDwYDVR0TAQH/BAUwAwEB
-/zANBgkqhkiG9w0BAQsFAAOCAgEAEFRbB+Pe1CGzR1kNNgpw2j/OOitB5hm03GhH
-W6as1nEaizQxGX+GV5N70yvLYef+ig43iSq7ved04/mCQONCnMD3Og0OGExmOOJ/
-ffs0m8c5jLo3Zlvesk2O5iyQPqvYUYT2DnZvZTKc0MW+ab4vsIonpe2GlWZm2kOq
-7ryXA+xjuZNXJVeEj9XWnQ6ZxFdv1U2S7c44mGETk571At6qasa24DONNwC/9omB
-6cvdm1b28+sxVVZgFC4oZYQIKX0k9emGONcE47R7NKi3ku63vpzqV+uh6+94yzSt
-a8QzXEsp2W4bVdEJc6asAI6ATLVn2ULTWdcuJHURLeHj+hcR7N240Z0uMSKqriGx
-nnDgs6iUFEq3EGsxl90HqYO0KfabH8mFXVd2sXLBKJxb8Bq6+OcA9cFfgRaFxmrP
-y0sZG+mz7jURCrpoijb5qqMGKMwL5b82A9A8BNbuysoo5bICY50PVG4zwOvB6kBT
-Wzt7/195TDXVypH9M7DDnMD0XPrsrxQ1ce9Eg7jWdhMe7dPzz0lm9kJefFPyLgiO
-HY7SsUQX4NBMjof3S6Cg7+bzJtjiQazJNuJULHslGWd9gbwd9X3k0UGjgeMOMESj
-bmKpFYjCVWnobdviueeior9ma52p387KUSydPkArU3gY0UTVBNG/yk/1x1351Ql7
-U2NY60E=
------END CERTIFICATE-----
-CAEOF
+# リリース (SHA256SUMS) の署名を確かめる Ed25519 公開鍵 (ふだんは 1 本、鍵の入れ替え中だけ 2 本まで)。
+# scripts/set-release-pubkeys.sh が scripts/release_pubkeys/*.pub.pem から書く。手で編集しない。
+# swim-worker-update.sh・swim_worker/release_keys.py と同じであることを tests/test_release_pubkeys.py が確かめる
+# BEGIN RELEASE PUBKEYS
+read -r -d '' RELEASE_PUBKEYS_PEM <<'PUBKEYEOF' || true
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAZ+6EShmEUwozcwVIWHNfkMdw4JvziE15STc5ZJ7yuLk=
+-----END PUBLIC KEY-----
+PUBKEYEOF
+# END RELEASE PUBKEYS
 
 # 通常モード: RELEASE_TAG 環境変数で特定バージョンを強制可能 (検証/手動ロールバック用)。
 # 未設定なら GitHub API で最新 stable のタグを調べ、そのタグに固定してダウンロードする。
@@ -139,6 +122,77 @@ validate_tag() {
         [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
     else
         [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]
+    fi
+}
+
+# `openssl version` の出力が OpenSSL 1.1.1 以上か (Ed25519 の pkeyutl -rawin が要る)
+# 使い方: openssl_version_ok "OpenSSL 3.0.13 30 Jan 2024"
+openssl_version_ok() {
+    local v="$1"
+    [[ "$v" =~ ^OpenSSL\ ([0-9]+)\.([0-9]+)\.([0-9]+) ]] || return 1
+    local major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}" patch="${BASH_REMATCH[3]}"
+    (( major >= 3 )) && return 0
+    (( major == 1 && minor == 1 && patch >= 1 )) && return 0
+    return 1
+}
+
+require_openssl() {
+    command -v openssl >/dev/null || die "openssl が必要です (apt install -y openssl)。更新の署名を確かめるのに使います"
+    local v
+    v=$(openssl version 2>/dev/null || true)
+    openssl_version_ok "$v" \
+        || die "OpenSSL 1.1.1 以上が必要です (更新の署名の検証に Ed25519 を使います)。今: ${v:-不明}"
+}
+
+# SHA256SUMS の署名を、埋め込みの公開鍵 (RELEASE_PUBKEYS_PEM) のどれかで確かめる。
+# 署名が無い・長さが違う・公開鍵が未設定・どの鍵でも通らない、はすべて失敗 (1)
+# 使い方: verify_sums_signature <SHA256SUMS> <SHA256SUMS.sig>
+verify_sums_signature() {
+    local sums="$1" sig="$2" keydir key nkeys=0 rc=1
+    if [[ ! -s "$sig" ]]; then
+        echo "SHA256SUMS.sig がありません (署名のないリリース)" >&2
+        return 1
+    fi
+    if [[ "$(wc -c < "$sig")" -ne 64 ]]; then
+        echo "SHA256SUMS.sig の長さが不正です (Ed25519 の署名は 64 バイト)" >&2
+        return 1
+    fi
+    keydir=$(mktemp -d)
+    # 埋め込みの PEM を 1 本ずつファイルに分ける
+    awk -v dir="$keydir" '
+        /^-----BEGIN PUBLIC KEY-----$/ { n++; f = dir "/key" n ".pem" }
+        f != "" { print > f }
+        /^-----END PUBLIC KEY-----$/ { if (f != "") close(f); f = "" }
+    ' <<< "${RELEASE_PUBKEYS_PEM:-}"
+    for key in "$keydir"/key*.pem; do
+        [[ -f "$key" ]] || continue
+        nkeys=$((nkeys + 1))
+        if openssl pkeyutl -verify -pubin -inkey "$key" -rawin \
+                -in "$sums" -sigfile "$sig" >/dev/null 2>&1; then
+            rc=0
+            break
+        fi
+    done
+    rm -rf "$keydir"
+    if (( nkeys == 0 )); then
+        echo "署名を確かめる公開鍵が埋め込まれていません (この版では更新できません)" >&2
+        return 1
+    fi
+    if (( rc != 0 )); then
+        echo "SHA256SUMS の署名を確かめられません (改ざん、または知らない鍵の署名)" >&2
+    fi
+    return "$rc"
+}
+
+# 署名した SHA256SUMS の先頭行が `# swim-worker-release <タグ>` と完全に一致するか。
+# 署名を版に結び付ける (古い版の署名済みファイルを新しいタグとして出すリプレイを防ぐ)
+# 使い方: check_release_line <SHA256SUMS> <tag>
+check_release_line() {
+    local first=""
+    IFS= read -r first < "$1" || true
+    if [[ "$first" != "# swim-worker-release $2" ]]; then
+        echo "SHA256SUMS の版の行が $2 と一致しません。別の版のファイルの可能性があります" >&2
+        return 1
     fi
 }
 
@@ -238,7 +292,8 @@ write_root_file() {
     chmod 0644 "$1"
 }
 
-# 指定したファイル群を DL して SHA256SUMS で整合性検証する
+# 指定したファイル群を DL して検証する: 先に SHA256SUMS と SHA256SUMS.sig を取って署名を
+# 埋め込みの公開鍵で確かめ (通らなければ本体は落とさない)、各ファイルのハッシュを照合する
 # 使い方: download_and_verify <base_url> <tmpdir> <file1> [<file2> ...]
 download_and_verify() {
     local base_url="$1"
@@ -246,16 +301,26 @@ download_and_verify() {
     shift 2
     local f expected actual
 
-    # 本体ファイル群 + SHA256SUMS を DL
-    for f in "$@" SHA256SUMS; do
+    for f in SHA256SUMS SHA256SUMS.sig; do
+        curl -fsSL --proto '=https' --tlsv1.2 --max-filesize 65536 \
+            -o "${tmpdir}/${f}" "${base_url}/${f}" \
+            || die "ダウンロード失敗: ${f} (署名のないリリースは入れません)"
+    done
+    verify_sums_signature "${tmpdir}/SHA256SUMS" "${tmpdir}/SHA256SUMS.sig" \
+        || die "リリースの署名を確かめられないため中止します"
+    # 署名された版の行が、取りに行ったタグ (base_url の最後) と一致すること
+    check_release_line "${tmpdir}/SHA256SUMS" "${base_url##*/}" \
+        || die "SHA256SUMS が ${base_url##*/} のものではないため中止します"
+
+    for f in "$@"; do
         curl -fsSL --proto '=https' --tlsv1.2 \
             -o "${tmpdir}/${f}" "${base_url}/${f}" \
             || die "ダウンロード失敗: ${f}"
     done
 
-    # SHA256 照合
+    # SHA256 照合 (名前は完全一致で探す)
     for f in "$@"; do
-        expected=$(grep "  ${f}$" "${tmpdir}/SHA256SUMS" | awk '{print $1}')
+        expected=$(awk -v n="$f" '$2 == n || $2 == ("*" n) { print $1; exit }' "${tmpdir}/SHA256SUMS")
         [[ -n "$expected" ]] || die "SHA256SUMS に ${f} のエントリがありません"
         actual=$(sha256sum "${tmpdir}/${f}" | awk '{print $1}')
         if [[ "$expected" != "$actual" ]]; then
@@ -264,12 +329,35 @@ download_and_verify() {
     done
 }
 
+# 検証済みの unit・timer・更新スクリプトを置く (反映は daemon-reload 後)。
+# 更新スクリプトは実行中に置き換えることがあるので、一時ファイルに書いてから mv で入れ替える
+# 使い方: install_update_files <tmpdir>
+install_update_files() {
+    local tmpdir="$1"
+    install -m 0644 -o root -g root "${tmpdir}/swim-worker.service"        "$SERVICE_FILE"
+    install -m 0644 -o root -g root "${tmpdir}/swim-worker-update.service" "$UPDATE_SERVICE_FILE"
+    install -m 0644 -o root -g root "${tmpdir}/swim-worker-update.timer"   "$UPDATE_TIMER_FILE"
+    if [[ -L "$UPDATER_DIR" ]]; then
+        die "${UPDATER_DIR} がシンボリックリンクです。確認してください"
+    fi
+    mkdir -p "$UPDATER_DIR"
+    chown root:root "$UPDATER_DIR"
+    chmod 0755 "$UPDATER_DIR"
+    rm -f "${UPDATER_PATH}.new"
+    install -m 0755 -o root -g root "${tmpdir}/swim-worker-update.sh" "${UPDATER_PATH}.new"
+    mv -f "${UPDATER_PATH}.new" "$UPDATER_PATH"
+}
+
+# 一緒に配る (検証して置く) ファイル
+UPDATE_FILES=(swim-worker.service swim-worker-update.service swim-worker-update.timer swim-worker-update.sh)
+
 # --- 事前チェック ---
 [[ $EUID -eq 0 ]] || die "root で実行してください (sudo bash install.sh)"
 
 command -v systemctl >/dev/null || die "systemd が必要です"
 command -v curl >/dev/null      || die "curl が必要です (apt install -y curl)"
 command -v sha256sum >/dev/null || die "sha256sum が必要です"
+require_openssl
 
 # アーキテクチャ判定
 ARCH_RAW=$(uname -m)
@@ -281,7 +369,12 @@ esac
 BINARY_NAME="swim-worker-linux-${ARCH}"
 
 # ========================================================================
-# --auto モード: バージョン比較 + ガードチェック + 更新実行 + ロールバック
+# --auto モード
+#   SWIM_UPDATE_TAG あり: 固定の更新スクリプト (update.sh) が一時停止・段階配布・メジャー版を
+#     確かめ、署名を確かめたこの install.sh を呼んだ。そのタグの版を入れ、起動を確かめる
+#     (起動しなければロールバック)
+#   SWIM_UPDATE_TAG なし: 旧 update.service (最新の install.sh を取って --auto で実行) か手動。
+#     更新スクリプトと unit を最新リリースから (署名を確かめて) 置き直し、更新スクリプトに任せる
 # ========================================================================
 if [[ $AUTO_MODE -eq 1 ]]; then
     # 多重実行防止 (timer が前回の更新中に再発火するケース対策)
@@ -295,232 +388,52 @@ if [[ $AUTO_MODE -eq 1 ]]; then
     CURRENT_VERSION=$(cat "$VERSION_FILE")
     [[ -n "$CURRENT_VERSION" ]] || die ".version が空です"
 
-    # 最新バージョンを取得 (--auto は常に最新 stable)。以後のダウンロードはこのタグに固定
-    LATEST_TAG=$(fetch_latest_tag "$LATEST_API_URL")
-    validate_tag "$LATEST_TAG" strict || die "GitHub API から最新のタグを取得できません (${LATEST_TAG:-空})"
-    LATEST_VERSION="${LATEST_TAG#v}"
-
-    if [[ "$CURRENT_VERSION" == "$LATEST_VERSION" ]]; then
-        log "最新版です (v${CURRENT_VERSION})"
-        exit 0
-    fi
-
-    # ダウングレード防止: 現行 > latest なら skip (prerelease 検証中等の保護)
-    NEWER=$(printf '%s\n%s\n' "$CURRENT_VERSION" "$LATEST_VERSION" | sort -V | tail -1)
-    if [[ "$NEWER" == "$CURRENT_VERSION" && "$CURRENT_VERSION" != "$LATEST_VERSION" ]]; then
-        log "現行 (v${CURRENT_VERSION}) が latest (v${LATEST_VERSION}) より新しい、skip (prerelease 検証中等)"
-        exit 0
-    fi
-
-    # --- ガード0: 前回この版でロールバックしていれば再試行しない (手動 install.sh で解除) ---
-    FAILED_VERSION_FILE="${INSTALL_DIR}/.failed-version"
-    if [[ -f "$FAILED_VERSION_FILE" ]]; then
-        FAILED_VERSION=$(cat "$FAILED_VERSION_FILE")
-        if [[ "$FAILED_VERSION" == "$LATEST_VERSION" ]]; then
-            log "v${LATEST_VERSION} は前回ロールバックした版のため skip (手動で install.sh を実行すると解除)"
+    if [[ -z "${SWIM_UPDATE_TAG:-}" ]]; then
+        # --- 旧方式からの移行: 固定の更新スクリプトを置いて、そちらに任せる ---
+        if [[ -f "${INSTALL_DIR}/.no-auto-update" ]]; then
+            log "自動更新が opt-out されています (${INSTALL_DIR}/.no-auto-update)"
             exit 0
         fi
-        rm -f "$FAILED_VERSION_FILE"   # より新しい版が出たので解除
+        LATEST_TAG=$(fetch_latest_tag "$LATEST_API_URL")
+        validate_tag "$LATEST_TAG" strict || die "GitHub API から最新のタグを取得できません (${LATEST_TAG:-空})"
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "${UPDATE_FILES[@]}"
+        install_update_files "$TMPDIR"
+        systemctl daemon-reload
+        log "固定の更新スクリプト (${UPDATER_PATH}) と unit を ${LATEST_TAG} から置きました。以後はそちらで更新します"
+        rm -rf "$TMPDIR"
+        trap - EXIT
+        exec 9>&-   # 更新スクリプトが呼ぶ install.sh がロックを取れるように
+        exec "$UPDATER_PATH"
     fi
 
-    # --- ガード1: ローカル opt-out ファイル ---
-    if [[ -f "${INSTALL_DIR}/.no-auto-update" ]]; then
-        log "自動更新が opt-out されています (${INSTALL_DIR}/.no-auto-update)"
-        exit 0
-    fi
+    # --- 固定の更新スクリプトから: 指定のタグを入れる ---
+    LATEST_TAG="$SWIM_UPDATE_TAG"
+    validate_tag "$LATEST_TAG" strict || die "SWIM_UPDATE_TAG の形式が不正です: ${LATEST_TAG}"
+    LATEST_VERSION="${LATEST_TAG#v}"
+    AUTH_BROKEN="${SWIM_UPDATE_AUTH_BROKEN:-0}"
+    [[ "$AUTH_BROKEN" == "1" ]] || AUTH_BROKEN=0
 
-    # --- ガード2: Redis kill switch + whitelist (staged rollout) ---
-    # Worker バイナリに問い合わせる形にすると依存が増えるため、
-    # 同梱の小さい Python で直接問い合わせる (バイナリ内 Python は使えないため
-    # 専用 helper を置く。シンプルに curl_cffi ではなく標準 python + ssl を使う)
-    AUTH_BROKEN=0
-    if command -v python3 >/dev/null; then
-        # .env から WORKER_NAME 抽出 (log 表示用。Python helper は独自に .env 全体を読む)
-        WORKER_NAME=""
-        if [[ -r "${INSTALL_DIR}/.env" ]]; then
-            WORKER_NAME=$(grep -E "^WORKER_NAME=" "${INSTALL_DIR}/.env" 2>/dev/null \
-                | head -1 | sed "s/^WORKER_NAME=//; s/^'//; s/'$//" || true)
-        fi
-        GUARD_RESULT=$(INSTALL_DIR="$INSTALL_DIR" SWIM_REDIS_CA_PEM="$REDIS_CA_PEM" python3 - <<'PYEOF' 2>/dev/null || echo "ERROR"
-import os, re, socket, ssl, sys
-
-# .env を読み込み (install.sh が書いた単引用符形式)
-env = {}
-try:
-    env_path = os.path.join(os.environ.get("INSTALL_DIR", "/opt/swim-worker"), ".env")
-    with open(env_path) as f:
-        for line in f:
-            m = re.match(r"^([A-Z_]+)=(.*)$", line.strip())
-            if not m:
-                continue
-            k, v = m.group(1), m.group(2)
-            if (v.startswith("'") and v.endswith("'")) or (v.startswith('"') and v.endswith('"')):
-                v = v[1:-1]
-            env[k] = v
-except Exception:
-    print("ERROR:env-unreadable")
-    sys.exit(0)
-
-host = env.get("REDIS_HOST", "")
-port = int(env.get("REDIS_PORT", "6380"))
-username = env.get("REDIS_USERNAME", "")  # ACL のワーカー用ユーザー (空なら default)
-password = env.get("REDIS_PASSWORD", "")
-worker_name = env.get("WORKER_NAME", "")
-if not host:
-    print("ERROR:no-host")
-    sys.exit(0)
-
-# Redis TLS 接続。AUTH でパスワードを送るため、埋め込み CA でサーバー証明書を
-# 検証する (Worker 本体 redis-py と同じ CA・同じ hostname/IP SAN 照合)。
-ca_pem = os.environ.get("SWIM_REDIS_CA_PEM", "")
-if not ca_pem.strip():
-    print("ERROR:no-ca-pem")
-    sys.exit(0)
-try:
-    ctx = ssl.create_default_context(cadata=ca_pem)
-    ctx.check_hostname = True
-    ctx.verify_mode = ssl.CERT_REQUIRED
-    raw = socket.create_connection((host, port), timeout=5)
-    sock = ctx.wrap_socket(raw, server_hostname=host)
-    sock.settimeout(5)
-
-    def recv_until(delim):
-        buf = b""
-        while delim not in buf:
-            ch = sock.recv(1)
-            if not ch:
-                return buf
-            buf += ch
-        return buf
-
-    class RedisError(Exception):
-        """Redis -ERR 応答 (AUTH 失敗、コマンドエラー等)"""
-
-    def read_resp():
-        """RESP 単一応答 (simple string / error / bulk string) を読む。"""
-        head = recv_until(b"\r\n")
-        if not head:
-            return None
-        kind = head[:1]
-        body = head[1:-2]
-        if kind == b"+":
-            return body.decode("utf-8", "replace")
-        if kind == b"-":
-            # -ERR / -WRONGPASS / -NOAUTH 等の Redis エラー応答
-            raise RedisError(body.decode("utf-8", "replace"))
-        if kind == b"$":
-            n = int(body)
-            if n < 0:
-                return None
-            remaining = n + 2  # data + \r\n
-            data = b""
-            while len(data) < remaining:
-                chunk = sock.recv(remaining - len(data))
-                if not chunk:
-                    break
-                data += chunk
-            return data[:-2].decode("utf-8", "replace")
-        # 整数 (":") 等は現状不要。未知の応答は None
-        return None
-
-    def cmd(*args):
-        buf = f"*{len(args)}\r\n".encode()
-        for a in args:
-            b = a.encode()
-            buf += f"${len(b)}\r\n".encode() + b + b"\r\n"
-        sock.sendall(buf)
-        return read_resp()
-
-    # 認証の失敗・権限不足 (パスワードの作り直し・入力ミス・古い .env) は AUTH_FALLBACK:
-    # Redis の一時停止・段階配布の設定を読めない = Coordinator にもつなげず働けていない Worker
-    # なので、自動更新を止めずに GitHub の最新版で更新する (直った版が来れば復帰できる)
-    try:
-        if username:
-            cmd("AUTH", username, password)
-        else:
-            cmd("AUTH", password)
-    except RedisError as e:
-        print(f"AUTH_FALLBACK:{e}")
-        sys.exit(0)
-
-    try:
-        enabled   = cmd("GET", "swim:auto_update_enabled")
-        whitelist = cmd("GET", "swim:auto_update_whitelist")
-    except RedisError as e:
-        if str(e).startswith(("NOPERM", "NOAUTH")):
-            print(f"AUTH_FALLBACK:{e}")
-            sys.exit(0)
-        raise
-    sock.close()
-
-    if enabled != "true":
-        print("DISABLED")
-        sys.exit(0)
-    if whitelist and whitelist.strip():
-        allowed = [x.strip() for x in whitelist.split(",") if x.strip()]
-        if worker_name not in allowed:
-            print(f"NOT_IN_WHITELIST:{worker_name}")
-            sys.exit(0)
-    print("OK")
-except Exception as e:
-    print(f"ERROR:{type(e).__name__}:{e}")
-    sys.exit(0)
-PYEOF
-)
-        case "$GUARD_RESULT" in
-            "DISABLED")
-                log "Coordinator kill switch が OFF (swim:auto_update_enabled != 'true')、更新スキップ"
-                exit 0
-                ;;
-            NOT_IN_WHITELIST:*)
-                log "staged rollout whitelist に含まれていない Worker: ${WORKER_NAME}、更新スキップ"
-                exit 0
-                ;;
-            AUTH_FALLBACK:*)
-                warn "Redis 認証失敗 (${GUARD_RESULT#AUTH_FALLBACK:}) — .env の REDIS_USERNAME / REDIS_PASSWORD を確認。"
-                warn "  Coordinator の一時停止・段階配布の設定を読めないため、GitHub の最新版で更新を続けます"
-                AUTH_BROKEN=1
-                ;;
-            ERROR:*)
-                warn "Coordinator 疎通確認失敗 (${GUARD_RESULT#ERROR:})、安全側で更新スキップ"
-                exit 0
-                ;;
-            "OK")
-                log "ガード通過: 更新を開始します"
-                ;;
-            *)
-                warn "予期しないガード応答 (${GUARD_RESULT})、更新スキップ"
-                exit 0
-                ;;
-        esac
-    else
-        # python3 がないと kill switch / whitelist を確認できない。
-        # 安全側 (fail-closed) で更新自体をスキップする。Pi OS / Ubuntu / Debian は
-        # 標準で python3 同梱なので通常このパスには入らない。
-        warn "python3 がないため Coordinator ガードを確認できません、安全側で更新スキップ"
-        exit 0
-    fi
-
-    # --- ガード3: メジャーバージョン変更は手動必須 ---
-    CUR_MAJOR="${CURRENT_VERSION%%.*}"
-    NEW_MAJOR="${LATEST_VERSION%%.*}"
-    if [[ "$CUR_MAJOR" != "$NEW_MAJOR" ]]; then
-        warn "メジャーバージョン変更 (${CUR_MAJOR}.x → ${NEW_MAJOR}.x)、自動更新をスキップ"
-        warn "手動で sudo bash install.sh を実行してください"
+    # 今の版より新しい版にだけ更新する (署名済みの古い版へのダウングレードもしない)
+    NEWER=$(printf '%s\n%s\n' "$CURRENT_VERSION" "$LATEST_VERSION" | sort -V | tail -1)
+    if [[ "$CURRENT_VERSION" == "$LATEST_VERSION" || "$NEWER" != "$LATEST_VERSION" ]]; then
+        log "v${LATEST_VERSION} は今の版 (v${CURRENT_VERSION}) より新しくないため skip"
         exit 0
     fi
 
     log "自動更新: v${CURRENT_VERSION} → v${LATEST_VERSION}"
 
-    # --- 新バイナリ DL + 検証 (調べたタグに固定) ---
+    # --- 新バイナリ・更新スクリプト・unit を DL + 検証 (タグに固定) ---
     TMPDIR=$(mktemp -d)
     trap 'rm -rf "$TMPDIR"' EXIT
-    download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "$BINARY_NAME"
+    download_and_verify "${DOWNLOAD_BASE}/${LATEST_TAG}" "$TMPDIR" "$BINARY_NAME" "${UPDATE_FILES[@]}"
 
     # --- 旧バイナリをバックアップ → 新バイナリ配置 → restart ---
     rm -f "${INSTALL_DIR}/swim-worker.old"
     cp -p "${INSTALL_DIR}/swim-worker" "${INSTALL_DIR}/swim-worker.old"
     install -m 0755 -o root -g root "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/swim-worker"
+    install_update_files "$TMPDIR"
     fix_permissions
     write_ip_allow_dropin
     systemctl daemon-reload
@@ -589,13 +502,9 @@ log "バージョン: ${TAG}"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-log "バイナリ / systemd unit / timer をダウンロード & SHA256 検証..."
-download_and_verify "${DOWNLOAD_BASE}/${TAG}" "$TMPDIR" \
-    "$BINARY_NAME" \
-    swim-worker.service \
-    swim-worker-update.service \
-    swim-worker-update.timer
-log "整合性 OK"
+log "バイナリ / systemd unit / timer / 更新スクリプトをダウンロード & 署名・SHA256 検証..."
+download_and_verify "${DOWNLOAD_BASE}/${TAG}" "$TMPDIR" "$BINARY_NAME" "${UPDATE_FILES[@]}"
+log "署名・整合性 OK"
 
 # --- 専用ユーザー作成 ---
 if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
@@ -673,11 +582,9 @@ fi
 # 所有者を整える (/opt/swim-worker は root、data/ だけサービスユーザー、.env は 640)
 fix_permissions
 
-# --- systemd unit / update timer 配置 ---
-log "systemd unit を配置..."
-install -m 0644 "${TMPDIR}/swim-worker.service"        "$SERVICE_FILE"
-install -m 0644 "${TMPDIR}/swim-worker-update.service" "$UPDATE_SERVICE_FILE"
-install -m 0644 "${TMPDIR}/swim-worker-update.timer"   "$UPDATE_TIMER_FILE"
+# --- systemd unit / update timer / 固定の更新スクリプト配置 ---
+log "systemd unit と更新スクリプト (${UPDATER_PATH}) を配置..."
+install_update_files "$TMPDIR"
 write_ip_allow_dropin
 log "通信の許可 (名前解決・Redis) を ${DROPIN_FILE} に書きました"
 systemctl daemon-reload

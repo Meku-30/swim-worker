@@ -363,7 +363,7 @@ def _sign_bytes(data: bytes) -> bytes:
 
 def _release(content: bytes, digest: str | None = None):
     digest = digest or hashlib.sha256(content).hexdigest()
-    sums = f"{digest}  {ASSET}\n".encode()
+    sums = f"# swim-worker-release v9.9.9\n{digest}  {ASSET}\n".encode()
     return {ASSET: content, "SHA256SUMS": sums, "SHA256SUMS.sig": _sign_bytes(sums)}
 
 
@@ -394,7 +394,7 @@ class TestDownloadAndVerify:
         assert list(tmp_path.iterdir()) == []
 
     def test_missing_entry_fails_before_download(self, tmp_path):
-        sums = b"abc  other\n"
+        sums = b"# swim-worker-release v9.9.9\nabc  other\n"
         f = FakeFetcher({ASSET: b"x", "SHA256SUMS": sums, "SHA256SUMS.sig": _sign_bytes(sums)})
         with pytest.raises(Exception, match="エントリ"):
             updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
@@ -438,16 +438,16 @@ def test_curl_fetcher_streams_from_local_server(tmp_path):
     import functools
     content = os.urandom(2 * 1024 * 1024 + 3)
     srv_dir = tmp_path / "srv"
-    srv_dir.mkdir()
+    (srv_dir / "v9.9.9").mkdir(parents=True)
     for name, data in _release(content).items():
-        (srv_dir / name).write_bytes(data)
+        (srv_dir / "v9.9.9" / name).write_bytes(data)
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(srv_dir))
     handler.log_message = lambda *a, **k: None
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     th = threading.Thread(target=httpd.serve_forever, daemon=True)
     th.start()
     try:
-        url = f"http://127.0.0.1:{httpd.server_address[1]}/{ASSET}"
+        url = f"http://127.0.0.1:{httpd.server_address[1]}/v9.9.9/{ASSET}"
         dest = tmp_path / "n.exe"
         progress = []
         updater.download_and_verify(url, dest, fetcher=updater.CurlFetcher(impersonate=None),

@@ -40,7 +40,7 @@ class TestVerifySumsSignature:
         assert verify_sums_signature(SUMS, sig, pubs) == 0
 
     def test_valid_signature_with_backup(self, tmp_path, keys):
-        """主鍵を失くしたときは予備鍵で署名した版で鍵を入れ替える"""
+        """鍵の入れ替え中は 2 本目の鍵で署名した版も通る"""
         sig = _signed(tmp_path, keys["backup"], SUMS)
         pubs = (keys["primary"].public_pem, keys["backup"].public_pem)
         assert verify_sums_signature(SUMS, sig, pubs) == 1
@@ -131,8 +131,10 @@ class SigFetcher:
         yield 200, len(data), iter([data])
 
 
-def _release(tmp_path, key, content: bytes, *, with_sig=True):
-    sums = f"{hashlib.sha256(content).hexdigest()}  {ASSET}\n".encode()
+def _release(tmp_path, key, content: bytes, *, with_sig=True, tag="v9.9.9", header=None):
+    if header is None:
+        header = f"# swim-worker-release {tag}\n"
+    sums = (header + f"{hashlib.sha256(content).hexdigest()}  {ASSET}\n").encode()
     files = {ASSET: content, "SHA256SUMS": sums}
     if with_sig:
         files["SHA256SUMS.sig"] = _signed(tmp_path, key, sums)
@@ -184,3 +186,77 @@ class TestUpdaterVerifiesSignature:
         f = SigFetcher(_release(tmp_path, keys["primary"], os.urandom(2 * 1024 * 1024)))
         with pytest.raises(UpdateVerifyError, match="公開鍵"):
             updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
+
+
+class TestReleaseLine:
+    """署名した SHA256SUMS の先頭行 `# swim-worker-release vX.Y.Z` で、署名を版 (タグ) に結び付ける。
+    古い版の署名済みファイルを新しいタグとして出す (リプレイ・ダウングレード) のを防ぐ"""
+
+    def test_check_release_line(self):
+        ok = b"# swim-worker-release v1.2.3\n" + SUMS
+        update_verify.check_release_line(ok, "v1.2.3")
+        for bad_sums, tag in [
+            (SUMS, "v1.2.3"),                                            # 版の行が無い
+            (b"# swim-worker-release v1.2.2\n" + SUMS, "v1.2.3"),       # 別の版
+            (b"# swim-worker-release v1.2.3 \n" + SUMS, "v1.2.3"),      # 余計な空白
+            (b"# swim-worker-release v1.2.30\n" + SUMS, "v1.2.3"),
+            (SUMS + b"# swim-worker-release v1.2.3\n", "v1.2.3"),       # 先頭でない
+            (b"\xef\xbb\xbf# swim-worker-release v1.2.3\n" + SUMS, "v1.2.3"),
+        ]:
+            with pytest.raises(UpdateVerifyError, match="版"):
+                update_verify.check_release_line(bad_sums, tag)
+
+    def test_parse_skips_release_line(self):
+        sums = update_verify.parse_sha256sums("# swim-worker-release v1.2.3\n" + SUMS.decode())
+        assert sums == {"swim-worker-windows.exe": "aa" * 32}
+
+    @pytest.fixture
+    def embedded(self, keys, monkeypatch):
+        monkeypatch.setattr(release_keys, "RELEASE_PUBKEYS_PEM", (keys["primary"].public_pem,))
+
+    def test_old_signed_release_replayed_as_new_tag_is_refused(self, tmp_path, keys, embedded):
+        """v1.0.0 の署名済み SHA256SUMS・.sig・exe を v9.9.9 として出しても通さない"""
+        f = SigFetcher(_release(tmp_path, keys["primary"], os.urandom(2 * 1024 * 1024),
+                                tag="v1.0.0"))
+        with pytest.raises(UpdateVerifyError, match="版"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
+        assert not any(u.endswith(ASSET) for u in f.requested)
+
+    def test_missing_release_line_is_refused(self, tmp_path, keys, embedded):
+        f = SigFetcher(_release(tmp_path, keys["primary"], os.urandom(2 * 1024 * 1024), header=""))
+        with pytest.raises(UpdateVerifyError, match="版"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
+
+    def test_tampered_release_line_is_refused(self, tmp_path, keys, embedded):
+        files = _release(tmp_path, keys["primary"], os.urandom(2 * 1024 * 1024), tag="v1.0.0")
+        files["SHA256SUMS"] = files["SHA256SUMS"].replace(b"v1.0.0", b"v9.9.9")
+        with pytest.raises(UpdateVerifyError, match="署名"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe",
+                                        fetcher=SigFetcher(files))
+
+    def test_not_newer_than_current_is_refused(self, tmp_path, keys, embedded):
+        """自動更新は今の版より新しい版にだけ (正しく署名された古い版へも戻さない)"""
+        content = os.urandom(2 * 1024 * 1024)
+        for current in ("9.9.9", "10.0.0"):
+            f = SigFetcher(_release(tmp_path, keys["primary"], content))
+            with pytest.raises(UpdateVerifyError, match="新しく"):
+                updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f,
+                                            current_version=current)
+            assert not any(u.endswith(ASSET) for u in f.requested)
+        f = SigFetcher(_release(tmp_path, keys["primary"], content))
+        updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f,
+                                    current_version="9.9.8")
+
+    def test_defaults_to_running_version(self, tmp_path, keys, embedded, monkeypatch):
+        monkeypatch.setattr(updater, "__version__", "9.9.9")
+        f = SigFetcher(_release(tmp_path, keys["primary"], os.urandom(2 * 1024 * 1024)))
+        with pytest.raises(UpdateVerifyError, match="新しく"):
+            updater.download_and_verify(f"{BASE}/{ASSET}", tmp_path / "n.exe", fetcher=f)
+
+    def test_tag_in_url_must_be_a_release_tag(self, tmp_path, keys, embedded):
+        f = SigFetcher(_release(tmp_path, keys["primary"], os.urandom(2 * 1024 * 1024),
+                                tag="latest"))
+        with pytest.raises(UpdateVerifyError):
+            updater.download_and_verify(
+                "https://github.com/Meku-30/swim-worker/releases/latest/download/" + ASSET,
+                tmp_path / "n.exe", fetcher=f)

@@ -3,6 +3,9 @@
 CI が release ディレクトリで `sha256sum * > SHA256SUMS` を生成し、リリースを draft で作る。
 管理者がノート PC の Ed25519 鍵で SHA256SUMS に署名し (scripts/sign-release.sh)、
 `SHA256SUMS.sig` (生の 64 バイト) を上げてから公開する。
+SHA256SUMS の先頭行は `# swim-worker-release vX.Y.Z` (CI が書く)。署名はこの行ごとなので、
+署名は版 (タグ) に結び付く: 古い版の署名済みファイルを新しいタグとして出しても、
+取りに行ったタグと先頭行が合わず通らない (リプレイ・ダウングレードの防止)。
 GUI 自動更新 (updater.py) は SHA256SUMS の署名を埋め込みの公開鍵 (release_keys.py) で
 確かめ、そのうえで exe のハッシュを照合する (install.sh・swim-worker-update.sh は同じ検証を
 openssl で行っている)。tkinter 非依存で単体テスト可能。
@@ -12,7 +15,8 @@ import hashlib
 from swim_worker import release_keys
 
 SIGNATURE_SIZE = 64   # Ed25519 の署名は 64 バイト
-MAX_RELEASE_KEYS = 2  # 主鍵 + 予備鍵
+MAX_RELEASE_KEYS = 2  # 鍵の入れ替え用に 2 本まで受け付ける (ふだんは 1 本)
+RELEASE_LINE_PREFIX = "# swim-worker-release "
 
 
 class UpdateVerifyError(RuntimeError):
@@ -77,7 +81,7 @@ def load_release_pubkeys(pems):
 def verify_sums_signature(sums: bytes, signature: bytes, pubkeys_pem=None) -> int:
     """SHA256SUMS の署名を、埋め込みの公開鍵のどれかで確かめる。
 
-    通れば何本目の鍵 (0 = 主鍵, 1 = 予備鍵) で通ったかを返す。署名が無い・壊れている・
+    通れば何本目の鍵 (0 始まり) で通ったかを返す。署名が無い・壊れている・
     改ざん・別の鍵・公開鍵が未設定はすべて UpdateVerifyError。
     """
     from cryptography.exceptions import InvalidSignature
@@ -94,3 +98,17 @@ def verify_sums_signature(sums: bytes, signature: bytes, pubkeys_pem=None) -> in
         except InvalidSignature:
             continue
     raise UpdateVerifyError("SHA256SUMS の署名を確かめられません (改ざん、または知らない鍵の署名)")
+
+
+def release_line(tag: str) -> str:
+    """SHA256SUMS の先頭行 (CI が書き、署名の対象に含まれる)"""
+    return f"{RELEASE_LINE_PREFIX}{tag}"
+
+
+def check_release_line(sums: bytes, tag: str) -> None:
+    """署名した SHA256SUMS の先頭行が、取りに行ったタグと完全に一致するか。違えば UpdateVerifyError"""
+    first = sums.split(b"\n", 1)[0]
+    if first != release_line(tag).encode("ascii"):
+        shown = first[:60].decode("utf-8", "replace")
+        raise UpdateVerifyError(
+            f"SHA256SUMS の版の行が {tag} と一致しません ({shown!r})。別の版のファイルの可能性があります")
