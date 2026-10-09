@@ -11,17 +11,15 @@ from tests.conftest import make_redis
 @pytest.mark.asyncio
 class TestTaskConsumer:
     async def test_send_heartbeat(self):
-        """heartbeat は自分の token のとき (または切れているとき) だけ延長する (Lua の CAS)"""
+        """heartbeat は GET で自分の token (または切れている) を確かめてから SETEX する。
+        Worker の Redis ACL には EVAL を許さないので、Lua (EVAL) は使わない"""
         mock_redis = AsyncMock()
-        mock_redis.eval.return_value = 1
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(), worker_name="test-worker", heartbeat_interval=30)
+        mock_redis.get.return_value = consumer._instance_token
         await consumer.send_heartbeat()
-        mock_redis.eval.assert_awaited_once()
-        args = mock_redis.eval.call_args.args
-        assert args[1] == 1 and args[2] == "heartbeat:test-worker"
-        assert args[3] == consumer._instance_token
-        assert int(args[4]) == 60  # heartbeat_interval(30) × HEARTBEAT_TTL_MULTIPLIER(2)
-        mock_redis.setex.assert_not_called()
+        mock_redis.eval.assert_not_called()
+        # heartbeat_interval(30) × HEARTBEAT_TTL_MULTIPLIER(2)
+        mock_redis.setex.assert_awaited_once_with("heartbeat:test-worker", 60, consumer._instance_token)
 
     async def test_register_worker_new(self):
         mock_redis = AsyncMock()
@@ -215,6 +213,7 @@ class TestTaskConsumer:
         (Redis 揮発時の worker_versions/platforms 自動復旧用)"""
         mock_redis = make_redis()
         mock_redis.sismember.return_value = True
+        mock_redis.get.return_value = None  # heartbeat のキーは切れている (取り直す)
         consumer = TaskConsumer(redis_client=mock_redis, swim_client=AsyncMock(),
                                 worker_name="test-worker", heartbeat_interval=30)
         # counter を既に限界直前にして、1回のループで超えるように
@@ -251,6 +250,7 @@ class TestTaskConsumer:
         """
         mock_redis = make_redis()
         mock_redis.sismember.return_value = True
+        mock_redis.get.return_value = None
         mock_redis.blpop.side_effect = asyncio.CancelledError()
         consumer = TaskConsumer(mock_redis, AsyncMock(), "test-worker")
         try:

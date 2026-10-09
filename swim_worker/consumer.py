@@ -30,17 +30,6 @@ HEARTBEAT_TTL_MULTIPLIER = 2
 # 結果の書き込みに失敗したときの再試行の間隔 (秒)。3 回試す
 RESULT_WRITE_RETRY_DELAYS = (1.0, 2.0)
 
-# heartbeat の延長は「自分の token のとき (または切れているとき)」だけ。
-# 別プロセスが同じ名前で lock を取っていたら上書きしない (戻り値 0)
-HEARTBEAT_CAS_SCRIPT = """
-local v = redis.call('GET', KEYS[1])
-if (not v) or v == ARGV[1] then
-  redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
-  return 1
-end
-return 0
-"""
-
 # Coordinator が置く最新版と、自動更新の制御 (install.sh --auto と同じキー)
 LATEST_VERSION_KEY = "swim:latest_worker_version"
 AUTO_UPDATE_ENABLED_KEY = "swim:auto_update_enabled"
@@ -115,8 +104,6 @@ class TaskConsumer:
         self._consume_task: asyncio.Task | None = None
         # タスクを取り出してから結果を書き終えるまで True (停止要求はこの間は待つ)
         self._executing = False
-        # heartbeat の所有確認を EVAL で行えるか (Redis の ACL に EVAL が無ければ GET→SETEX)
-        self._heartbeat_cas = True
         # 新バージョン検知時に呼ばれるコールバック (GUI連携用)
         # シグネチャ: callback(latest_version: str) -> None
         self._on_update_available = on_update_available
@@ -380,24 +367,12 @@ class TaskConsumer:
 
         自分の token のとき (または切れているとき) だけ延長する。別プロセスが同じ名前で
         lock を持っていたら上書きせず DuplicateWorkerError (同名の 2 台目が動いている)。
-        Redis の ACL に EVAL が無い間は GET で確かめてから SETEX する (非原子だが所有確認はする)。
+        Worker の Redis ACL には EVAL を許さないので、GET で確かめてから SETEX する
+        (非原子だが所有確認はする。同名の 2 台目は次の周期で必ず検知される)。
         worker_manager 側は EXISTS しか見ないため値の変更は影響しない。
         """
         ttl = self._heartbeat_interval * HEARTBEAT_TTL_MULTIPLIER
         key = f"heartbeat:{self._worker_name}"
-        if self._heartbeat_cas:
-            try:
-                ok = await self._redis.eval(
-                    HEARTBEAT_CAS_SCRIPT, 1, key, self._instance_token, str(ttl))
-            except redis.exceptions.NoPermissionError:
-                self._heartbeat_cas = False
-                logger.info("Redis の ACL に EVAL がないため、heartbeat の所有確認は GET→SETEX で行います")
-            else:
-                if ok in (0, "0", b"0"):
-                    raise DuplicateWorkerError(
-                        f"heartbeat:{self._worker_name} を別のプロセスが持っています"
-                        f" (同じ Worker 名で別の Worker が動いています)")
-                return
         current = _as_str(await self._redis.get(key))
         if current is not None and current != self._instance_token:
             raise DuplicateWorkerError(
