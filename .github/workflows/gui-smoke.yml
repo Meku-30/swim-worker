@@ -1,14 +1,26 @@
 name: GUI Smoke Test
 
 # GUI (tkinter) は画面が要るので Windows / macOS の runner で起動確認する。
-# Linux のテストはヘッドレスなので GUI のテストは skip される。
+# Linux のテストはヘッドレスなので GUI の画面のテストは skip される
+# (ローカルでは xvfb-run があれば DISPLAY を与えて走らせられる)。
 on:
   push:
     branches: [master]
     paths:
-      - 'swim_worker/gui.py'
+      - 'swim_worker/gui*.py'
+      - 'swim_worker/autostart.py'
+      - 'swim_worker/settings_store.py'
+      - 'swim_worker/updater.py'
+      - 'swim_worker/update_verify.py'
+      - 'swim_worker/update_check.py'
+      - 'swim_worker/worker_runner.py'
+      - 'swim_worker/icon.py'
+      - 'swim_worker/paths.py'
       - 'swim_worker/config.py'
-      - 'tests/test_gui_smoke.py'
+      - 'swim_worker/consumer.py'
+      - 'requirements*.txt'
+      - 'tests/test_gui_*.py'
+      - 'tests/test_settings_store.py'
       - '.github/workflows/gui-smoke.yml'
   workflow_dispatch:
 
@@ -37,5 +49,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install python-tk@3.11
 
-      - name: Run GUI smoke test
-        run: python -m pytest -v -rs -o faulthandler_timeout=60 tests/test_gui_smoke.py
+      # 画面のテストと、GUI だけが使うモジュール (Windows の mbcs・本物の資格情報ストア) のテスト
+      - name: Run GUI tests
+        run: >-
+          python -m pytest -v -rs -o faulthandler_timeout=60
+          tests/test_gui_smoke.py tests/test_gui_modules.py tests/test_gui_helpers.py
+          tests/test_settings_store.py

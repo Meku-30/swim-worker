@@ -210,3 +210,17 @@ class TestDefaultKeyring:
         monkeypatch.setattr(ss.sys, "platform", "win32")
         monkeypatch.setattr(keyring, "get_keyring", lambda: fail.Keyring())
         assert ss.default_keyring() is None
+
+
+@pytest.mark.skipif(ss.default_keyring() is None,
+                    reason="OS の資格情報ストアが無い (Windows・macOS の CI で走る)")
+def test_real_os_keyring_roundtrip(tmp_path):
+    """本物の資格情報マネージャー / キーチェーンで往復して、後片付けする"""
+    st = ss.SettingsStore(tmp_path / ".env")
+    try:
+        assert st.save({**FIELDS, "swim_password": "s p'w"}, auto_connect=False) == "keyring"
+        fields, _ = ss.SettingsStore(tmp_path / ".env").load()
+        assert fields["swim_password"] == "s p'w"
+        assert "SWIM_PASSWORD" not in dotenv_values(tmp_path / ".env", interpolate=False)
+    finally:
+        st.save({**FIELDS, "swim_password": "", "redis_password": ""}, auto_connect=False)
