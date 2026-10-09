@@ -84,6 +84,16 @@ ASSETS="${WORK}/assets"
 mkdir -p "$ASSETS"
 
 # --- 1. draft を取る ---
+# 同じタグのリリースがちょうど 1 つであること (CI の再実行で draft が 2 つできていたら、
+# どちらに署名するか決められないので止める)
+ids=$(gh api --paginate "repos/${REPO}/releases" --jq ".[] | select(.tag_name == \"${TAG}\") | .id") \
+    || die "リリースの一覧を取れません (gh auth status を確認)"
+nrel=$(grep -c . <<< "$ids" || true)
+if (( nrel == 0 )); then
+    die "タグ ${TAG} のリリースがありません (CI の build-release が終わっているか確認)"
+elif (( nrel > 1 )); then
+    die "タグ ${TAG} のリリースが ${nrel} つあります (CI の再実行で draft が二重にできた可能性)。gh release list -R ${REPO} で確かめ、要らない draft を消してから実行してください"
+fi
 is_draft=$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft) \
     || die "リリース ${TAG} が見つかりません (CI の build-release が終わっているか確認)"
 [[ "$is_draft" == "true" ]] || die "${TAG} は draft ではありません (公開済みのリリースには署名し直さない)"

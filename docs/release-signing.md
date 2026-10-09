@@ -27,6 +27,16 @@ Worker (Linux の install.sh・固定の更新スクリプト、Windows / macOS 
    gh run watch -R Meku-30/swim-worker
    ```
 
+   同じタグのリリース (draft を含む) が既にあると CI は draft を作らずに失敗します (再実行で draft が二重にできるのを防ぐ)。ビルドをやり直すときは、古い draft を消してから再実行します。
+
+   ```bash
+   gh release list -R Meku-30/swim-worker          # Draft の行を確かめる
+   gh release delete v1.3.0 -R Meku-30/swim-worker  # タグは消さない (--cleanup-tag を付けない)
+   gh run rerun <run-id> -R Meku-30/swim-worker
+   ```
+
+   万一 draft が 2 つできていたら、`sign-release.sh` は署名せずに止まります。片方を Web の画面で消してから実行してください (タグで指定する `gh release delete` はどちらを消すか選べない)。
+
 4. 署名して公開する
 
    ```bash
@@ -35,7 +45,7 @@ Worker (Linux の install.sh・固定の更新スクリプト、Windows / macOS 
    ```
 
    スクリプトは次を確かめてから署名します。どれかが合わなければ何も上げずに止まります。
-   - draft であること (公開済みには署名し直さない)・まだ `SHA256SUMS.sig` が無いこと
+   - そのタグのリリースがちょうど 1 つで、draft であること (公開済みには署名し直さない)・まだ `SHA256SUMS.sig` が無いこと
    - `SHA256SUMS` の先頭行が `# swim-worker-release v1.3.0` であること
    - 全ファイルのハッシュが一致し、足りないファイル・`SHA256SUMS` に無いファイルが無いこと
    - `install.sh`・`swim-worker-update.sh`・unit がリポジトリのタグの中身と同じであること

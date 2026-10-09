@@ -19,6 +19,12 @@ FAKE_GH = r"""#!/usr/bin/env bash
 # 偽の gh: $FAKE_RELEASE のファイルを draft のリリースとして扱う
 set -euo pipefail
 echo "$*" >> "$FAKE_LOG"
+if [[ "$1" == api ]]; then
+    # 同じタグのリリースの id (1 行に 1 つ)
+    printf '%s' "${FAKE_RELEASE_IDS-101}"
+    [[ -z "${FAKE_RELEASE_IDS-101}" ]] || echo
+    exit 0
+fi
 [[ "$1" == release ]] || exit 2
 cmd="$2"; shift 2
 tag="$1"; shift
@@ -184,3 +190,18 @@ def test_shellcheck():
     r = subprocess.run(["shellcheck", str(SIGN), str(ROOT / "scripts" / "set-release-pubkeys.sh"),
                         str(ROOT / "scripts" / "lock-deps.sh")], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout
+
+
+def test_refuses_duplicate_drafts(env):
+    """同じタグの draft が 2 つ (CI の再実行など) あれば、どちらに署名するか決められないので止まる"""
+    env["env"]["FAKE_RELEASE_IDS"] = "101\n102"
+    r = _run(env, "--yes", TAG)
+    assert r.returncode != 0 and "2 つ" in r.stderr
+    assert not (env["release"] / "SHA256SUMS.sig").exists()
+
+
+def test_refuses_missing_release(env):
+    env["env"]["FAKE_RELEASE_IDS"] = ""
+    r = _run(env, "--yes", TAG)
+    assert r.returncode != 0
+    assert not (env["release"] / "SHA256SUMS.sig").exists()
