@@ -217,11 +217,8 @@ JOB_LABELS = {
     "collect_pireps": "PIREP収集",
     "collect_pkg_weather": "PKG気象収集",
     "collect_airports": "空港一覧取得",
-    "collect_airport_profiles": "空港詳細取得",
-    "collect_airspace_data": "空域データ取得",
     "collect_flight_foids": "フライト一覧取得",
     "collect_flight_details": "フライト詳細取得",
-    "fetch_maintenance_info": "メンテ情報取得",
     "capability_test": "権限テスト",
 }
 
