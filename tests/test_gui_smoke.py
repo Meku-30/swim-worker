@@ -16,6 +16,10 @@ def gui(tmp_path, monkeypatch):
     except tk.TclError:
         pytest.skip("画面が無い環境")
     import swim_worker.gui as g
+    # リポジトリ直下 (古い .old の掃除・data/ のマーカー・ログ) を触らないよう、
+    # 置き場所とカレントディレクトリを一時ディレクトリにする
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(g, "_get_base_dir", lambda: tmp_path)
     monkeypatch.setattr(g, "ENV_PATH", tmp_path / ".env")
     monkeypatch.setattr(g, "GUI_SETTINGS_PATH", tmp_path / "data" / "gui_settings.json")
     monkeypatch.setattr(g, "UPDATE_SNOOZE_PATH", tmp_path / "data" / "update_snooze.json")
@@ -134,5 +138,123 @@ def test_gui_checks_github_when_redis_auth_fails(gui, monkeypatch):
         assert len(calls) == 1
         assert calls[0][0] == gui.__version__
         assert calls[0][1] == app._on_update_detected
+    finally:
+        app._root.destroy()
+
+
+# --- 分割 (W2-9) の前に今の振る舞いを押さえるテスト ---
+
+def test_snooze_roundtrip(gui):
+    app = gui.WorkerGUI()
+    try:
+        assert app._is_snoozed("9.9.9") is False
+        app._set_snooze("9.9.9")
+        assert app._is_snoozed("9.9.9") is True
+        # 別の版を聞かれたら古い snooze は消える
+        assert app._is_snoozed("9.9.10") is False
+        assert not gui.UPDATE_SNOOZE_PATH.exists()
+    finally:
+        app._root.destroy()
+
+
+def test_snooze_expired_is_cleared(gui):
+    import json
+    from datetime import datetime, timedelta, timezone
+    gui.UPDATE_SNOOZE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    gui.UPDATE_SNOOZE_PATH.write_text(json.dumps({"version": "9.9.9", "until": past}))
+    app = gui.WorkerGUI()
+    try:
+        assert app._is_snoozed("9.9.9") is False
+        assert not gui.UPDATE_SNOOZE_PATH.exists()
+    finally:
+        app._root.destroy()
+
+
+@pytest.mark.parametrize("platform,asset", [
+    ("win32", "swim-worker-windows.exe"), ("darwin", "swim-worker-macos"), ("linux", None)])
+def test_download_url(gui, monkeypatch, platform, asset):
+    app = gui.WorkerGUI()
+    try:
+        monkeypatch.setattr(gui.sys, "platform", platform)
+        url = app._get_download_url("1.2.3")
+        if asset is None:
+            assert url is None
+        else:
+            assert url == f"https://github.com/Meku-30/swim-worker/releases/download/v1.2.3/{asset}"
+    finally:
+        app._root.destroy()
+
+
+def _pump(app):
+    """メインループの代わりに、溜まった after を処理する"""
+    import time
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        app._root.update()
+        time.sleep(0.01)
+
+
+@pytest.mark.parametrize("auto,snoozed,expected", [
+    (False, False, "prompt"),
+    (True, False, "countdown"),
+    (False, True, None),
+    (True, True, None),
+])
+def test_update_detected_branches(gui, monkeypatch, auto, snoozed, expected):
+    import tkinter as tk
+    app = gui.WorkerGUI()
+    try:
+        calls = []
+        monkeypatch.setattr(app, "_prompt_update", lambda v: calls.append(("prompt", v)))
+        monkeypatch.setattr(app, "_prompt_auto_update_countdown",
+                            lambda v: calls.append(("countdown", v)))
+        app._auto_update_var = tk.BooleanVar(master=app._root, value=auto)
+        if snoozed:
+            app._set_snooze("9.9.9")
+        app._on_update_detected("9.9.9")
+        _pump(app)
+        assert app._pending_update_version == "9.9.9"
+        assert calls == ([] if expected is None else [(expected, "9.9.9")])
+        # 同じ版の 2 回目は確認を出さない
+        app._on_update_detected("9.9.9")
+        _pump(app)
+        assert len(calls) == (0 if expected is None else 1)
+    finally:
+        app._root.destroy()
+
+
+def test_env_roundtrip_keeps_values(gui):
+    _write_env(gui, "worker-tester")
+    app = gui.WorkerGUI()
+    try:
+        app._save_env()
+    finally:
+        app._root.destroy()
+    app2 = gui.WorkerGUI()
+    try:
+        assert app2._entries["redis_host"].get() == "redis.example"
+        assert app2._entries["redis_username"].get() == "worker-tester"
+        assert app2._entries["swim_username"].get() == "u"
+    finally:
+        app2._root.destroy()
+
+
+def test_autostart_plist_contents(gui, monkeypatch, tmp_path):
+    import tkinter as tk
+    app = gui.WorkerGUI()
+    try:
+        monkeypatch.setattr(gui.sys, "platform", "darwin")
+        plist = tmp_path / "LaunchAgents" / "org.swim-worker.plist"
+        plist.parent.mkdir()
+        monkeypatch.setattr(app, "_get_startup_path", lambda: plist)
+        app._autostart_var = tk.BooleanVar(master=app._root, value=True)
+        app._toggle_autostart()
+        text = plist.read_text(encoding="utf-8")
+        assert "<string>org.swim-worker</string>" in text
+        assert f"<string>{tmp_path}</string>" in text
+        app._autostart_var.set(False)
+        app._toggle_autostart()
+        assert not plist.exists()
     finally:
         app._root.destroy()
