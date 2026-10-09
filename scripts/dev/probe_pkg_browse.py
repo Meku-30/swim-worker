@@ -7,7 +7,8 @@
 - PKG APIに必要なリクエストボディの正確なフォーマット
 
 使い方:
-    python3 scripts/test_pkg_browse.py --user 'ID' --password 'PASS'
+    python3 scripts/dev/probe_pkg_browse.py [--user ID]
+    (パスワードは環境変数 SWIM_PASSWORD か、無ければ入力を求める)
 """
 import argparse
 import asyncio
@@ -18,10 +19,9 @@ import re
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import swim_worker.auth as _auth_module
-_auth_module.COOKIE_FILE = "/tmp/.swim_test_cookies.json"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _common import add_repo_to_path, swim_credentials, temp_cookie_file  # noqa: E402
+add_repo_to_path()
 
 from swim_worker.auth import SwimClient, SwimAuthError, SWIM_PORTAL_URL, _XHR_HEADERS, _NAV_HEADERS, _BROWSER_TYPE
 from curl_cffi.requests import AsyncSession
@@ -58,13 +58,10 @@ def get_cookies_dict(session) -> dict:
 
 async def main():
     parser = argparse.ArgumentParser(description="PKG気象ブラウズ画面調査")
-    parser.add_argument("--user", default=os.environ.get("SWIM_USERNAME", ""))
-    parser.add_argument("--password", default=os.environ.get("SWIM_PASSWORD", ""))
+    parser.add_argument("--user", default="", help="SWIM ID (省略時は SWIM_USERNAME か入力)")
     args = parser.parse_args()
 
-    if not args.user or not args.password:
-        print("使い方: python3 scripts/test_pkg_browse.py --user 'ID' --password 'PASS'")
-        sys.exit(1)
+    user, secret = swim_credentials(args.user)
 
     from datetime import datetime, timezone, timedelta
     jst = datetime.now(timezone(timedelta(hours=9)))
@@ -75,11 +72,11 @@ async def main():
     print("Phase 1: ログイン")
     print("=" * 70)
 
-    client = SwimClient(username=args.user, password=args.password)
+    client = SwimClient(username=user, password=secret, cookie_file=COOKIE_PATH)
 
     # 古いCookieファイルを削除して新規ログイン
-    if os.path.exists(_auth_module.COOKIE_FILE):
-        os.remove(_auth_module.COOKIE_FILE)
+    if os.path.exists(COOKIE_PATH):
+        os.remove(COOKIE_PATH)
 
     try:
         await client.login()
@@ -411,8 +408,8 @@ async def main():
 
     # === クリーンアップ ===
     await client.close()
-    if os.path.exists(_auth_module.COOKIE_FILE):
-        os.remove(_auth_module.COOKIE_FILE)
+    if os.path.exists(COOKIE_PATH):
+        os.remove(COOKIE_PATH)
 
     print(f"\n{'=' * 70}")
     print("完了")
@@ -420,4 +417,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    with temp_cookie_file() as COOKIE_PATH:
+        asyncio.run(main())
