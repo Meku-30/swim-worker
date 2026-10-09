@@ -19,6 +19,9 @@ def gui(tmp_path, monkeypatch):
     # リポジトリ直下 (古い .old の掃除・data/ のマーカー・ログ) を触らないよう、
     # 置き場所とカレントディレクトリを一時ディレクトリにする
     monkeypatch.chdir(tmp_path)
+    # Windows・macOS で走らせても、開発者の資格情報ストアにテストのパスワードを書かない
+    import swim_worker.settings_store as ss
+    monkeypatch.setattr(ss, "default_keyring", lambda: None)
     monkeypatch.setattr(g, "_get_base_dir", lambda: tmp_path)
     monkeypatch.setattr(g, "ENV_PATH", tmp_path / ".env")
     monkeypatch.setattr(g, "GUI_SETTINGS_PATH", tmp_path / "data" / "gui_settings.json")

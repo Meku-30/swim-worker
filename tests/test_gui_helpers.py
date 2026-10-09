@@ -1,5 +1,8 @@
 """gui_helpers (tkinter 非依存) のテスト"""
+import sys
 from pathlib import Path
+
+import pytest
 
 from swim_worker import gui_helpers as gui
 
@@ -109,6 +112,7 @@ class TestEncodeBat:
 
 
 class TestMacosUpdateScriptQuoting:
+    @pytest.mark.skipif(sys.platform == "win32", reason="bash -n で構文を確かめる")
     def test_paths_with_shell_chars_are_quoted(self, tmp_path):
         import subprocess
         base = Path('/Users/a$HOME "q" `x`/swim')
@@ -121,3 +125,9 @@ class TestMacosUpdateScriptQuoting:
         script = tmp_path / "u.sh"
         script.write_text(s, encoding="utf-8")
         assert subprocess.run(["bash", "-n", str(script)]).returncode == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="mbcs は Windows だけ")
+def test_encode_bat_with_real_mbcs():
+    b = gui.encode_bat("@echo off\r\necho ok\r\n")
+    assert b.startswith(b"@echo off")
