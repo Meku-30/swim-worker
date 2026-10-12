@@ -109,8 +109,8 @@ def test_ip_allow_dropin_content(tmp_path):
     assert not any("bad" in l for l in lines)
     assert not any("127.0.0.53" in l for l in lines)  # ループバックはもともと閉じていない
     # Redis のホスト (IP 直書き) も通す
-    r = _run_bash(fn + f'ip_allow_dropin_content "{resolv}" "100.64.1.2"')
-    assert "IPAddressAllow=100.64.1.2" in r.stdout.splitlines()
+    r = _run_bash(fn + f'ip_allow_dropin_content "{resolv}" "172.16.1.2"')
+    assert "IPAddressAllow=172.16.1.2" in r.stdout.splitlines()
     # resolv.conf が無くても失敗しない
     r = _run_bash(fn + f'ip_allow_dropin_content "{tmp_path}/none" ""')
     assert r.returncode == 0 and "[Service]" in r.stdout

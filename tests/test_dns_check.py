@@ -22,24 +22,24 @@ def test_denied_networks_match_unit():
     assert sorted(nets) == sorted(str(n) for n in dns_check.DENIED_NETWORKS)
 
 
-RESOLV = "nameserver 192.0.2.1\nnameserver 10.0.0.1\nnameserver 127.0.0.53\nnameserver fe80::1%eth0\n"
+RESOLV = "nameserver 192.0.2.1\nnameserver 172.16.0.1\nnameserver 127.0.0.53\nnameserver fe80::1%eth0\n"
 
 
 def test_blocked_nameservers():
-    dropin = "[Service]\nIPAddressAllow=10.0.0.1\n"
+    dropin = "[Service]\nIPAddressAllow=172.16.0.1\n"
     # 192.0.2.1 は塞がれていない (インターネット側)、127.0.0.53 はループバック
     assert dns_check.blocked_nameservers(RESOLV, dropin) == ["fe80::1"]
-    assert dns_check.blocked_nameservers(RESOLV, "") == ["10.0.0.1", "fe80::1"]
+    assert dns_check.blocked_nameservers(RESOLV, "") == ["172.16.0.1", "fe80::1"]
     assert dns_check.blocked_nameservers("nameserver bad\n# x\n", "") == []
 
 
 def test_warn_if_dns_blocked(tmp_path, caplog):
     resolv = tmp_path / "resolv.conf"
-    resolv.write_text("nameserver 10.9.8.7\n")
+    resolv.write_text("nameserver 172.20.8.7\n")
     dropin = tmp_path / "10-ip-allow.conf"
-    dropin.write_text("[Service]\nIPAddressAllow=10.9.8.1\n")
+    dropin.write_text("[Service]\nIPAddressAllow=172.20.8.1\n")
     with caplog.at_level(logging.WARNING):
-        assert dns_check.warn_if_dns_blocked(resolv, dropin) == ["10.9.8.7"]
+        assert dns_check.warn_if_dns_blocked(resolv, dropin) == ["172.20.8.7"]
     assert "sudo bash install.sh" in caplog.text
     # ファイルが無ければ何もしない
     assert dns_check.warn_if_dns_blocked(tmp_path / "none", dropin) == []

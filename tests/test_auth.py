@@ -218,7 +218,7 @@ class TestUrlAllowlist:
                     "https://web.swim.mlit.go.jp:8443/x",
                     "https://example.com\\@web.swim.mlit.go.jp/x",
                     "https://web.swim.mlit.go.jp./x",
-                    "https://10.0.0.1/x",
+                    "https://192.0.2.1/x",
                     "https:///x",
                     "file:///etc/passwd",
                     "", None, 123):
