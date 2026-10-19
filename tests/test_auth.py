@@ -58,6 +58,9 @@ class TestSwimClient:
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"data": "test"}
         client._session.post.return_value = mock_resp
+        # AsyncMock の属性は自動で AsyncMock になるため、同期利用する cookies は
+        # 明示的に MagicMock にする（未 await の coroutine 警告を出さない）
+        client._session.cookies = MagicMock()
 
         result = await client.execute_api("https://web.swim.mlit.go.jp/service/api/test", {"key": "val"})
         assert result == {"data": "test"}
@@ -74,6 +77,8 @@ class TestSwimClient:
         resp_200.status_code = 200
         resp_200.json.return_value = {"data": "ok"}
         client._session.post.side_effect = [resp_403, resp_200]
+        # 同期でイテレートされる cookies を明示的に MagicMock にする
+        client._session.cookies = MagicMock()
 
         result = await client.execute_api("https://web.swim.mlit.go.jp/service/api/test", {})
         assert result == {"data": "ok"}
