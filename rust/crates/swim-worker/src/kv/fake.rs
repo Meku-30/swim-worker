@@ -9,9 +9,12 @@ use tokio::time::Instant;
 
 use super::{Kv, KvError};
 
+/// 値と、期限 (置いた時刻, 秒)
+type Entry = (Vec<u8>, Option<(Instant, u64)>);
+
 #[derive(Default)]
 struct State {
-    strings: HashMap<String, (Vec<u8>, Option<(Instant, u64)>)>,
+    strings: HashMap<String, Entry>,
     lists: HashMap<String, VecDeque<String>>,
     sets: HashMap<String, BTreeSet<String>>,
     hashes: HashMap<String, BTreeMap<String, String>>,
