@@ -52,7 +52,9 @@ jobs:
         run: cargo test --locked -p swim-worker
       - name: Clippy (Windows だけのコード)
         working-directory: rust
-        run: cargo clippy --locked -p swim-worker --all-targets -- -D warnings
+        run: |
+          rustup component add clippy --toolchain 1.99.1
+          cargo clippy --locked -p swim-worker --all-targets -- -D warnings
       - name: Build GUI (release)
         working-directory: rust
         run: cargo build --release --locked -p swim-worker --bin swim-worker-gui
