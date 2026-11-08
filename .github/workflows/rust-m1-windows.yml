@@ -1,7 +1,15 @@
 name: Rust M1 (Windows の見本と測定)
 
-# Rust 版の作業 (rust-rewrite ブランチ) で、Windows でしか取れない見本・数字を取る。手で起動する
+# Rust 版の作業 (rust-rewrite ブランチ) で、Windows でしか取れない見本・数字を取る。
+# workflow_dispatch は既定のブランチにファイルが無いと起動できないため、作業ブランチへの push で動かす
 on:
+  push:
+    branches: [rust-rewrite]
+    paths:
+      - '.github/workflows/rust-m1-windows.yml'
+      - 'tools/golden/dump_keyring.py'
+      - 'tools/measure_gui_windows.ps1'
+      - 'rust/spikes/**'
   workflow_dispatch:
 
 permissions:
