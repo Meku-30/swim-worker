@@ -10,6 +10,7 @@ on:
       - 'tools/golden/dump_keyring.py'
       - 'tools/measure_gui_windows.ps1'
       - 'rust/spikes/**'
+      - 'rust/crates/**'
   workflow_dispatch:
 
 permissions:
@@ -65,3 +66,24 @@ jobs:
         with:
           name: gui-measure
           path: gui_measure.csv
+
+  linux-armv6:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install zig and cargo-zigbuild
+        run: |
+          python3 -m pip install --user ziglang==0.17.1 cargo-zigbuild==0.24.1
+          rustup target add arm-unknown-linux-gnueabihf --toolchain 1.99.1
+      - name: Build for ARMv6 (Raspberry Pi Zero)
+        working-directory: rust
+        run: cargo zigbuild --release --target arm-unknown-linux-gnueabihf.2.31 -p swim-http --bin fingerprint_check
+      - name: Check CPU architecture
+        run: |
+          f=rust/target/arm-unknown-linux-gnueabihf/release/fingerprint_check
+          file "$f"; ls -l "$f"
+          readelf -A "$f" | grep -E 'Tag_CPU_arch|Tag_FP_arch'
+          readelf -A "$f" | grep -q 'Tag_CPU_arch: v6$'
