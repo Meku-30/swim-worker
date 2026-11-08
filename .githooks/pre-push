@@ -11,6 +11,11 @@ if [ "$SKIP_TESTS" = "1" ]; then
   exit 0
 fi
 cd "$(git rev-parse --show-toplevel)" || exit 1
+# git は hook に GIT_DIR などを渡す (worktree から push すると .git/worktrees/<名前> を指す)。そのまま試験を動かすと、
+# 試験の中で一時のリポのつもりで動かした git が本物のリポに commit・push する (2026-11-08 に別のリポで
+# 偽のコミットが origin に push され、.git/config も書き換わった)。試験を動かす前に git の環境を全部外す
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+      GIT_COMMON_DIR GIT_PREFIX GIT_NAMESPACE GIT_CEILING_DIRECTORIES GIT_QUARANTINE_PATH
 
 ZERO=0000000000000000000000000000000000000000
 changed=""
