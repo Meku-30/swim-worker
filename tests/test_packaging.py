@@ -140,10 +140,13 @@ def test_release_is_draft_complete_and_version_bound():
     create = next(s for s in steps if "action-gh-release" in s.get("uses", ""))
     assert create["with"]["draft"] is True
     assert create["with"]["fail_on_unmatched_files"] is True
-    build = rel["jobs"]["build"]
-    assert all("latest" not in inc["os"] for inc in build["strategy"]["matrix"]["include"])
-    upload = next(s for s in build["steps"] if "upload-artifact" in s.get("uses", ""))
-    assert upload["with"]["if-no-files-found"] == "error"
+    for name in ("build", "build-linux"):
+        build = rel["jobs"][name]
+        assert "latest" not in build["runs-on"]
+        upload = next(s for s in build["steps"] if "upload-artifact" in s.get("uses", ""))
+        assert upload["with"]["if-no-files-found"] == "error"
+        # 試運転用のビルド (SWIM の代わりに偽物) を配布物に入れない
+        assert not any("trial" in str(s.get("run", "")) for s in build["steps"])
 
 
 def test_release_refuses_existing_release_for_tag():
