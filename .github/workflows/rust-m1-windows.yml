@@ -1,0 +1,28 @@
+name: Rust M1 (Windows の見本と測定)
+
+# Rust 版の作業 (rust-rewrite ブランチ) で、Windows でしか取れない見本・数字を取る。手で起動する
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keyring-golden:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install dependencies (hash-locked)
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Dump keyring entries
+        run: python tools/golden/dump_keyring.py --out keyring_windows.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: keyring-golden
+          path: keyring_windows.json
