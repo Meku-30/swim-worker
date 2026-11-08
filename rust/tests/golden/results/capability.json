@@ -1,0 +1,30 @@
+{
+ "result": {
+  "task_id": "t-cap",
+  "worker_name": "golden-worker",
+  "status": "success",
+  "data": {
+   "capabilities": {
+    "collect_notams": {
+     "ok": true,
+     "error": null,
+     "reason": null
+    },
+    "collect_pireps": {
+     "ok": false,
+     "error": "API 403エラー",
+     "reason": "unauthorized"
+    },
+    "collect_flight_details": {
+     "ok": false,
+     "error": "timeout",
+     "reason": "transient"
+    }
+   }
+  },
+  "error": null,
+  "completed_at": "2026-11-07T12:34:56.789012+00:00"
+ },
+ "zstd_b64": "KLUv/WB8ADUHAKKPLyJQaasDALwrlEa0L4TIhIRcKMou1bCCgdD4z+EPKIyqqoEBz1PSlAISJCkSCIHDgBoUTZADRDoQ5DgkKbm+VzFudk4D1/M878dNvo3dE3LT2rVtZqoZi+aWM15oETJ67pv/WhSc2KRMBCUZAAoMCC7dLg7H5qDnQbkcj5ybTx9hjHzEM7aegc02fKoXOwclt26uJayz6w399rKjS8lrTXm9nL0tj348Zg4urudmn4rMRKhwdGfX0dezphi5/UYOAEjr/hScUQb4uohqCjAAYylLcQUJ0Hqrgos5ruYlzWwliE09",
+ "zstd_level": 6
+}

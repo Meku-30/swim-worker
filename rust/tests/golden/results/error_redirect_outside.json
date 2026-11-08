@@ -1,0 +1,13 @@
+{
+ "result": {
+  "task_id": "t-redir",
+  "worker_name": "golden-worker",
+  "status": "error",
+  "data": null,
+  "error": "SWIM の外へリダイレクトされました",
+  "completed_at": "2026-11-07T12:34:56.789012+00:00",
+  "error_kind": "redirect_outside"
+ },
+ "zstd_b64": "KLUv/WAGANUFADLLJCFAaawD2UwlifQBj0OFlPp6a9FigpcAv/pIejjXdFEUNS4LZ7c8HR/rxs7CsGdqJsCREqGsgETpAdEjFaw0UjKSI4/re5nj5gZh8drRFUvxUpRSmmIbHzbbsrKShFAxwUkiMWEYEDAguKKmiY5+e92DkK9/Ym8/Rzccds07uJ4X6zDIDHwJR4eLY2j09W5hzLN9hRIoIKPaOhC4tQNpgjVDKGMwLnFnjabRNNpaqD2y50QnMLRDDw==",
+ "zstd_level": 6
+}

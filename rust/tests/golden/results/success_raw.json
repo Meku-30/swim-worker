@@ -1,0 +1,19 @@
+{
+ "result": {
+  "task_id": "t-raw",
+  "worker_name": "golden-worker",
+  "status": "success",
+  "data": {
+   "statusCode": 0,
+   "datas": [
+    {
+     "k": "日本語"
+    }
+   ]
+  },
+  "error": null,
+  "completed_at": "2026-11-07T12:34:56.789012+00:00"
+ },
+ "zstd_b64": "KLUv/SDAvQQA0ooiH2BJqwMo4LKn5NFOhCTybQJDKh4Q++fHSMnaZQQA4C7NVVe1oJIeRgGwiBUIWJUICkUpoaVUfS85aS3bJRge+3FuLnv4IOyfxqB5H2xMhKliTYRoYk3ke+VMwT7qvtsbYPYsuf08xmZsxu/jlCzjz9HSzb2D79vASwJbge/w8wNDJL9vCIkSWZ4JAxAEOkyeXXAoAw==",
+ "zstd_level": 6
+}

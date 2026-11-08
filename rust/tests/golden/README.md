@@ -23,3 +23,11 @@ pytest tests/test_golden_requests.py
 `tools/golden/sample_delays.py` で作る。要求の前の待ち時間 (対数正規分布を 1.5〜25 秒に切り詰め、中央値 4 秒・p99 15 秒) と、応答のあとの待ち時間 (指数分布 rate 3.0 + 0.05 秒) を、種を固定して 100,000 回引いた分位点。auth.py の一様分布の待ち時間の上下と、応答が遅いときの追加の待ち時間の決まりも書いてある。Rust 版は同じ分位点に近いことを確かめる。
 
 - 応答のあとの待ち時間の中央値は約 0.28 秒 (auth.py のコメントの「約 0.38 秒」は平均に近い値)
+
+## results/・dotenv_cases.json — 結果の形と .env の読み方
+
+`tools/golden/dump_results.py` で作る (作った値だけ)。
+
+- `results/*.json`: `_make_result` が作る結果 (`result`) と、`_encode_result` で最小の JSON にして zstd level 6 で圧縮したバイト列 (`zstd_b64`)。`completed_at` は `2026-11-07T12:34:56.789012+00:00` に固定してある (Python の `datetime.isoformat()` の形: マイクロ秒 6 桁、`+00:00`)。Rust は展開した JSON が同じになること (圧縮のバイト列そのものは一致しなくてよい)
+- `dotenv_cases.json`: `.env` の 1 行 → python-dotenv (`dotenv_values`) が読んだ値。引用符・空・行末のコメント・`#` を含む値・`export`・`=` を含む値・前後の空白・エスケープ
+- 注意: Linux の CLI 版は systemd の `EnvironmentFile=` でも同じ `.env` を読む (systemd の読み方は python-dotenv と細部が違う)。Rust 版はどちらで渡されても同じ値になることを M2 で確かめる

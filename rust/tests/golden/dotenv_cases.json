@@ -1,0 +1,84 @@
+[
+ {
+  "line": "A=plain",
+  "values": {
+   "A": "plain"
+  }
+ },
+ {
+  "line": "A=\"double quoted\"",
+  "values": {
+   "A": "double quoted"
+  }
+ },
+ {
+  "line": "A='single quoted'",
+  "values": {
+   "A": "single quoted"
+  }
+ },
+ {
+  "line": "A=",
+  "values": {
+   "A": ""
+  }
+ },
+ {
+  "line": "A=\"\"",
+  "values": {
+   "A": ""
+  }
+ },
+ {
+  "line": "A=value # trailing comment",
+  "values": {
+   "A": "value"
+  }
+ },
+ {
+  "line": "A=has#hash",
+  "values": {
+   "A": "has#hash"
+  }
+ },
+ {
+  "line": "A=\"quoted # not comment\"",
+  "values": {
+   "A": "quoted # not comment"
+  }
+ },
+ {
+  "line": "export A=exported",
+  "values": {
+   "A": "exported"
+  }
+ },
+ {
+  "line": "A=x=y=z",
+  "values": {
+   "A": "x=y=z"
+  }
+ },
+ {
+  "line": "  A = spaced  ",
+  "values": {
+   "A": "spaced"
+  }
+ },
+ {
+  "line": "A=\"esc\\\"aped\\nline\"",
+  "values": {
+   "A": "esc\"aped\nline"
+  }
+ },
+ {
+  "line": "A='raw\\n'",
+  "values": {
+   "A": "raw\\n"
+  }
+ },
+ {
+  "line": "# A=comment",
+  "values": {}
+ }
+]
