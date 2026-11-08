@@ -40,6 +40,16 @@ jobs:
             exit 1
           fi
 
+      - name: Check tag matches Cargo.toml (Rust 版)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' rust/crates/swim-worker/Cargo.toml | head -1)
+          if [[ "v${version}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "タグ ${GITHUB_REF_NAME} と rust/crates/swim-worker/Cargo.toml の version (${version}) が一致しません" >&2
+            exit 1
+          fi
+
   test:
     runs-on: ubuntu-24.04
     permissions:
@@ -66,17 +76,10 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux は glibc 互換性のため古い runner (22.04, glibc 2.35) でビルド。
-          # Pi OS Bookworm (glibc 2.36), Debian 12, Ubuntu 22.04+ で動作させるため。
-          - os: ubuntu-22.04
-            artifact: swim-worker-linux-amd64
-          - os: ubuntu-22.04-arm
-            artifact: swim-worker-linux-arm64
-          # Windows / macOS は -latest を使わず固定 (v1.2.1 のビルド時に -latest が指していた版)
+          # Windows は M2c で Rust の GUI に替えるまで今の PyInstaller のまま (M2c が終わるまでタグは打たない)
+          # -latest を使わず固定 (v1.2.1 のビルド時に -latest が指していた版)
           - os: windows-2025
             artifact: swim-worker-windows
-          - os: macos-26
-            artifact: swim-worker-macos
 
     runs-on: ${{ matrix.os }}
 
@@ -92,10 +95,6 @@ jobs:
       - name: Install dependencies (hash-locked)
         run: python -m pip install --require-hashes -r requirements-dev.lock
 
-      - name: Install tkinter (macOS)
-        if: runner.os == 'macOS'
-        run: brew install python-tk@3.11
-
       - name: Build executable
         run: python scripts/build_exe.py
 
@@ -106,8 +105,35 @@ jobs:
           path: dist/swim-worker*
           if-no-files-found: error
 
+  # Linux は Rust 版 (glibc 2.31 以下、ARMv6 を含む)。CI (rust-ci.yml) と同じスクリプトで作る
+  build-linux:
+    needs: [release-keys, test]
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      matrix:
+        arch: [amd64, arm64, armv6]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install zig and cargo-zigbuild
+        run: |
+          python3 -m pip install --user --require-hashes -r rust/ci-tools.lock
+          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu arm-unknown-linux-gnueabihf --toolchain 1.99.1
+      - name: Build
+        run: bash rust/scripts/build-linux.sh "${{ matrix.arch }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: swim-worker-linux-${{ matrix.arch }}
+          path: rust/target/dist/swim-worker-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, build-linux]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -146,11 +172,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux-amd64
-          cp artifacts/swim-worker-linux-arm64/swim-worker release/swim-worker-linux-arm64
+          for a in amd64 arm64 armv6; do
+            cp "artifacts/swim-worker-linux-${a}/swim-worker-linux-${a}" "release/swim-worker-linux-${a}"
+          done
           # 後方互換: 既存 README 手順で swim-worker-linux (=amd64) をDLしているユーザー向け
-          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux
-          cp artifacts/swim-worker-macos/swim-worker release/swim-worker-macos
+          cp artifacts/swim-worker-linux-amd64/swim-worker-linux-amd64 release/swim-worker-linux
+          chmod +x release/swim-worker-linux*
           cp artifacts/swim-worker-windows/swim-worker-gui.exe release/swim-worker-windows.exe
           # .env.example はドットファイルで GitHub Releases 側で勝手に
           # "default.env.example" に名前が変わるため、install.sh は対話で

@@ -1,0 +1,40 @@
+name: Rust CI (Linux の配布物)
+
+# Rust 版の作業 (rust-rewrite ブランチ) で、Linux の配布物 3 つ (amd64・arm64・armv6) を
+# リリースと同じスクリプト (rust/scripts/build-linux.sh) で作る。glibc 2.31 以下・ARMv6 をスクリプトが確かめる。
+# workflow_dispatch は既定のブランチにファイルが無いと起動できないため、作業ブランチへの push で動かす
+on:
+  push:
+    branches: [rust-rewrite]
+    paths:
+      - '.github/workflows/rust-ci.yml'
+      - 'rust/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64, armv6]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install zig and cargo-zigbuild
+        run: |
+          python3 -m pip install --user --require-hashes -r rust/ci-tools.lock
+          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu arm-unknown-linux-gnueabihf --toolchain 1.99.1
+      - name: Build
+        run: bash rust/scripts/build-linux.sh "${{ matrix.arch }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: swim-worker-linux-${{ matrix.arch }}
+          path: rust/target/dist/swim-worker-linux-${{ matrix.arch }}
+          retention-days: 7

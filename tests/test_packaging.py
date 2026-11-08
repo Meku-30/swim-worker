@@ -94,7 +94,8 @@ def test_installs_use_hash_locks():
     for wf in ("build-release.yml", "gui-smoke.yml"):
         text = (WORKFLOWS / wf).read_text(encoding="utf-8")
         runs = [l for l in text.splitlines() if "pip install" in l]
-        assert runs and all("--require-hashes -r requirements-dev.lock" in l for l in runs), wf
+        locks = ("--require-hashes -r requirements-dev.lock", "--require-hashes -r rust/ci-tools.lock")
+        assert runs and all(any(k in l for k in locks) for l in runs), wf
 
 
 def _steps(wf: dict):
