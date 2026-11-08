@@ -20,7 +20,7 @@ use crate::gui_model::{
     update_prompt_message, validate_fields, LogBuffer, LogEdit, PromptKind,
 };
 use crate::gui_store::secrets::WinCred;
-use crate::gui_store::{load_json, next_rollback_state, Fields, GuiPrefs, SettingsStore, Snooze, SNOOZE_HOURS};
+use crate::gui_store::{apply_rollback_marker, Fields, GuiPrefs, RollbackInfo, SettingsStore, Snooze, SNOOZE_HOURS};
 use crate::kv::{self, Kv, RedisConfig};
 use crate::paths::Paths;
 use crate::runner::{Control, Runner, RunnerEvent, StopReason};
@@ -131,6 +131,7 @@ struct App {
     started: Instant,
     marker_written: Cell<bool>,
     rollback_checked: Cell<bool>,
+    rollback: RefCell<Option<RollbackInfo>>,
     auto_connect_done: Cell<bool>,
     missing_secrets: Cell<bool>,
     quitting: Cell<bool>,
@@ -399,6 +400,7 @@ impl App {
         const EM_SETSEL: u32 = 0x00B1;
         const EM_REPLACESEL: u32 = 0x00C2;
         const EM_SCROLLCARET: u32 = 0x00B7;
+        const WM_GETTEXTLENGTH: u32 = 0x000E;
         let h = hwnd(&self.ui.log.handle);
         let mut buf = self.logbuf.borrow_mut();
         let mut add = String::new();
@@ -422,7 +424,9 @@ impl App {
         let w: Vec<u16> = add.encode_utf16().chain(std::iter::once(0)).collect();
         // SAFETY: 自分の作った edit に、0 終わりの文字列を渡す (末尾に足すだけで全文を取り直さない)
         unsafe {
-            SendMessageW(h, EM_SETSEL, usize::MAX, -1);
+            // 末尾に置いてから足す (EM_SETSEL(-1, -1) は選択を外すだけで、末尾に動かない)
+            let len = SendMessageW(h, WM_GETTEXTLENGTH, 0, 0);
+            SendMessageW(h, EM_SETSEL, len as usize, len);
             SendMessageW(h, EM_REPLACESEL, 0, w.as_ptr() as isize);
             SendMessageW(h, EM_SCROLLCARET, 0, 0);
         }
@@ -849,23 +853,10 @@ impl App {
     }
 
     // ---- 起動直後の後始末 ----
+    /// 前回の更新が巻き戻った知らせ (数え上げ・snooze は起動したときに済ませてある)
     fn check_rollback_marker(&self) {
-        let marker = self.paths.data_dir().join(".update_rollback.json");
-        if !marker.exists() {
-            return;
-        }
-        let info = load_json(&marker);
-        let from = info.get("rolled_back_from").and_then(|v| v.as_str()).unwrap_or("?").trim_start_matches('v').to_string();
-        let reason = info.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let disabled = next_rollback_state(&mut self.prefs.borrow_mut(), &from);
-        self.save_prefs();
-        if from != "?" {
-            self.snooze.set(&from, chrono::Utc::now());
-        }
-        if disabled {
-            self.ui.auto_update.set_check_state(nwg::CheckBoxState::Unchecked);
-        }
-        let _ = std::fs::remove_file(&marker);
+        let Some(info) = self.rollback.borrow_mut().take() else { return };
+        let (from, reason, disabled) = (info.from, info.reason, info.disabled);
         nwg::modal_message(
             &self.ui.window,
             &nwg::MessageParams {
@@ -1019,7 +1010,9 @@ pub fn main() -> ExitCode {
     };
     updater::cleanup_stale_update_files(paths.base(), std::time::SystemTime::now());
     let snooze = Snooze::new(paths.data_dir().join("update_snooze.json"));
-    let _ = snooze.is_snoozed("", chrono::Utc::now()); // 期限切れ・壊れたものの片付け
+    snooze.cleanup_expired(chrono::Utc::now()); // 期限切れ・壊れたものだけ片付ける
+    // 前回の更新が巻き戻っていたら、Worker が新版を知るより前に数えて snooze を置く (知らせは 3 秒後)
+    let rollback = apply_rollback_marker(&paths.data_dir(), &snooze, chrono::Utc::now());
     let prefs = GuiPrefs::load(&paths.data_dir().join("gui_settings.json"));
     let bat = autostart::startup_bat_path();
     let autostart_on = bat.as_deref().is_some_and(autostart::is_enabled);
@@ -1056,6 +1049,7 @@ pub fn main() -> ExitCode {
         started: Instant::now(),
         marker_written: Cell::new(false),
         rollback_checked: Cell::new(false),
+        rollback: RefCell::new(rollback),
         auto_connect_done: Cell::new(false),
         missing_secrets: Cell::new(false),
         quitting: Cell::new(false),

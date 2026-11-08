@@ -137,7 +137,12 @@ mod win {
                 }
                 let c = &*p;
                 let user = from_wide(c.UserName);
-                let blob = std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize);
+                // 空の値は CredentialBlob が null のことがある
+                let blob: &[u8] = if c.CredentialBlob.is_null() || c.CredentialBlobSize == 0 {
+                    &[]
+                } else {
+                    std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize)
+                };
                 let u16s: Vec<u16> = blob.as_chunks::<2>().0.iter().map(|b| u16::from_le_bytes(*b)).collect();
                 let value = String::from_utf16_lossy(&u16s);
                 CredFree(p as *const _);

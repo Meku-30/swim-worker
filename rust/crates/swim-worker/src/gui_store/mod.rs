@@ -132,9 +132,23 @@ fn parse_line(line: &str) -> Option<(String, &str)> {
     Some((key.to_string(), val))
 }
 
-/// .env を (KEY, 値) の並びにする (1 行 1 キー。後に書いたものが勝つ)
+/// .env を (KEY, 値) の並びにする (1 行 1 キー。後に書いたものが勝つ)。読めなければ空
 pub fn read_env_values(path: &Path) -> Vec<(String, String)> {
-    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    read_env_values_checked(path).unwrap_or_default()
+}
+
+/// .env の中身。無ければ空。UTF-8 でない・読めないときはエラー (空として扱って保存で中身を捨てないため)
+fn read_env_text(path: &Path) -> std::io::Result<String> {
+    match std::fs::read_to_string(path) {
+        Ok(t) => Ok(t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// read_env_values と同じ。ただし読めないときはエラー
+pub fn read_env_values_checked(path: &Path) -> std::io::Result<Vec<(String, String)>> {
+    let text = read_env_text(path)?;
     let mut out: Vec<(String, String)> = Vec::new();
     for line in text.lines() {
         if line.trim().is_empty() || line.trim_start().starts_with('#') {
@@ -149,7 +163,7 @@ pub fn read_env_values(path: &Path) -> Vec<(String, String)> {
             }
         }
     }
-    out
+    Ok(out)
 }
 
 fn lookup<'a>(values: &'a [(String, String)], key: &str) -> Option<&'a str> {
@@ -186,7 +200,7 @@ pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
 /// .env の指定キーだけを書き換える (None は削除)。他の行・コメントはそのまま。
 /// 値は書く値そのもの (quote_value 済み)。無いキーは末尾に足す
 pub fn update_env_file(path: &Path, updates: &[(String, Option<String>)]) -> std::io::Result<()> {
-    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let text = read_env_text(path)?;
     let mut out: Vec<String> = Vec::new();
     let mut done: Vec<&str> = Vec::new();
     for line in text.lines() {
@@ -268,7 +282,7 @@ impl<'a> SettingsStore<'a> {
 
     /// (欄の値, AUTO_CONNECT) を返す。.env に残っているパスワードは資格情報マネージャーへ移す
     pub fn load(&self) -> std::io::Result<(Fields, Option<bool>)> {
-        let values = read_env_values(&self.env_path);
+        let values = read_env_values_checked(&self.env_path)?;
         let mut f = Fields::default();
         for (field, key) in FIELDS {
             f.set(field, lookup(&values, key).unwrap_or("").to_string());
@@ -320,6 +334,8 @@ impl<'a> SettingsStore<'a> {
 
     /// 欄の値を保存する。パスワードの置き場所 ("keyring" / "env") を返す
     pub fn save(&self, f: &Fields, auto_connect: bool) -> std::io::Result<&'static str> {
+        // 読めない .env (UTF-8 でないなど) は書き換えない
+        read_env_text(&self.env_path)?;
         let mut updates: Vec<(String, Option<String>)> = Vec::new();
         for (field, key) in FIELDS {
             if SECRET_FIELDS.contains(&field) {
@@ -331,7 +347,7 @@ impl<'a> SettingsStore<'a> {
         updates.push(("AUTO_CONNECT".into(), Some(quote_value(if auto_connect { "true" } else { "false" }))));
         let mut where_ = if self.keyring.is_some() { "keyring" } else { "env" };
         let store_id = match &self.keyring {
-            Some(_) => Self::store_id(&read_env_values(&self.env_path), &mut updates),
+            Some(_) => Self::store_id(&read_env_values_checked(&self.env_path)?, &mut updates),
             None => String::new(),
         };
         for field in SECRET_FIELDS {
@@ -471,6 +487,18 @@ impl Snooze {
         }
     }
 
+    /// 起動時の片付け: 期限切れ・壊れたものだけ消す (updater.SnoozeStore.cleanup_expired)
+    pub fn cleanup_expired(&self, now: DateTime<Utc>) {
+        if !self.path.exists() {
+            return;
+        }
+        let m = load_json(&self.path);
+        let until = m.get("until").and_then(Value::as_str).and_then(|s| DateTime::parse_from_rfc3339(s).ok());
+        if until.is_none_or(|u| now >= u.with_timezone(&Utc)) {
+            self.clear();
+        }
+    }
+
     pub fn set(&self, version: &str, now: DateTime<Utc>) {
         let until = now + Duration::hours(SNOOZE_HOURS);
         let mut m = Map::new();
@@ -482,4 +510,36 @@ impl Snooze {
             Err(e) => tracing::debug!(target: "swim_worker.updater", "snooze 保存失敗 (無視): {e}"),
         }
     }
+}
+
+/// 前回の更新が巻き戻った記録
+#[derive(Debug, Clone, PartialEq)]
+pub struct RollbackInfo {
+    pub from: String,
+    pub reason: String,
+    /// 同じ版で 2 回目なので自動適用を止めた
+    pub disabled: bool,
+}
+
+/// 起動したらすぐ: `data/.update_rollback.json` を読んで数え、snooze を置き、記録を消す (Python の
+/// _check_rollback_marker_after_ready。ダイアログだけ後で出す)。Worker が新版を知るより前に済ませる
+pub fn apply_rollback_marker(data_dir: &Path, snooze: &Snooze, now: DateTime<Utc>) -> Option<RollbackInfo> {
+    let marker = data_dir.join(".update_rollback.json");
+    if !marker.exists() {
+        return None;
+    }
+    let info = load_json(&marker);
+    let from = info.get("rolled_back_from").and_then(Value::as_str).unwrap_or("?").trim_start_matches('v').to_string();
+    let reason = info.get("reason").and_then(Value::as_str).unwrap_or("").to_string();
+    let prefs_path = data_dir.join("gui_settings.json");
+    let mut g = GuiPrefs::load(&prefs_path);
+    let disabled = next_rollback_state(&mut g, &from);
+    if let Err(e) = g.save(&prefs_path) {
+        tracing::debug!(target: LOG, "GUI 設定保存失敗 (無視): {e}");
+    }
+    if from != "?" {
+        snooze.set(&from, now);
+    }
+    let _ = std::fs::remove_file(&marker);
+    Some(RollbackInfo { from, reason, disabled })
 }

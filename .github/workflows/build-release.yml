@@ -73,6 +73,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # 配布の前に Rust のテスト (Windows だけのコード・埋め込みの公開鍵・更新の検証を含む) を通す
+      - name: Test (Rust)
+        working-directory: rust
+        run: cargo test --locked -p swim-worker
+
       - name: Build GUI (Rust)
         working-directory: rust
         run: cargo build --release --locked -p swim-worker --bin swim-worker-gui

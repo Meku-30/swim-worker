@@ -234,3 +234,51 @@ fn real_windows_credential_roundtrip() {
     kr.delete_password(&svc, "id:SWIM_PASSWORD").unwrap();
     assert_eq!(kr.get_password(&svc, "id:SWIM_PASSWORD").unwrap(), None);
 }
+
+/// 最終レビュー I-1: 起動時の片付けは期限切れ・壊れたものだけ消す (待ちの間の snooze は残す)
+#[test]
+fn cleanup_expired_keeps_valid_snooze() {
+    let d = tempfile::tempdir().unwrap();
+    let s = Snooze::new(d.path().join("data/update_snooze.json"));
+    let now = Utc.with_ymd_and_hms(2026, 11, 8, 0, 0, 0).unwrap();
+    s.set("1.3.1", now);
+    s.cleanup_expired(now + Duration::hours(1));
+    assert!(s.is_snoozed("1.3.1", now + Duration::hours(1)), "待ちの間は残す");
+    s.cleanup_expired(now + Duration::hours(25));
+    assert!(!s.path().exists(), "期限切れは消す");
+}
+
+/// 最終レビュー I-2: 巻き戻しの記録は起動したらすぐ数えて snooze を置き、記録を消す (ダイアログは後で)
+#[test]
+fn rollback_marker_applied_at_startup() {
+    use swim_worker::gui_store::apply_rollback_marker;
+    let d = tempfile::tempdir().unwrap();
+    let data = d.path().join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    // cmd の echo が書く形 (末尾の空白・CRLF)
+    std::fs::write(data.join(".update_rollback.json"), "{\"rolled_back_from\":\"v1.3.1\",\"reason\":\"move_failed\"} \r\n").unwrap();
+    std::fs::write(data.join("gui_settings.json"), r#"{"auto_update": true, "rollback_count": {"1.3.1": 1}}"#).unwrap();
+    let s = Snooze::new(data.join("update_snooze.json"));
+    let now = Utc.with_ymd_and_hms(2026, 11, 8, 0, 0, 0).unwrap();
+    let r = apply_rollback_marker(&data, &s, now).unwrap();
+    assert_eq!((r.from.as_str(), r.reason.as_str(), r.disabled), ("1.3.1", "move_failed", true));
+    assert!(!data.join(".update_rollback.json").exists());
+    assert!(s.is_snoozed("1.3.1", now));
+    let g = GuiPrefs::load(&data.join("gui_settings.json"));
+    assert!(!g.auto_update());
+    assert!(apply_rollback_marker(&data, &s, now).is_none(), "記録が無ければ何もしない");
+}
+
+/// 最終レビュー I-6: UTF-8 でない .env は空として扱わず、読み・保存をやめる (中身を捨てない)
+#[test]
+fn non_utf8_env_is_an_error_and_left_untouched() {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join(".env");
+    let raw = b"# \x93\xfa\x96\x7b\x8c\xea\nREDIS_HOST='h'\n".to_vec(); // CP932 のコメント
+    std::fs::write(&p, &raw).unwrap();
+    let cred = FakeCred::default();
+    let st = SettingsStore::new(p.clone(), Some(&cred));
+    assert!(st.load().is_err());
+    assert!(st.save(&swim_worker::gui_store::Fields::default(), true).is_err());
+    assert_eq!(std::fs::read(&p).unwrap(), raw);
+}
