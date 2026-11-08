@@ -174,3 +174,12 @@ def test_unit_denies_write_execute():
     lines = UNIT.read_text(encoding="utf-8").splitlines()
     assert "MemoryDenyWriteExecute=true" in lines
     assert "MemoryDenyWriteExecute=false" not in lines
+
+
+def test_arch_suffix_32bit_userland_on_64bit_kernel():
+    """Pi 4/5 の 32 ビット OS は 64 ビットのカーネル (uname -m が aarch64) で動くことがある。userland で決める"""
+    fn = _bash_function("arch_suffix")
+    r = _run_bash(fn + "arch_suffix aarch64 32")
+    assert r.returncode == 0 and r.stdout.strip() == "armv6", r.stdout
+    r = _run_bash(fn + "arch_suffix aarch64 64")
+    assert r.stdout.strip() == "arm64"

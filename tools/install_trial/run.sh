@@ -34,13 +34,13 @@ printf "subjectAltName=IP:127.0.0.1\n" > pki/ext.cnf
 openssl x509 -req -in pki/srv.csr -CA pki/ca.crt -CAkey pki/ca.key -CAcreateserial -out pki/srv.crt -days 2 -extfile pki/ext.cnf 2>/dev/null
 openssl rand -hex 24 > pki/worker.pw
 openssl rand -hex 24 > pki/admin.pw
-# Worker の利用者の規則 (本番の ACL と同じ形。名前は試運転用)
+# Worker の利用者の規則 (試運転用)
 echo 'on -@all +ping +client|setname +get +set +setex +del ~heartbeat:w1 (+blpop +del ~tasks:w1) (+setex %W~results:w1:*) (+sadd +sismember ~workers:pending) (+sismember %R~workers:approved) (+hset %W~worker_versions %W~worker_platforms) (+get +sismember +smembers %R~swim:latest_worker_version %R~swim:latest_worker_version_staged %R~swim:parse_enabled %R~swim:parse_disabled_workers:* %R~swim:auto_update_enabled %R~swim:auto_update_whitelist)' > pki/rules.txt
 printf 'user default off\nuser admin on >%s ~* &* +@all\nuser worker-w1 %s >%s\n' \
     "$(cat pki/admin.pw)" "$(cat pki/rules.txt)" "$(cat pki/worker.pw)" > pki/users.acl
 printf 'port 0\ntls-port 6390\nbind 127.0.0.1\ntls-cert-file /t/pki/srv.crt\ntls-key-file /t/pki/srv.key\ntls-ca-cert-file /t/pki/ca.crt\ntls-auth-clients no\naclfile /t/pki/users.acl\nsave ""\nappendonly no\n' > pki/redis.conf
 # Redis のコンテナの利用者が読めるように (使い捨て)
-chmod 711 "$WD" pki; chmod 644 pki/*
+chmod 711 "$WD" pki; chmod 644 pki/srv.crt pki/srv.key pki/ca.crt pki/users.acl pki/redis.conf
 
 # --- リリースと同じ形の置き場 (scripts の写しを差し替えてから署名) ---
 rm -rf scripts && cp -r scripts.orig scripts

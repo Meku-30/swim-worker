@@ -84,7 +84,7 @@ Windows では Redis と SWIM の**パスワードは資格情報マネージャ
 ## Linux / Raspberry Pi の場合（CLI版）
 
 amd64 (x86_64)・arm64 (aarch64)・armv6 (32 ビットの ARM) に対応しています。
-Raspberry Pi は、初代 Pi Zero / Zero W 以降のすべての機種で、64 ビット OS なら arm64、32 ビット OS なら armv6 の版が自動で選ばれます。
+Raspberry Pi は、初代 Pi Zero / Zero W 以降のすべての機種で、64 ビット OS なら arm64、32 ビット OS なら armv6 の版が自動で選ばれます (OS のビット数で決めます)。
 glibc 2.31 以上の Linux (Debian 11・Ubuntu 20.04・Pi OS Bullseye 以降) で動きます (ただし署名の確認に下の OpenSSL 3.0 以上が要ります)。
 
 ### 推奨: ワンライナーインストール
