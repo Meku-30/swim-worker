@@ -15,7 +15,7 @@ pytest tests/test_golden_requests.py
 - 場面: `login`・`cookie_restore`・`browse_f2aspr`・`browse_f2dnrq`・`execute_api`・`fetch_public_get`
 - `headers` は HTTP/2 の HEADERS フレームに実際に並んだ順 (コードの辞書の順ではない)
 - `:authority` は `<authority>`、`cookie` は `<cookie>` に置き換えてある。`:path` は確認先のパスで、元の SWIM のパスは `path` にある。照合では `:authority`・`:path`・`cookie`・`content-length` の値は比べない (名前と順番は比べる)
-- TLS: 最初の接続は JA4 `t13d1516h2_…`、TLS のセッション再開のときは pre_shared_key が増えて `t13d1517h2_…`。どの要求が再開になるかも Python 版と同じであること
+- TLS: 最初の接続は JA4 `t13d1516h2_…`、TLS のセッション再開のときは pre_shared_key が増えて `t13d1517h2_…`。照合の道具 (`fingerprint_check`) は、見本が新規接続の step でクライアントを作り直し、見本に cookie があれば Cookie を仕込む。つまり照合が確かめるのは「同じヘッダー列・同じ接続の区切りを渡せば、Rust が同じ並び・同じ指紋で送る」こと。Rust 版の本体が Python 版と同じ位置で新しいセッションを作り、同じヘッダー列を組み立てることは M2 で別に確かめる
 - 待ち時間は 0 にして取っている (分布は別の見本)
 
 ## delays.json — 待ち時間の分布

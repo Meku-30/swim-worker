@@ -1,7 +1,7 @@
 //! SWIM との通信に使う HTTP クライアント。
 //!
 //! Python 版 (curl_cffi の chrome136) と同じ TLS・HTTP/2 の設定で通信し、ヘッダーは
-//! 呼び出し側が渡した順番のまま送る (偽装の既定のヘッダーは足さない)。
+//! 呼び出し側が渡した順番のまま送る (エミュレーションの既定のヘッダーは足さない)。
 use std::sync::Arc;
 
 use wreq::header::{HeaderMap, HeaderName, HeaderValue, OrigHeaderMap};

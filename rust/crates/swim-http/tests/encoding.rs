@@ -55,7 +55,7 @@ async fn decodes_all_four_encodings() {
     let (client, _jar) = build_client().unwrap();
     for enc in ["gzip", "deflate", "br", "zstd"] {
         let (url, h) = serve_once(enc).await;
-        // send は偽装の既定のヘッダーを足さないので、accept-encoding も呼び出し側が渡す
+        // send はエミュレーションの既定のヘッダーを足さないので、accept-encoding も呼び出し側が渡す
         let headers = OrderedHeaders(vec![
             ("accept".into(), "application/json, text/plain, */*".into()),
             ("accept-encoding".into(), "gzip, deflate, br, zstd".into()),
