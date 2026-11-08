@@ -33,3 +33,4 @@ bash work/run.sh work ./swim-worker-trial     # sudo が要る機は DOCKER="sud
 ```
 
 コンテナの中で root が書いたファイルが作業フォルダに残るので、終わったら作業フォルダごと消す。
+**共有の機では、片付けは自分が作ったものを名前で指定して消す** (`docker container prune` などの一括の消去は、ほかの停止中のコンテナまで消す)。
