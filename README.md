@@ -27,7 +27,7 @@ SWIMポータルのアカウントがあれば誰でも参加可能です。
 
 ### ステップ 1: ダウンロード
 
-[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から `swim-worker-windows.exe` をダウンロードしてください。**これ1つだけ**でOKです。
+[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から `swim-worker-windows.exe` をダウンロードしてください。**これ1つだけ**でOKです (v1.3.0 から軽くなりました。画面と設定は今までと同じで、以前の版からは自動更新でそのまま入れ替わります)。
 
 設定ファイル (`.env`) と SWIM ログインの Cookie は exe と同じフォルダに保存されます。ダウンロードフォルダや共有フォルダに置かず、`C:\Users\<name>\swim-worker\` のような自分専用のフォルダに置いて実行することをおすすめします。
 
