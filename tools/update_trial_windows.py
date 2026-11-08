@@ -139,12 +139,22 @@ def main(rust_exe: Path) -> None:
     kill_all()
     (base / "data" / ".startup_ok").unlink(missing_ok=True)
     update(base, port, "1.3.1", current="1.3.0")
-    marker = base / "data" / ".update_rollback.json"
-    t = wait_for(marker, 200)
-    check(t is not None, f"巻き戻しの記録 ({t and round(t)} 秒)")
-    if t is not None:
-        info = json.loads(marker.read_text(encoding="utf-8-sig", errors="replace").strip() or "{}")
-        check(info.get("rolled_back_from") == "v1.3.1", f"記録の中身 {info}")
+    # .bat が記録を書き、戻った Rust の GUI が起動してすぐ読んで数え、snooze を置き、記録を消す
+    prefs = base / "data" / "gui_settings.json"
+
+    def counted() -> bool:
+        try:
+            return json.loads(prefs.read_text(encoding="utf-8")).get("rollback_count", {}).get("1.3.1") == 1
+        except Exception:
+            return False
+
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 200 and not counted():
+        time.sleep(1)
+    check(counted(), f"巻き戻しを数えた rollback_count=1 ({round(time.monotonic() - t0)} 秒)")
+    snooze = base / "data" / "update_snooze.json"
+    check(snooze.exists() and json.loads(snooze.read_text(encoding="utf-8")).get("version") == "1.3.1", "壊れた版を 24 時間 snooze")
+    check(not (base / "data" / ".update_rollback.json").exists(), "記録は読んだあと消える")
     time.sleep(5)
     check((base / "swim-worker-gui.exe").read_bytes() == rust, "前の exe (Rust 1.3.0) に戻った")
     time.sleep(10)
