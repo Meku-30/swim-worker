@@ -74,3 +74,27 @@ fn python_json_matches_curl_cffi() {
     let v: serde_json::Value = serde_json::from_str(r#"{"ctrlInfo":{},"dummy":1,"s":"日本\"x"}"#).unwrap();
     assert_eq!(swim_http::python_json(&v), r#"{"ctrlInfo":{},"dummy":1,"s":"\u65e5\u672c\"x"}"#);
 }
+
+/// 応答が止まったら 60 秒で失敗する (Python 版の AsyncSession(timeout=60.0) と同じ)
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn request_times_out_after_60s() {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (s, _) = l.accept().await.unwrap();
+        // 受け取るだけで何も返さない
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        drop(s);
+    });
+    let (client, _jar) = build_client().unwrap();
+    let start = tokio::time::Instant::now();
+    let r = tokio::time::timeout(
+        std::time::Duration::from_secs(300),
+        send(&client, "GET", &format!("http://{addr}/x"), &OrderedHeaders::default(), None),
+    )
+    .await;
+    let r = r.expect("60 秒の時間切れがない (300 秒待っても返らない)");
+    assert!(r.is_err());
+    let s = start.elapsed().as_secs();
+    assert!((59..=61).contains(&s), "{s} 秒");
+}

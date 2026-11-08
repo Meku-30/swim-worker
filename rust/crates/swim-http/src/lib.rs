@@ -10,6 +10,9 @@ use wreq_util::Emulation;
 
 pub mod compare;
 
+/// 1 回の要求の時間切れ。Python 版の AsyncSession(timeout=60.0) と同じ (auth.py)
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// curl_cffi の既定 (allow_redirects=True、max_redirects=30) に合わせる
 const MAX_REDIRECTS: usize = 30;
 
@@ -25,6 +28,7 @@ pub fn build_client() -> wreq::Result<(Client, Arc<Jar>)> {
         .emulation(Emulation::Chrome136)
         .cookie_provider(jar.clone())
         .redirect(redirect::Policy::limited(MAX_REDIRECTS))
+        .timeout(REQUEST_TIMEOUT)
         .build()?;
     Ok((client, jar))
 }
