@@ -95,6 +95,9 @@ impl FakeKv {
 
 #[async_trait]
 impl Kv for FakeKv {
+    async fn ping(&self) -> Result<(), KvError> {
+        self.check("ping", String::new())
+    }
     async fn blpop(&self, key: &str, timeout_secs: f64) -> Result<Option<String>, KvError> {
         self.check("blpop", key.into())?;
         let deadline = Instant::now() + Duration::from_secs_f64(timeout_secs);

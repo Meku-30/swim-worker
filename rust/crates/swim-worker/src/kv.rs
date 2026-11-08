@@ -68,6 +68,7 @@ impl From<RedisError> for KvError {
 
 #[async_trait]
 pub trait Kv: Send + Sync {
+    async fn ping(&self) -> Result<(), KvError>;
     /// BLPOP の値 (キーは落とす)。時間内に来なければ None
     async fn blpop(&self, key: &str, timeout_secs: f64) -> Result<Option<String>, KvError>;
     async fn get(&self, key: &str) -> Result<Option<String>, KvError>;
@@ -173,6 +174,9 @@ impl RedisKv {
 
 #[async_trait]
 impl Kv for RedisKv {
+    async fn ping(&self) -> Result<(), KvError> {
+        self.general::<String>(&redis::cmd("PING")).await.map(|_| ())
+    }
     async fn blpop(&self, key: &str, timeout_secs: f64) -> Result<Option<String>, KvError> {
         let got: Option<(String, String)> = self.run(&self.blocking, redis::cmd("BLPOP").arg(key).arg(timeout_secs)).await?;
         Ok(got.map(|(_, v)| v))

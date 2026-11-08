@@ -1,9 +1,12 @@
+pub mod app;
 pub mod certs;
 pub mod config;
 pub mod consumer;
 pub mod delays;
+pub mod dns_check;
 pub mod dotenv;
 pub mod kv;
+pub mod logging;
 pub mod paths;
 pub mod single_instance;
 pub mod swim;
