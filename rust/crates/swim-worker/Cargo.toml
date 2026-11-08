@@ -19,6 +19,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "arbitrary_precision"] }
 thiserror = "2.0.21"
 tracing = "0.1.44"
+async-trait = "0.1"
+redis = { version = "=1.8.1", default-features = false, features = ["tokio-rustls-comp", "aio"] }
 fs4 = { version = "0.13", features = ["sync"] }
 tokio = { version = "1", features = ["rt", "macros", "net", "time", "signal", "sync", "fs"] }
 
