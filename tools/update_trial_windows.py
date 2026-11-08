@@ -82,14 +82,13 @@ def update(base: Path, port: int, version: str, current: str) -> None:
 def allow_in_ci_job() -> None:
     """GitHub の Windows はジョブの外に出ること (CREATE_BREAKAWAY_FROM_JOB) を許さないので、試験の中だけ外す。
     利用者の PC では旧 GUI がこの指定のまま動いている (配布物は変えない)"""
-    orig = subprocess.Popen
+    class Popen(subprocess.Popen):  # クラスのまま (asyncio などが継承するので関数にしない)
+        def __init__(self, *a, **k):
+            if "creationflags" in k:
+                k["creationflags"] &= ~0x01000000
+            super().__init__(*a, **k)
 
-    def popen(*a, **k):
-        if "creationflags" in k:
-            k["creationflags"] &= ~0x01000000
-        return orig(*a, **k)
-
-    updater.subprocess.Popen = popen
+    subprocess.Popen = Popen
 
 
 def main(rust_exe: Path) -> None:
