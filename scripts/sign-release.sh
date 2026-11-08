@@ -31,7 +31,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 配るファイル (build-release.yml の Prepare release files と同じ)
 EXPECTED_ASSETS=(
     swim-worker-linux-amd64 swim-worker-linux-arm64 swim-worker-linux
-    swim-worker-macos swim-worker-windows.exe
+    swim-worker-linux-armv6 swim-worker-windows.exe
     install.sh swim-worker-update.sh
     swim-worker.service swim-worker-update.service swim-worker-update.timer
 )

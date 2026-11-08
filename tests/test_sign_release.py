@@ -50,7 +50,7 @@ esac
 """
 
 ASSETS = ("swim-worker-linux-amd64", "swim-worker-linux-arm64", "swim-worker-linux",
-          "swim-worker-macos", "swim-worker-windows.exe")
+          "swim-worker-linux-armv6", "swim-worker-windows.exe")
 SOURCES = {"install.sh": "scripts/install.sh", "swim-worker-update.sh": "scripts/swim-worker-update.sh",
            "swim-worker.service": "scripts/swim-worker.service",
            "swim-worker-update.service": "scripts/swim-worker-update.service",
@@ -151,7 +151,7 @@ def test_refuses_wrong_release_line(env):
 
 
 def test_refuses_hash_mismatch(env):
-    (env["release"] / "swim-worker-macos").write_bytes(b"tampered")
+    (env["release"] / "swim-worker-linux-armv6").write_bytes(b"tampered")
     _assert_refused(env, _run(env, "--yes", TAG), "ハッシュ不一致")
 
 
