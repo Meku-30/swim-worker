@@ -17,7 +17,8 @@ const MAX_REDIRECTS: usize = 30;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OrderedHeaders(pub Vec<(String, String)>);
 
-/// Chrome 136 と同じ設定のクライアントと、その Cookie の置き場を作る
+/// Chrome 136 と同じ設定のクライアントと、その Cookie の置き場を作る。
+/// TLS のセッションの再開の記録はクライアントごと (curl_cffi の AsyncSession ごとと同じ。共有しない)
 pub fn build_client() -> wreq::Result<(Client, Arc<Jar>)> {
     let jar = Arc::new(Jar::default());
     let client = Client::builder()

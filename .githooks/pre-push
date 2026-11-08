@@ -58,7 +58,9 @@ if [ -f rust/Cargo.toml ] && { [ "$all" = 1 ] || grep -q "^rust/" <<<"$changed";
     gccinc=(/usr/lib/gcc/x86_64-linux-gnu/*/include)
     [ -d "${gccinc[-1]}" ] && export BINDGEN_EXTRA_CLANG_ARGS="-I${gccinc[-1]}"
   fi
-  if cargo test -q --manifest-path rust/Cargo.toml </dev/null >"$log" 2>&1; then
+  # clippy の指摘で 2 回直したため、push の前にも止める (2026-11-08)
+  if cargo clippy -q --manifest-path rust/Cargo.toml --workspace --all-targets -- -D warnings </dev/null >"$log" 2>&1 \
+     && cargo test -q --manifest-path rust/Cargo.toml --workspace </dev/null >>"$log" 2>&1; then
     echo "pre-push: テスト OK (rust) $(grep -E '^test result' "$log" | tail -n 1)" >&2
   else
     echo "" >&2
