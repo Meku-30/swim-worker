@@ -96,6 +96,6 @@ WATCH=$!
 chmod 777 ctl
 
 rc=0
-$DOCKER exec "$C" bash /t/inner.sh || rc=$?
+$DOCKER exec "$C" bash "/t/${INNER:-inner.sh}" || rc=$?
 echo "inner.sh の終了コード: $rc"
 exit "$rc"
