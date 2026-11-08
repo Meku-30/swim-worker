@@ -79,7 +79,21 @@ def update(base: Path, port: int, version: str, current: str) -> None:
                                  new_version=version)
 
 
+def allow_in_ci_job() -> None:
+    """GitHub の Windows はジョブの外に出ること (CREATE_BREAKAWAY_FROM_JOB) を許さないので、試験の中だけ外す。
+    利用者の PC では旧 GUI がこの指定のまま動いている (配布物は変えない)"""
+    orig = subprocess.Popen
+
+    def popen(*a, **k):
+        if "creationflags" in k:
+            k["creationflags"] &= ~0x01000000
+        return orig(*a, **k)
+
+    updater.subprocess.Popen = popen
+
+
 def main(rust_exe: Path) -> None:
+    allow_in_ci_job()
     work = Path(tempfile.mkdtemp(prefix="swim-update-trial-"))
     base = work / "app"
     (base / "data").mkdir(parents=True)
