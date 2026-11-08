@@ -1,0 +1,108 @@
+[
+ {
+  "data": {
+   "turbulencePirepList": [
+    {
+     "imdbTurbulenceInformation": {
+      "pirepControlNumber": "TC001",
+      "bodyData": "PIREP body",
+      "turbulenceStrength": "MOD",
+      "timeOfObservation": "202603011200"
+     },
+     "imdbTurbulenceInformationPosition": [
+      {
+       "latitude": "35.0",
+       "longitude": "139.0"
+      }
+     ]
+    }
+   ]
+  },
+  "params": null,
+  "parsed": [
+   {
+    "control_number": "TC001",
+    "body": "PIREP body",
+    "turbulence_strength": "MOD",
+    "icing_strength": null,
+    "latitude": "35.0",
+    "longitude": "139.0",
+    "altitude": null,
+    "altitude_indicator": null,
+    "observed_at": "2026-03-01T12:00:00+00:00",
+    "effective_end": null,
+    "raw_data": {
+     "imdbTurbulenceInformation": {
+      "pirepControlNumber": "TC001",
+      "bodyData": "PIREP body",
+      "turbulenceStrength": "MOD",
+      "timeOfObservation": "202603011200"
+     },
+     "imdbTurbulenceInformationPosition": [
+      {
+       "latitude": "35.0",
+       "longitude": "139.0"
+      }
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "data": {
+   "airepSpecialList": [
+    {
+     "imdbAirepSpecial": {
+      "pirepControlNumber": "SP001",
+      "bodyDataInformation": "special",
+      "turbulenceType": "SEV"
+     },
+     "imdbAirepSpecialPosition": []
+    }
+   ]
+  },
+  "params": null,
+  "parsed": [
+   {
+    "control_number": "SP001",
+    "body": "special",
+    "turbulence_strength": "SEV",
+    "icing_strength": null,
+    "latitude": null,
+    "longitude": null,
+    "altitude": null,
+    "altitude_indicator": null,
+    "observed_at": null,
+    "effective_end": null,
+    "raw_data": {
+     "imdbAirepSpecial": {
+      "pirepControlNumber": "SP001",
+      "bodyDataInformation": "special",
+      "turbulenceType": "SEV"
+     },
+     "imdbAirepSpecialPosition": []
+    }
+   }
+  ]
+ },
+ {
+  "data": {
+   "sigmetList": [
+    {
+     "imdbSigmet": {
+      "location": "RJJJ",
+      "bodyDataInformation": "SIGMET body",
+      "timeOfObservation": "202603011200"
+     }
+    }
+   ]
+  },
+  "params": null,
+  "parsed": []
+ },
+ {
+  "data": {},
+  "params": null,
+  "parsed": []
+ }
+]

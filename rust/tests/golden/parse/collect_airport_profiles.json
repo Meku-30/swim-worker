@@ -1,0 +1,48 @@
+[
+ {
+  "data": {
+   "serviceStartTime": "0600",
+   "serviceEndTime": "2300"
+  },
+  "params": {
+   "url": "u",
+   "_icao_code": "RJTT"
+  },
+  "parsed": [
+   {
+    "icao_code": "RJTT",
+    "service_start_time": "0600",
+    "service_end_time": "2300",
+    "sunrise_time": null,
+    "sunset_time": null,
+    "departure_delay": null,
+    "arrival_delay": null,
+    "airport_usage": [],
+    "airport_usage_en": [],
+    "runway_dep": [],
+    "runway_ldg": [],
+    "approach": []
+   }
+  ]
+ },
+ {
+  "data": {},
+  "params": null,
+  "parsed": [
+   {
+    "icao_code": "",
+    "service_start_time": null,
+    "service_end_time": null,
+    "sunrise_time": null,
+    "sunset_time": null,
+    "departure_delay": null,
+    "arrival_delay": null,
+    "airport_usage": [],
+    "airport_usage_en": [],
+    "runway_dep": [],
+    "runway_ldg": [],
+    "approach": []
+   }
+  ]
+ }
+]

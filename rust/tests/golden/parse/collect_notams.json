@@ -1,0 +1,108 @@
+[
+ {
+  "data": {
+   "notamList": [
+    {
+     "number": "A0001/26",
+     "location": "RJTT",
+     "contents": "test body",
+     "startDate": "2026/03/01 00:00",
+     "endDate": "2026/04/01 00:00",
+     "notamCode": "QMRLC"
+    }
+   ]
+  },
+  "params": null,
+  "parsed": [
+   {
+    "notam_id": "A0001/26",
+    "icao_code": "RJTT",
+    "body": "test body",
+    "valid_from": "2026-03-01T00:00:00+00:00",
+    "valid_to": "2026-04-01T00:00:00+00:00",
+    "category": "QMRLC",
+    "raw_data": {
+     "number": "A0001/26",
+     "location": "RJTT",
+     "contents": "test body",
+     "startDate": "2026/03/01 00:00",
+     "endDate": "2026/04/01 00:00",
+     "notamCode": "QMRLC"
+    }
+   }
+  ]
+ },
+ {
+  "data": {
+   "locationInfoList": [
+    {
+     "notamList": [
+      {
+       "notamId": "B0002",
+       "icaoCode": "RJAA",
+       "body": "test"
+      }
+     ]
+    }
+   ]
+  },
+  "params": null,
+  "parsed": [
+   {
+    "notam_id": "B0002",
+    "icao_code": "RJAA",
+    "body": "test",
+    "valid_from": null,
+    "valid_to": null,
+    "category": null,
+    "raw_data": {
+     "notamId": "B0002",
+     "icaoCode": "RJAA",
+     "body": "test"
+    }
+   }
+  ]
+ },
+ {
+  "data": {
+   "notamList": [
+    {
+     "location": "RJTT",
+     "contents": "no id"
+    }
+   ]
+  },
+  "params": null,
+  "parsed": []
+ },
+ {
+  "data": {
+   "ret": {
+    "notamList": []
+   }
+  },
+  "params": null,
+  "parsed": []
+ },
+ {
+  "data": {},
+  "params": null,
+  "parsed": []
+ },
+ {
+  "data": {
+   "notamList": "not a list"
+  },
+  "params": null,
+  "error": "AttributeError"
+ },
+ {
+  "data": {
+   "_icao_code": "KEEP"
+  },
+  "params": {
+   "_icao_code": "OTHER"
+  },
+  "parsed": []
+ }
+]

@@ -1,0 +1,107 @@
+[
+ {
+  "data": {
+   "weatherDTO": {
+    "metarSpeciInfoList": [
+     {
+      "location": "RJTT",
+      "body_DATA": "METAR RJTT 010000Z...",
+      "observed_DATE": "202603010000"
+     }
+    ],
+    "tafInfoList": [],
+    "atisInfoList": [],
+    "useRunwayList": []
+   }
+  },
+  "params": null,
+  "parsed": [
+   {
+    "_type": "weather",
+    "icao_code": "RJTT",
+    "type": "METAR",
+    "raw_text": "METAR RJTT 010000Z...",
+    "observed_at": "2026-03-01T00:00:00+00:00"
+   }
+  ]
+ },
+ {
+  "data": {
+   "weatherDTO": {
+    "metarSpeciInfoList": [
+     {
+      "location": "RJTT",
+      "body_DATA": "SPECI RJTT...",
+      "observed_DATE": "202603010015"
+     }
+    ],
+    "tafInfoList": [],
+    "atisInfoList": [],
+    "useRunwayList": []
+   }
+  },
+  "params": null,
+  "parsed": [
+   {
+    "_type": "weather",
+    "icao_code": "RJTT",
+    "type": "SPECI",
+    "raw_text": "SPECI RJTT...",
+    "observed_at": "2026-03-01T00:15:00+00:00"
+   }
+  ]
+ },
+ {
+  "data": {
+   "weatherDTO": {
+    "metarSpeciInfoList": [],
+    "tafInfoList": [],
+    "atisInfoList": [
+     {
+      "location": "RJTT",
+      "body_DATA": "ATIS RJTT\nA\ninfo...",
+      "observed_DATE": "202603010000"
+     }
+    ],
+    "useRunwayList": []
+   }
+  },
+  "params": null,
+  "parsed": [
+   {
+    "_type": "atis",
+    "icao_code": "RJTT",
+    "atis_letter": "A",
+    "content": "ATIS RJTT\nA\ninfo...",
+    "issued_at": "2026-03-01T00:00:00+00:00"
+   }
+  ]
+ },
+ {
+  "data": {
+   "weatherDTO": {
+    "metarSpeciInfoList": [],
+    "tafInfoList": [],
+    "atisInfoList": [],
+    "useRunwayList": []
+   },
+   "notamDTOList": [
+    {
+     "number": "I1/26",
+     "coordinates": "3814N14055E"
+    }
+   ]
+  },
+  "params": null,
+  "parsed": []
+ },
+ {
+  "data": {
+   "weatherDTO": {}
+  },
+  "params": {
+   "body": {}
+  },
+  "parsed": []
+ }
+]

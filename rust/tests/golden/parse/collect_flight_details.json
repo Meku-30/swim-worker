@@ -1,0 +1,52 @@
+[
+ {
+  "data": {
+   "flightDetailsSearchResultsDTO": {
+    "flightDetails": {
+     "foid": "f001",
+     "flt_INFOCODE": "JAL001",
+     "typ": "B789",
+     "reg": "JA001A",
+     "dep_AD": "RJTT",
+     "dest_AD": "RJAA",
+     "rte": "route",
+     "eobt": "202603011200",
+     "eta": "202603011300"
+    }
+   }
+  },
+  "params": null,
+  "parsed": [
+   {
+    "foid": "f001",
+    "flight_code": "JAL001",
+    "aircraft_type": "B789",
+    "registration": "JA001A",
+    "dep_ad": "RJTT",
+    "dest_ad": "RJAA",
+    "route": "route",
+    "flight_rules": null,
+    "operator": null,
+    "sch_dep_rwy": null,
+    "sch_arr_rwy": null,
+    "dep_rwy": null,
+    "arr_rwy": null,
+    "dep_spot": null,
+    "arr_spot": null,
+    "eobt": "2026-03-01T12:00:00+00:00",
+    "eta": "2026-03-01T13:00:00+00:00",
+    "atd": null,
+    "ata": null,
+    "ssta": null,
+    "sstd": null,
+    "dep_name_jp": null,
+    "dest_name_jp": null
+   }
+  ]
+ },
+ {
+  "data": {},
+  "params": null,
+  "parsed": []
+ }
+]

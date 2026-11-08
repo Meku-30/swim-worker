@@ -1,0 +1,32 @@
+[
+ {
+  "data": {
+   "locationInfoList": [
+    {
+     "id": "RJTT",
+     "nameJp": "RJTT(東京国際)"
+    },
+    {
+     "id": "RJAA",
+     "nameEn": "RJAA(Narita)"
+    }
+   ]
+  },
+  "params": null,
+  "parsed": [
+   {
+    "icao_code": "RJTT",
+    "name": "RJTT(東京国際)"
+   },
+   {
+    "icao_code": "RJAA",
+    "name": "RJAA(Narita)"
+   }
+  ]
+ },
+ {
+  "data": {},
+  "params": null,
+  "parsed": []
+ }
+]

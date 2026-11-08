@@ -1,0 +1,131 @@
+[
+ {
+  "data": {
+   "flightInformationSearchResultsDTO": {
+    "arrivingFlights": [
+     {
+      "foid": "f001",
+      "flt_INFOCODE": "JAL001",
+      "typ": "B789",
+      "dep_AD": "RJAA",
+      "flt_RULES": "I",
+      "opr": "JAL",
+      "applicationeta": "202603011200",
+      "ata": "202603011210"
+     }
+    ],
+    "departingFlights": [
+     {
+      "foid": "f002",
+      "flt_INFOCODE": "ANA100",
+      "typ": "A320",
+      "dest_AD": "RJCC",
+      "flt_RULES": "V",
+      "opr": "ANA",
+      "eobt": "202603011300"
+     }
+    ]
+   }
+  },
+  "params": {
+   "body": {
+    "flightInformationSearchConditionsDTO": {
+     "airportCode": "RJTT"
+    }
+   }
+  },
+  "parsed": [
+   {
+    "foid": "f001",
+    "flight_code": "JAL001",
+    "aircraft_type": "B789",
+    "dep_ad": "RJAA",
+    "dest_ad": "RJTT",
+    "flight_rules": "I",
+    "operator": "JAL",
+    "arr_spot": null,
+    "eta": "2026-03-01T12:00:00+00:00",
+    "ata": "2026-03-01T12:10:00+00:00"
+   },
+   {
+    "foid": "f002",
+    "flight_code": "ANA100",
+    "aircraft_type": "A320",
+    "dep_ad": "RJTT",
+    "dest_ad": "RJCC",
+    "flight_rules": "V",
+    "operator": "ANA",
+    "dep_spot": null,
+    "eobt": "2026-03-01T13:00:00+00:00",
+    "atd": null
+   }
+  ]
+ },
+ {
+  "data": {
+   "flightInformationSearchResultsDTO": {
+    "arrivingFlights": [
+     {
+      "foid": "f001",
+      "dep_AD": "RJAA"
+     }
+    ]
+   }
+  },
+  "params": null,
+  "parsed": [
+   {
+    "foid": "f001",
+    "flight_code": null,
+    "aircraft_type": null,
+    "dep_ad": "RJAA",
+    "dest_ad": null,
+    "flight_rules": null,
+    "operator": null,
+    "arr_spot": null,
+    "eta": null,
+    "ata": null
+   }
+  ]
+ },
+ {
+  "data": {
+   "ret": {
+    "flightInformationSearchResultsDTO": {
+     "arrivingFlights": [
+      {
+       "foid": "f001"
+      },
+      {
+       "foid": null
+      },
+      {
+       "dep_AD": "RJAA"
+      }
+     ]
+    }
+   }
+  },
+  "params": {
+   "body": {
+    "flightInformationSearchConditionsDTO": {
+     "airportCode": "RJTT"
+    }
+   }
+  },
+  "parsed": [
+   {
+    "foid": "f001",
+    "flight_code": null,
+    "aircraft_type": null,
+    "dep_ad": null,
+    "dest_ad": "RJTT",
+    "flight_rules": null,
+    "operator": null,
+    "arr_spot": null,
+    "eta": null,
+    "ata": null
+   }
+  ]
+ }
+]
