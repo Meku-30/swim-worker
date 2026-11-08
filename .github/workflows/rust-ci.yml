@@ -9,6 +9,9 @@ on:
     paths:
       - '.github/workflows/rust-ci.yml'
       - 'rust/**'
+      - 'tools/update_trial_windows.py'
+      - 'swim_worker/updater.py'
+      - 'swim_worker/settings_store.py'
   workflow_dispatch:
 
 permissions:
