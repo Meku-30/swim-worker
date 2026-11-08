@@ -51,7 +51,7 @@ done
 
 # Rust (rust/): 変更があるときだけ cargo test (2026-11-07〜)
 if [ -f rust/Cargo.toml ] && { [ "$all" = 1 ] || grep -q "^rust/" <<<"$changed"; }; then
-  export PATH="$HOME/.cargo/bin:$PATH"
+  export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"  # cmake は pip の --user で入れている
   # 手元の clang にヘッダーがないとき bindgen (BoringSSL) が stddef.h を見つけられない
   if [ -z "${LIBCLANG_PATH:-}" ] && [ -d /usr/lib/llvm-18/lib ]; then
     export LIBCLANG_PATH=/usr/lib/llvm-18/lib
