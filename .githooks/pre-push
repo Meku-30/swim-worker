@@ -49,6 +49,25 @@ for entry in "${TEST_DIRS[@]}"; do
   fi
 done
 
+# Rust (rust/): 変更があるときだけ cargo test (2026-11-07〜)
+if [ -f rust/Cargo.toml ] && { [ "$all" = 1 ] || grep -q "^rust/" <<<"$changed"; }; then
+  export PATH="$HOME/.cargo/bin:$PATH"
+  # 手元の clang にヘッダーがないとき bindgen (BoringSSL) が stddef.h を見つけられない
+  if [ -z "${LIBCLANG_PATH:-}" ] && [ -d /usr/lib/llvm-18/lib ]; then
+    export LIBCLANG_PATH=/usr/lib/llvm-18/lib
+    gccinc=(/usr/lib/gcc/x86_64-linux-gnu/*/include)
+    [ -d "${gccinc[-1]}" ] && export BINDGEN_EXTRA_CLANG_ARGS="-I${gccinc[-1]}"
+  fi
+  if cargo test -q --manifest-path rust/Cargo.toml </dev/null >"$log" 2>&1; then
+    echo "pre-push: テスト OK (rust) $(grep -E '^test result' "$log" | tail -n 1)" >&2
+  else
+    echo "" >&2
+    echo "=== pre-push: テスト失敗 (rust) ===" >&2
+    tail -n 40 "$log" >&2
+    fail=1
+  fi
+fi
+
 if [ "$fail" = 1 ]; then
   echo "" >&2
   echo "テストを直してから push してください。(緊急時: SKIP_TESTS=1 git push ...)" >&2
