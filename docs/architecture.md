@@ -64,7 +64,7 @@ Worker → Coordinator の Redis 通信量を削減する機構。月あたり�
 
 ### パーサーの同期
 
-`swim_worker/parsers/` 以下は `swim-coordinator/coordinator/parsers/` の完全コピー。`scripts/sync_parsers.sh` でコピー、`scripts/check_parsers_synced.sh` で差分検知。parse() 関数は DB 非依存、store() は関数内で sqlalchemy import されるため Worker 環境で呼ばない限り問題なし。
+2026-11-07 から、解析の元は Worker 側の `swim_worker/parsers/`。Coordinator は Rust で同じ解析を持ち、見本のデータで Python の解析と同じ結果になることを確かめている。Worker の解析を変えるときは Coordinator 側も合わせる (Worker が parsed で送った結果を Coordinator が検証するため)。parse() 関数は DB に依存しない。
 
 ### datetime の扱い (v1.0.2+)
 

@@ -1,12 +1,11 @@
-"""SWIM レスポンスパーサー (Coordinator の coordinator/parsers/ と同期)
+"""SWIM レスポンスパーサー (解析の元。Coordinator の Rust の解析はこれと同じ結果になるよう見本で確かめている)
 
 Worker が SWIM API レスポンスをパースして構造化リストに変換する。
 Coordinator は受け取ったパース済みデータを検証してから保存する
 (raw で送った場合も Coordinator 側で同じ parser にかけて同じ検証を通す)。
 
-各 parser ファイルは Coordinator のものと完全一致している必要がある
-(scripts/sync_parsers.sh でコピー、scripts/check_parsers_synced.sh で検証)。
-parsers は DB に依存しない純粋なパースだけ (保存は Coordinator の coordinator/store.py、2026-10-08〜)。
+ここを変えるときは Coordinator の Rust の解析も合わせる (parsed で送った結果を Coordinator が検証するため)。
+parsers は DB に依存しない純粋なパースだけ (保存は Coordinator が行う)。
 
 job 別パース有効化は Redis set `swim:parse_enabled` で動的制御。
 Coordinator の swim-admin parse-enable/disable で切替。
