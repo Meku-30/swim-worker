@@ -920,6 +920,12 @@ impl App {
                 }
             }
         }
+        #[cfg(feature = "trial")]
+        if up >= Duration::from_secs(5) {
+            if let Some(v) = trial_update_target(&self.paths) {
+                self.start_update(v);
+            }
+        }
         if !self.rollback_checked.get() && up >= Duration::from_secs(3) {
             self.rollback_checked.set(true);
             self.check_rollback_marker();
@@ -1136,4 +1142,24 @@ fn on_event(app: &App, evt: nwg::Event, data: &nwg::EventData, handle: nwg::Cont
         E::OnMenuItemSelected if handle == ui.tray_quit.handle => app.force_quit(),
         _ => {}
     }
+}
+
+
+/// 試運転のビルドだけ: `SWIM_TRIAL_UPDATE_TO=<版>` があれば、起動 5 秒後にその版へ自分を更新する (1 度だけ)。
+/// 差し替えたあとの exe は同じ環境変数を受け継ぐので、`data/.trial_update_started` があれば何もしない
+#[cfg(feature = "trial")]
+fn trial_update_target(paths: &Paths) -> Option<String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if DONE.swap(true, Ordering::SeqCst) {
+        return None;
+    }
+    let v = std::env::var("SWIM_TRIAL_UPDATE_TO").ok()?;
+    let flag = paths.data_dir().join(".trial_update_started");
+    if flag.exists() {
+        return None;
+    }
+    let _ = std::fs::write(&flag, &v);
+    tracing::warn!(target: LOG, "試運転: v{v} への更新を始めます");
+    Some(v)
 }

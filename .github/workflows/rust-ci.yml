@@ -95,7 +95,15 @@ jobs:
           python-version: '3.11'
       - name: Install Python dependencies (hash-locked)
         run: python -m pip install --require-hashes -r requirements-dev.lock
-      - name: Update trial (Python → Rust, rollback)
+      # Rust の GUI が自分を更新する道筋 (場面 D) 用の試運転のビルド。配布物のビルドを先に別の名前に写す
+      - name: Build GUI (trial)
+        working-directory: rust
+        run: |
+          Copy-Item target/release/swim-worker-gui.exe target/release/swim-worker-gui-dist.exe
+          cargo build --release --locked -p swim-worker --bin swim-worker-gui --features trial
+          Move-Item -Force target/release/swim-worker-gui.exe target/release/swim-worker-gui-trial.exe
+          Move-Item -Force target/release/swim-worker-gui-dist.exe target/release/swim-worker-gui.exe
+      - name: Update trial (Python → Rust, rollback, Rust → Rust)
         env:
           PYTHONIOENCODING: utf-8
-        run: python tools/update_trial_windows.py rust/target/release/swim-worker-gui.exe
+        run: python tools/update_trial_windows.py rust/target/release/swim-worker-gui.exe rust/target/release/swim-worker-gui-trial.exe

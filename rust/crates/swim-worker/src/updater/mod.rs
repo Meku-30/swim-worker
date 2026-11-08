@@ -63,7 +63,16 @@ pub trait Fetcher: Send + Sync {
 
 /// 版のタグからダウンロードの URL (GitHub API を使わない)
 pub fn download_url(version: &str) -> String {
-    format!("{RELEASE_DOWNLOAD_BASE}/v{version}/{ASSET_NAME}")
+    format!("{}/v{version}/{ASSET_NAME}", release_base())
+}
+
+/// 取り先。配布物は GitHub に固定。試運転のビルド (feature trial) だけ `SWIM_TRIAL_RELEASE_BASE` で差し替えられる
+fn release_base() -> String {
+    #[cfg(feature = "trial")]
+    if let Ok(b) = std::env::var("SWIM_TRIAL_RELEASE_BASE") {
+        return b;
+    }
+    RELEASE_DOWNLOAD_BASE.to_string()
 }
 
 /// ダウンロード先 (exe と同じフォルダ)
@@ -303,7 +312,14 @@ pub fn launch_helper(p: &HelperPaths, new_version: &str) -> std::io::Result<()> 
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
+        #[allow(unused_mut)]
+        let mut flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB;
+        // 試運転のビルドだけ: CI の Windows はジョブの外に出ることを許さない
+        #[cfg(feature = "trial")]
+        if std::env::var_os("SWIM_TRIAL_NO_BREAKAWAY").is_some() {
+            flags &= !CREATE_BREAKAWAY_FROM_JOB;
+        }
+        cmd.creation_flags(flags);
     }
     cmd.spawn()?;
     Ok(())

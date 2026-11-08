@@ -14,6 +14,13 @@ include!(concat!(env!("OUT_DIR"), "/release_pubkeys.rs"));
 
 /// 埋め込みの公開鍵 (PEM)
 pub fn release_pubkeys() -> Vec<&'static str> {
+    // 試運転のビルドだけ: 使い捨ての鍵 (PEM のファイル) に差し替えられる。配布物は埋め込みの鍵だけ
+    #[cfg(feature = "trial")]
+    if let Ok(p) = std::env::var("SWIM_TRIAL_PUBKEY") {
+        if let Ok(pem) = std::fs::read_to_string(&p) {
+            return vec![Box::leak(pem.into_boxed_str())];
+        }
+    }
     RELEASE_PUBKEYS_PEM.to_vec()
 }
 

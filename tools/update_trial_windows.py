@@ -8,8 +8,10 @@
     Python が保存した設定 (.env と資格情報マネージャー) を Rust が読めた (自動接続の検証が通ったログ)
   B Rust が保存した設定を Python が読める (巻き戻し・出し直しで入れ直させない)
   C 壊れた版に更新 → 120 秒後に前の exe に戻り、.update_rollback.json が書かれる
+  D Rust → Rust: Rust の GUI (試運転のビルド) が自分で次の版を取り、.bat が差し替えて起動する。
+    120 秒以内に新しい exe の起動の印、巻き戻しなし、.bat の move の試しが 30 回未満
 
-使い方: python tools/update_trial_windows.py <Rust の swim-worker-gui.exe>
+使い方: python tools/update_trial_windows.py <Rust の swim-worker-gui.exe> <試運転のビルドの exe>
 """
 import hashlib
 import http.server
@@ -91,7 +93,7 @@ def allow_in_ci_job() -> None:
     subprocess.Popen = Popen
 
 
-def main(rust_exe: Path) -> None:
+def main(rust_exe: Path, trial_exe: Path) -> None:
     allow_in_ci_job()
     work = Path(tempfile.mkdtemp(prefix="swim-update-trial-"))
     base = work / "app"
@@ -161,6 +163,42 @@ def main(rust_exe: Path) -> None:
     log = (base / "swim-worker.log").read_text(encoding="utf-8", errors="replace")
     print(log[-3000:])
     kill_all()
+
+    print("== D Rust → Rust (Rust の GUI が自分で v1.3.2 に更新)", flush=True)
+    trial = trial_exe.read_bytes()
+    newer = trial + b"\0" * 16 + b"swim-trial-1.3.2"  # 差し替わったかを中身で見分ける (末尾の余りは実行に影響しない)
+    make_release(www, key, "1.3.2", newer)
+    shutil.copy(trial_exe, base / "swim-worker-gui.exe")
+    for f in (".startup_ok", ".trial_update_started", ".update_rollback.json"):
+        (base / "data" / f).unlink(missing_ok=True)
+    (base / "swim-worker-update.log").unlink(missing_ok=True)
+    pub = work / "trial.pub.pem"
+    pub.write_text(pem, encoding="ascii")
+    env = {**os.environ, "SWIM_WORKER_BASE": str(base), "SWIM_TRIAL_UPDATE_TO": "1.3.2",
+           "SWIM_TRIAL_RELEASE_BASE": f"http://127.0.0.1:{port}", "SWIM_TRIAL_PUBKEY": str(pub),
+           "SWIM_TRIAL_NO_BREAKAWAY": "1"}
+    subprocess.Popen([str(base / "swim-worker-gui.exe")], cwd=base, env=env)
+    t0 = time.monotonic()
+    upd_log = base / "swim-worker-update.log"
+
+    def updated() -> bool:
+        try:
+            return "startup OK" in upd_log.read_text(errors="replace")
+        except OSError:
+            return False
+
+    while time.monotonic() - t0 < 240 and not updated():
+        time.sleep(1)
+    check(updated(), f"新しい exe の起動の確認 ({round(time.monotonic() - t0)} 秒、更新の開始の 5 秒を含む)")
+    text = upd_log.read_text(errors="replace") if upd_log.exists() else ""
+    print(text)
+    attempts = text.count("attempt ")
+    check(0 < attempts < 30, f".bat の move の試し {attempts} 回 (30 回未満)")
+    check((base / "swim-worker-gui.exe").read_bytes() == newer, "exe が v1.3.2 に置き換わった")
+    check(not (base / "data" / ".update_rollback.json").exists(), "巻き戻しの記録が無い")
+    log = (base / "swim-worker.log").read_text(encoding="utf-8", errors="replace")
+    print(log[-3000:])
+    kill_all()
     # 資格情報マネージャーの試しの項目を消す
     for k in ("REDIS_PASSWORD", "SWIM_PASSWORD"):
         try:
@@ -175,4 +213,4 @@ def main(rust_exe: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]).resolve())
+    main(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())

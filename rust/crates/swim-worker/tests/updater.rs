@@ -284,3 +284,17 @@ async fn real_fetcher_stops_reading_past_max() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(sent.load(std::sync::atomic::Ordering::SeqCst) < 32 * 1024 * 1024, "途中でやめる");
 }
+
+/// 配布物 (feature trial なし) は試しの環境変数を読まず、GitHub から取る
+#[cfg(not(feature = "trial"))]
+#[test]
+fn download_url_is_github_in_release_build() {
+    std::env::set_var("SWIM_TRIAL_RELEASE_BASE", "http://127.0.0.1:1");
+    std::env::set_var("SWIM_TRIAL_PUBKEY", "/nonexistent");
+    assert_eq!(
+        swim_worker::updater::download_url("1.3.1"),
+        "https://github.com/Meku-30/swim-worker/releases/download/v1.3.1/swim-worker-windows.exe"
+    );
+    assert_eq!(swim_worker::updater::verify::release_pubkeys().len(),
+               swim_worker::updater::verify::RELEASE_PUBKEYS_PEM.len());
+}
