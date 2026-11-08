@@ -13,3 +13,4 @@ pub mod paths;
 pub mod runner;
 pub mod single_instance;
 pub mod swim;
+pub mod updater;

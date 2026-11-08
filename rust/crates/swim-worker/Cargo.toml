@@ -33,6 +33,10 @@ ipnet = "2"
 # Redis の TLS (rustls) の暗号の実装。1 つだけ有効にすると自動で選ばれる (無いと接続のときに panic する)
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 fs4 = { version = "0.13", features = ["sync"] }
+# 更新の署名 (Ed25519) と SHA-256 (rustls と同じ ring)
+ring = "0.17"
+# 更新の本体を少しずつ取る (wreq の応答は http_body::Body)
+http-body-util = "0.1.5"
 tokio = { version = "1", features = ["rt", "macros", "net", "time", "signal", "sync", "fs"] }
 
 [features]
