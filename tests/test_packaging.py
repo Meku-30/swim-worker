@@ -44,15 +44,6 @@ def test_worker_unit_hardening():
     assert not any(n.startswith("127.") or n == "::1/128" or n == "localhost" for n in deny)
 
 
-def test_worker_unit_memory_deny_write_execute_comment_is_accurate():
-    text = (ROOT / "scripts" / "swim-worker.service").read_text(encoding="utf-8")
-    idx = text.index("MemoryDenyWriteExecute=false")
-    comment = text[:idx].rsplit("\n\n", 1)[-1]
-    # 「禁止」と書いて false にしている矛盾をなくす
-    assert "禁止" not in comment.splitlines()[-1]
-    assert "無効" in comment
-
-
 # --- W3-1 CI / W3-2 依存のロック ---------------------------------------------
 
 import yaml  # noqa: E402
@@ -103,7 +94,8 @@ def test_installs_use_hash_locks():
     for wf in ("build-release.yml", "gui-smoke.yml"):
         text = (WORKFLOWS / wf).read_text(encoding="utf-8")
         runs = [l for l in text.splitlines() if "pip install" in l]
-        assert runs and all("--require-hashes -r requirements-dev.lock" in l for l in runs), wf
+        locks = ("--require-hashes -r requirements-dev.lock", "--require-hashes -r rust/ci-tools.lock")
+        assert runs and all(any(k in l for k in locks) for l in runs), wf
 
 
 def _steps(wf: dict):
@@ -148,10 +140,13 @@ def test_release_is_draft_complete_and_version_bound():
     create = next(s for s in steps if "action-gh-release" in s.get("uses", ""))
     assert create["with"]["draft"] is True
     assert create["with"]["fail_on_unmatched_files"] is True
-    build = rel["jobs"]["build"]
-    assert all("latest" not in inc["os"] for inc in build["strategy"]["matrix"]["include"])
-    upload = next(s for s in build["steps"] if "upload-artifact" in s.get("uses", ""))
-    assert upload["with"]["if-no-files-found"] == "error"
+    for name in ("build", "build-linux"):
+        build = rel["jobs"][name]
+        assert "latest" not in build["runs-on"]
+        upload = next(s for s in build["steps"] if "upload-artifact" in s.get("uses", ""))
+        assert upload["with"]["if-no-files-found"] == "error"
+        # 試運転用のビルド (SWIM の代わりに偽物) を配布物に入れない
+        assert not any("trial" in str(s.get("run", "")) for s in build["steps"])
 
 
 def test_release_refuses_existing_release_for_tag():

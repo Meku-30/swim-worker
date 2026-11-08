@@ -174,18 +174,17 @@ Worker 単体の挙動に加えて、Coordinator 側でもポータルへのア�
 
 | プラットフォーム | 配布形態 | アーキ | 自動更新 |
 |----------------|---------|-------|---------|
-| Windows | `swim-worker-windows.exe` (PyInstaller GUI) | amd64 | GUI からポップアップ経由で更新 (同 release の署名済み `SHA256SUMS` で検証) |
-| macOS | `swim-worker-macos` (PyInstaller GUI) | arm64 (Apple Silicon) のみ | Windows と同様 |
-| Linux / Raspberry Pi | `swim-worker-linux-{amd64,arm64}` + `install.sh` + systemd unit | amd64 / arm64 | systemd timer による自動更新 |
+| Windows | `swim-worker-windows.exe` (Rust の GUI、Windows 標準の部品) | amd64 | GUI からポップアップ経由で更新 (同 release の署名済み `SHA256SUMS` で検証) |
+| Linux / Raspberry Pi | `swim-worker-linux-{amd64,arm64,armv6}` (Rust) + `install.sh` + systemd unit | amd64 / arm64 / armv6 (Pi Zero 以降の 32 ビット) | systemd timer による自動更新 |
 
-Linux CLI バイナリは glibc 2.35+ 互換 (`ubuntu-22.04` runner でビルド) で、Pi OS Bookworm / Debian 12 / Ubuntu 22.04+ / Fedora / RHEL 系で動作します。
+Linux CLI バイナリは Rust 版で、`cargo zigbuild` で glibc 2.31 以上を対象に作ります (`rust/scripts/build-linux.sh`。要求する glibc の版と ARMv6 をビルド時に確かめる)。unit は `MALLOC_ARENA_MAX=2` (割り当て器の領域を減らしてメモリを抑える) と `MemoryDenyWriteExecute=true` (Rust 版は実行時にコードを書かない) を付ける。
 
 ### install.sh の処理フロー
 
 ```
 curl | bash install.sh
   ↓
-1. uname -m でアーキテクチャ自動判定 (amd64 / arm64)
+1. uname -m でアーキテクチャ自動判定 (amd64 / arm64 / armv6。armv7l の 32 ビット OS も armv6)
 2. GitHub Releases (タグに固定) から SHA256SUMS と SHA256SUMS.sig を DL し、
    埋め込みの公開鍵で署名を、先頭行で版を検証 (通らなければここで中止。下の「更新物の署名」)
 3. 以下を DL し、SHA256SUMS でハッシュを検証:
@@ -253,7 +252,7 @@ curl | bash install.sh
 
 更新時は旧バイナリを `swim-worker.old`、unit・drop-in・更新スクリプト・update.service・timer を `<名前>.old` に退避し、`.version` はバイナリの置き換えと同時に書く (途中で止まっても中身と食い違わない)。再起動の前に起動成功マーカー (`data/.startup_ok`) を消す。新しい版が Redis に接続して登録まで済むとマーカーを書くので、それを最大 120 秒待ち、書かれなければ自動ロールバックする (バイナリ・`.version`・退避したファイルを戻して daemon-reload。更新前に無かったファイルは消す)。旧版に戻しても起動しない場合は版ではなく環境 (Redis・ネットワークの停止など) の問題として `.failed-version` を書かず、次回の自動更新で同じ版を再試行する。Redis の認証に失敗している Worker はマーカーを書けないので、60 秒後に稼働しているかだけを見る。
 
-GUI 版 (Windows / macOS) の自動更新の案内も、Worker 本体が上の 5〜7 (管理者の一時停止・段階配布・メジャー版) と同じ判定をしてから出す。
+GUI 版 (Windows) の自動更新の案内も、Worker 本体が上の 5〜7 (管理者の一時停止・段階配布・メジャー版) と同じ判定をしてから出す。
 
 **kill switch / staged rollout の制御は管理者が Coordinator 側で行う。** 手順は Coordinator 側の運用ドキュメント（非公開）を参照。
 
@@ -317,7 +316,7 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 - install.sh: タグに固定したダウンロード、起動成功マーカーでのロールバック判定、/opt/swim-worker の所有者の見直し、通信先の制限 (上の各節)
 - Docker の HEALTHCHECK は埋め込み CA を一時ファイルに書かずに渡す
 - GUI の設定保存: `.env` は本人だけが読める権限 (0600) で、一時ファイルに書いてから置き換える。値は単引用符で囲み、手で足したキー・コメントは残す。パスワードは前後の空白も含めてそのまま保存する
-- GUI のパスワードは Windows の資格情報マネージャー (keyring) に置き、`.env` には書かない。使えない環境と macOS では `.env` (0600) に書く。macOS のキーチェーンは、アドホック署名のアプリが版ごとに署名が変わるため更新のたびに確認ダイアログが出て、設定の読み込み (画面が出る前) で止まり、更新後の起動確認 (120 秒) に間に合わずロールバックしうるので使わない。以前 keyring に置いたパスワードを読めないとき (`.env` に SECRET_STORE_ID があるのにパスワードが無い) は、起動後に入れ直しを促す。既存の `.env` のパスワードは起動時に移し、読み戻せたら `.env` から消す。CLI は従来どおり `.env` だけを読む
+- GUI のパスワードは Windows の資格情報マネージャー (keyring) に置き、`.env` には書かない。使えない環境では `.env` (0600) に書く。資格情報の置き方 (ターゲット名) は Python の keyring と同じにし、Rust 版と Python 版が互いの保存した設定を読める (巻き戻し・出し直しで入れ直させない)。以前 keyring に置いたパスワードを読めないとき (`.env` に SECRET_STORE_ID があるのにパスワードが無い) は、起動後に入れ直しを促す。既存の `.env` のパスワードは起動時に移し、読み戻せたら `.env` から消す。CLI は従来どおり `.env` だけを読む
 - GUI の Redis 接続は、認証エラー・重複起動以外なら上限 5 分のバックオフで無期限に再試行する (以前は 10 回で諦めていた)。実行中に切れたときも入り直す
 - GUI の Redis ユーザー名は必須
 - GUI の停止・終了・更新前の停止は、処理中のタスクの結果を書いてから止まるのを待つ (待つのは画面の外のスレッド。一定時間で中断)。どの終わり方 (エラー・重複起動・認証エラー) でも、ボタン・設定欄・トレイの色を起動前に戻す
@@ -326,7 +325,7 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 - 更新物の署名: リリースは draft で作って管理者が署名してから公開し、install.sh・固定の更新スクリプト・GUI は署名と版を確かめてからしか更新しない (上の「更新物の署名」)。Linux の自動更新は固定の更新スクリプトに移した (上の「自動更新機構」)。OpenSSL 3.0 以上が要る
 - CI: 権限はジョブごと、Actions はコミット SHA に固定、ビルドの前にテスト、成果物が欠けたら失敗、runner を固定。依存はハッシュ付きでロック (`requirements.lock`・`requirements-dev.lock`、`--require-hashes`)
 - heartbeat の所有確認は GET → SETEX (Redis の EVAL は使わない)
-- 自動起動ファイル: macOS の plist は XML をエスケープし、Windows の .bat はパスの `%` をエスケープ、システムの文字コードで書けない文字があれば UTF-8 で書く。更新用のスクリプトも同様
+- 自動起動ファイル: Windows の .bat はパスの `%` をエスケープ、システムの文字コードで書けない文字があれば UTF-8 で書く。更新用のスクリプトも同様
 - `gui.py` を分割 (`settings_store.py`・`autostart.py`・`updater.py`・`worker_runner.py`)。調査用スクリプトは `scripts/dev/` へ
 
 ### v1.2.1 での変更 (2026-10-06)
@@ -350,7 +349,6 @@ Coordinator と共通の `parsers/diagnostics.py` が、未知の応答キーを
 - 更新後の起動確認: `.startup_ok` を GUI が表示された時点 (2 秒生存) で書く。以前は Worker が Redis に接続した時にしか書かれず、「起動時に自動接続」OFF の利用者は更新のたびに 120 秒後にロールバックされていた
 - ロールバック後は同一バージョンを snooze し、2 回連続なら自動更新を OFF にして通知する
 - Windows ヘルパー: 新 exe への置き換えに失敗した場合も旧 exe を再起動する (`reason=move_failed`)
-- macOS ヘルパー: 停止は PID 指定 (`pkill -f` は自分自身を止めていた)、PyInstaller 環境変数のリセット、トレイはメインスレッドで実行。Apple Silicon のみ対応
 - Worker 名は `[A-Za-z0-9._-]{1,32}` に制限 (`CLIENT SETNAME` 失敗の予防)
 - GUI の停止は Redis 再試行中でも中断でき、停止完了までは再起動できない。停止時に SWIM/Redis クライアントを解放する
 - capability テストの 403 では再ログイン・Cookie 破棄をしない

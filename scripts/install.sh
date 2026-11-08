@@ -106,6 +106,19 @@ die()  { echo -e "${RED}ERR${NC} $*" >&2; exit 1; }
 
 # --- ヘルパー関数 ---
 
+# uname -m の値 (と userland のビット数) → 配布物の名前の末尾 (swim-worker-linux-<末尾>)。未対応は 1。
+# 32 ビットの Pi (armv7l) も ARMv6 版で動く。Pi 4/5 の 32 ビット OS は 64 ビットのカーネルで動き
+# uname -m が aarch64 になることがあるため、userland が 32 ビットなら ARMv6 版にする
+# 使い方: arch=$(arch_suffix "$(uname -m)" "$(getconf LONG_BIT)")
+arch_suffix() {
+    case "$1" in
+        x86_64|amd64)   echo amd64 ;;
+        aarch64|arm64)  if [[ "${2:-64}" == 32 ]]; then echo armv6; else echo arm64; fi ;;
+        armv6l|armv7l)  echo armv6 ;;
+        *) return 1 ;;
+    esac
+}
+
 # GitHub API から tag_name を取得 (python3 の json.load で確実にパース)
 # 使い方: tag=$(fetch_latest_tag "$API_URL")
 fetch_latest_tag() {
@@ -411,11 +424,8 @@ require_openssl
 
 # アーキテクチャ判定
 ARCH_RAW=$(uname -m)
-case "$ARCH_RAW" in
-    x86_64|amd64)      ARCH="amd64" ;;
-    aarch64|arm64)     ARCH="arm64" ;;
-    *) die "未対応のアーキテクチャ: $ARCH_RAW (amd64 / arm64 のみサポート)" ;;
-esac
+ARCH=$(arch_suffix "$ARCH_RAW" "$(getconf LONG_BIT 2>/dev/null || echo 64)") \
+    || die "未対応のアーキテクチャ: $ARCH_RAW (amd64 / arm64 / armv6 (Raspberry Pi Zero 以降の 32 ビット) のみ)"
 BINARY_NAME="swim-worker-linux-${ARCH}"
 
 # ========================================================================

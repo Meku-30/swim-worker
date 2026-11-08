@@ -1,0 +1,109 @@
+name: Rust CI (Linux の配布物)
+
+# Rust 版の作業 (rust-rewrite ブランチ) で、Linux の配布物 3 つ (amd64・arm64・armv6) を
+# リリースと同じスクリプト (rust/scripts/build-linux.sh) で作る。glibc 2.31 以下・ARMv6 をスクリプトが確かめる。
+# workflow_dispatch は既定のブランチにファイルが無いと起動できないため、作業ブランチへの push で動かす
+on:
+  push:
+    branches: [rust-rewrite]
+    paths:
+      - '.github/workflows/rust-ci.yml'
+      - 'rust/**'
+      - 'tools/update_trial_windows.py'
+      - 'swim_worker/updater.py'
+      - 'swim_worker/settings_store.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64, armv6]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install zig and cargo-zigbuild
+        run: |
+          python3 -m pip install --user --require-hashes -r rust/ci-tools.lock
+          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu arm-unknown-linux-gnueabihf --toolchain 1.99.1
+      - name: Build
+        run: bash rust/scripts/build-linux.sh "${{ matrix.arch }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: swim-worker-linux-${{ matrix.arch }}
+          path: rust/target/dist/swim-worker-linux-${{ matrix.arch }}
+          retention-days: 7
+
+  # Windows でテスト (資格情報マネージャー・版の取り方など Windows だけの部分も通す)
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Test
+        working-directory: rust
+        run: cargo test --locked -p swim-worker
+      - name: Clippy (Windows だけのコード)
+        working-directory: rust
+        run: |
+          rustup component add clippy --toolchain 1.99.1
+          cargo clippy --locked -p swim-worker --all-targets -- -D warnings
+      - name: Build GUI (release)
+        working-directory: rust
+        run: cargo build --release --locked -p swim-worker --bin swim-worker-gui
+      # 起動して 2 秒で起動の印 (data/.startup_ok) を書くこと (更新の .bat がこれを待つ)・待機中のメモリ
+      - name: GUI smoke test
+        shell: pwsh
+        run: |
+          $base = Join-Path $env:RUNNER_TEMP "gui-smoke"
+          New-Item -ItemType Directory -Force $base | Out-Null
+          Copy-Item rust/target/release/swim-worker-gui.exe (Join-Path $base "swim-worker-gui.exe")
+          $env:SWIM_WORKER_BASE = $base
+          $p = Start-Process (Join-Path $base "swim-worker-gui.exe") -WorkingDirectory $base -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Milliseconds 500
+            if (Test-Path (Join-Path $base "data/.startup_ok")) { $ok = $true; break }
+          }
+          Start-Sleep -Seconds 10
+          $p.Refresh()
+          if ($p.HasExited) { Get-Content (Join-Path $base "swim-worker.log") -ErrorAction SilentlyContinue; throw "GUI が終わってしまった (exit $($p.ExitCode))" }
+          "Private メモリ (待機中): {0:N1} MB / WorkingSet: {1:N1} MB" -f ($p.PrivateMemorySize64 / 1MB), ($p.WorkingSet64 / 1MB)
+          (Get-Item rust/target/release/swim-worker-gui.exe).Length / 1MB | ForEach-Object { "exe の大きさ: {0:N1} MB" -f $_ }
+          # 2 つ目は重複起動で終了コード 2 (ダイアログは CI では閉じられないので、時間で切る)
+          $p2 = Start-Process (Join-Path $base "swim-worker-gui.exe") -WorkingDirectory $base -PassThru
+          Start-Sleep -Seconds 3
+          $p2.Refresh()
+          "2 つ目: HasExited=$($p2.HasExited)"
+          Stop-Process -Id $p2.Id -Force -ErrorAction SilentlyContinue
+          Stop-Process -Id $p.Id -Force
+          Get-Content (Join-Path $base "swim-worker.log")
+          if (-not $ok) { throw "10 秒以内に起動の印が出ない" }
+      # 旧 Python の GUI の更新の処理から Rust の GUI に入れ替わる・失敗したら巻き戻る (試しの鍵と手元の置き場)
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies (hash-locked)
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+      # Rust の GUI が自分を更新する道筋 (場面 D) 用の試運転のビルド。配布物のビルドを先に別の名前に写す
+      - name: Build GUI (trial)
+        working-directory: rust
+        run: |
+          Copy-Item target/release/swim-worker-gui.exe target/release/swim-worker-gui-dist.exe
+          cargo build --release --locked -p swim-worker --bin swim-worker-gui --features trial
+          Move-Item -Force target/release/swim-worker-gui.exe target/release/swim-worker-gui-trial.exe
+          Move-Item -Force target/release/swim-worker-gui-dist.exe target/release/swim-worker-gui.exe
+      - name: Update trial (Python → Rust, rollback, Rust → Rust)
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python tools/update_trial_windows.py rust/target/release/swim-worker-gui.exe rust/target/release/swim-worker-gui-trial.exe

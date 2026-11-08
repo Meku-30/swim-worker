@@ -151,3 +151,35 @@ def test_fix_permissions_commands(tmp_path):
     (inst / ".env").symlink_to(tmp_path / "elsewhere")
     r = _run_bash(stub + f'INSTALL_DIR="{inst}"\nSERVICE_USER=swim-worker\n' + fn + "fix_permissions")
     assert r.returncode != 0 and "DIE" in r.stderr
+
+
+def test_arch_suffix_table():
+    """uname -m → 配布物の名前の末尾。32 ビットの Pi (armv7l) も ARMv6 版で動く"""
+    fn = _bash_function("arch_suffix")
+    for raw, want in [("x86_64", "amd64"), ("amd64", "amd64"), ("aarch64", "arm64"),
+                      ("arm64", "arm64"), ("armv6l", "armv6"), ("armv7l", "armv6")]:
+        r = _run_bash(fn + f"arch_suffix {raw}")
+        assert r.returncode == 0 and r.stdout.strip() == want, (raw, r.stdout, r.stderr)
+    assert _run_bash(fn + "arch_suffix riscv64").returncode == 1
+
+
+UNIT = INSTALL_SH.parent / "swim-worker.service"
+
+
+def test_unit_has_malloc_arena_max():
+    assert "Environment=MALLOC_ARENA_MAX=2" in UNIT.read_text(encoding="utf-8").splitlines()
+
+
+def test_unit_denies_write_execute():
+    lines = UNIT.read_text(encoding="utf-8").splitlines()
+    assert "MemoryDenyWriteExecute=true" in lines
+    assert "MemoryDenyWriteExecute=false" not in lines
+
+
+def test_arch_suffix_32bit_userland_on_64bit_kernel():
+    """Pi 4/5 の 32 ビット OS は 64 ビットのカーネル (uname -m が aarch64) で動くことがある。userland で決める"""
+    fn = _bash_function("arch_suffix")
+    r = _run_bash(fn + "arch_suffix aarch64 32")
+    assert r.returncode == 0 and r.stdout.strip() == "armv6", r.stdout
+    r = _run_bash(fn + "arch_suffix aarch64 64")
+    assert r.stdout.strip() == "arm64"

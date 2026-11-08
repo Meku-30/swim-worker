@@ -1,0 +1,58 @@
+[
+ {
+  "system": "Windows",
+  "release": "10",
+  "version": "10.0.22631",
+  "machine": "AMD64",
+  "expected": "Windows 11 x86_64"
+ },
+ {
+  "system": "Windows",
+  "release": "10",
+  "version": "10.0.22000",
+  "machine": "AMD64",
+  "expected": "Windows 11 x86_64"
+ },
+ {
+  "system": "Windows",
+  "release": "10",
+  "version": "10.0.21999",
+  "machine": "AMD64",
+  "expected": "Windows 10 x86_64"
+ },
+ {
+  "system": "Windows",
+  "release": "10",
+  "version": "10.0.19045",
+  "machine": "ARM64",
+  "expected": "Windows 10 arm64"
+ },
+ {
+  "system": "Windows",
+  "release": "10",
+  "version": "bad",
+  "machine": "x64",
+  "expected": "Windows 10 x86_64"
+ },
+ {
+  "system": "Linux",
+  "release": "6.1.0-rpi7-rpi-v8",
+  "version": "#1 SMP",
+  "machine": "aarch64",
+  "expected": "Linux 6.1.0-rpi7-rpi-v8 arm64"
+ },
+ {
+  "system": "Linux",
+  "release": "6.8.0-45-generic",
+  "version": "#1 SMP",
+  "machine": "x86_64",
+  "expected": "Linux 6.8.0-45-generic x86_64"
+ },
+ {
+  "system": "Linux",
+  "release": "6.1.21+",
+  "version": "#1642",
+  "machine": "armv6l",
+  "expected": "Linux 6.1.21+ armv6l"
+ }
+]

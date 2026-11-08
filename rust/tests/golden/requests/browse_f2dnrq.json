@@ -1,0 +1,2772 @@
+{
+ "scene": "browse_f2dnrq",
+ "curl_cffi": "0.16.3",
+ "impersonate": "chrome136",
+ "steps": [
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/browse/FUV201",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+    ],
+    [
+     "sec-fetch-site",
+     "none"
+    ],
+    [
+     "sec-fetch-mode",
+     "navigate"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "document"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "POST",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/LuciadRIALicense",
+   "headers": [
+    [
+     ":method",
+     "POST"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "text/plain, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ],
+    [
+     "origin",
+     "https://web.swim.mlit.go.jp"
+    ],
+    [
+     "content-length",
+     "0"
+    ],
+    [
+     "content-type",
+     "application/x-www-form-urlencoded"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/js/lib/WebGIS/ATCMAP.settings",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "text/plain, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/auto_filter.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "POST",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/web/FUV201/USV005",
+   "headers": [
+    [
+     ":method",
+     "POST"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/plain, */*"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "origin",
+     "https://web.swim.mlit.go.jp"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ],
+    [
+     "content-length",
+     "90"
+    ]
+   ],
+   "body": {
+    "msgHeader": {
+     "jnlInfo": {
+      "jnlRegistFlag": 0
+     },
+     "tsusuInfo": {}
+    },
+    "ctrlInfo": {},
+    "ctrlHeader": {}
+   },
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/map_disp.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/web/resource/message",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "*/*"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/web/resource/webfw",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "*/*"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/web/resource/user",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "*/*"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/browse/FUV201",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/browse/FUV201",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/browse/FUV201",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/velocity.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/default_view.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/default_font.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/default_dire_dist_position.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/shape_datablock_setting.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/default_color.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/map_disp.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/menu.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/commonMenuSetting.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/toolbarSetting.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/blink_info.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/settings/groupLayer.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/javascript, */*; q=0.01"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "x-requested-with",
+     "XMLHttpRequest"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "POST",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/web/FUV201/USV005",
+   "headers": [
+    [
+     ":method",
+     "POST"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/plain, */*"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "origin",
+     "https://web.swim.mlit.go.jp"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ],
+    [
+     "content-length",
+     "90"
+    ]
+   ],
+   "body": {
+    "msgHeader": {
+     "jnlInfo": {
+      "jnlRegistFlag": 0
+     },
+     "tsusuInfo": {}
+    },
+    "ctrlInfo": {},
+    "ctrlHeader": {}
+   },
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/js/lib/WebGIS/layer/UTM0.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/javascript, application/json"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/js/lib/WebGIS/layer/UTM1.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/javascript, application/json"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/js/lib/WebGIS/layer/UTM2.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/javascript, application/json"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "GET",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/js/lib/WebGIS/layer/UTM3.json",
+   "headers": [
+    [
+     ":method",
+     "GET"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/javascript, application/json"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ]
+   ],
+   "body": null,
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  }
+ ]
+}

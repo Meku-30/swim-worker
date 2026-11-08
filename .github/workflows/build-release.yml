@@ -30,13 +30,13 @@ jobs:
       - name: Check embedded release public keys
         run: python3 scripts/release_pubkeys.py check --require
 
-      - name: Check tag matches __version__
+      - name: Check tag matches Cargo.toml (Rust 版)
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
-          version=$(python3 -c 'import re; print(re.search(r"__version__ = \"([^\"]+)\"", open("swim_worker/__init__.py").read()).group(1))')
+          version=$(sed -n 's/^version = "\([^"]*\)"$/\1/p' rust/crates/swim-worker/Cargo.toml | head -1)
           if [[ "v${version}" != "${GITHUB_REF_NAME}" ]]; then
-            echo "タグ ${GITHUB_REF_NAME} と swim_worker/__init__.py の __version__ (${version}) が一致しません" >&2
+            echo "タグ ${GITHUB_REF_NAME} と rust/crates/swim-worker/Cargo.toml の version (${version}) が一致しません" >&2
             exit 1
           fi
 
@@ -63,51 +63,61 @@ jobs:
     needs: [release-keys, test]
     permissions:
       contents: read
-    strategy:
-      matrix:
-        include:
-          # Linux は glibc 互換性のため古い runner (22.04, glibc 2.35) でビルド。
-          # Pi OS Bookworm (glibc 2.36), Debian 12, Ubuntu 22.04+ で動作させるため。
-          - os: ubuntu-22.04
-            artifact: swim-worker-linux-amd64
-          - os: ubuntu-22.04-arm
-            artifact: swim-worker-linux-arm64
-          # Windows / macOS は -latest を使わず固定 (v1.2.1 のビルド時に -latest が指していた版)
-          - os: windows-2025
-            artifact: swim-worker-windows
-          - os: macos-26
-            artifact: swim-worker-macos
-
-    runs-on: ${{ matrix.os }}
+    # Windows は Rust の GUI (Windows 標準の部品)。名前は今のまま swim-worker-gui.exe → 配布物 swim-worker-windows.exe
+    # -latest を使わず固定 (v1.2.1 のビルド時に -latest が指していた版)
+    runs-on: windows-2025
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: '3.11'
+      # 配布の前に Rust のテスト (Windows だけのコード・埋め込みの公開鍵・更新の検証を含む) を通す
+      - name: Test (Rust)
+        working-directory: rust
+        run: cargo test --locked -p swim-worker
 
-      - name: Install dependencies (hash-locked)
-        run: python -m pip install --require-hashes -r requirements-dev.lock
-
-      - name: Install tkinter (macOS)
-        if: runner.os == 'macOS'
-        run: brew install python-tk@3.11
-
-      - name: Build executable
-        run: python scripts/build_exe.py
+      - name: Build GUI (Rust)
+        working-directory: rust
+        run: cargo build --release --locked -p swim-worker --bin swim-worker-gui
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ${{ matrix.artifact }}
-          path: dist/swim-worker*
+          name: swim-worker-windows
+          path: rust/target/release/swim-worker-gui.exe
+          if-no-files-found: error
+
+  # Linux は Rust 版 (glibc 2.31 以下、ARMv6 を含む)。CI (rust-ci.yml) と同じスクリプトで作る
+  build-linux:
+    needs: [release-keys, test]
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      matrix:
+        arch: [amd64, arm64, armv6]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install zig and cargo-zigbuild
+        run: |
+          python3 -m pip install --user --require-hashes -r rust/ci-tools.lock
+          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu arm-unknown-linux-gnueabihf --toolchain 1.99.1
+      - name: Build
+        run: bash rust/scripts/build-linux.sh "${{ matrix.arch }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: swim-worker-linux-${{ matrix.arch }}
+          path: rust/target/dist/swim-worker-linux-${{ matrix.arch }}
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [build, build-linux]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -146,11 +156,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux-amd64
-          cp artifacts/swim-worker-linux-arm64/swim-worker release/swim-worker-linux-arm64
+          for a in amd64 arm64 armv6; do
+            cp "artifacts/swim-worker-linux-${a}/swim-worker-linux-${a}" "release/swim-worker-linux-${a}"
+          done
           # 後方互換: 既存 README 手順で swim-worker-linux (=amd64) をDLしているユーザー向け
-          cp artifacts/swim-worker-linux-amd64/swim-worker release/swim-worker-linux
-          cp artifacts/swim-worker-macos/swim-worker release/swim-worker-macos
+          cp artifacts/swim-worker-linux-amd64/swim-worker-linux-amd64 release/swim-worker-linux
+          chmod +x release/swim-worker-linux*
           cp artifacts/swim-worker-windows/swim-worker-gui.exe release/swim-worker-windows.exe
           # .env.example はドットファイルで GitHub Releases 側で勝手に
           # "default.env.example" に名前が変わるため、install.sh は対話で

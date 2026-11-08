@@ -1,0 +1,18 @@
+[package]
+name = "swim-http"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+wreq = { version = "=6.0.0-rc.31", features = ["gzip", "deflate", "brotli", "zstd", "json", "cookies"] }
+wreq-util = { version = "=3.0.0-rc.14", features = ["emulation"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt", "macros", "net", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+flate2 = "1"
+brotli = "8"
+zstd = "0.13"

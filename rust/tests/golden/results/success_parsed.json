@@ -1,0 +1,18 @@
+{
+ "result": {
+  "task_id": "t-parsed",
+  "worker_name": "golden-worker",
+  "status": "success",
+  "data": [
+   {
+    "id": 1,
+    "v": 1.5
+   }
+  ],
+  "error": null,
+  "completed_at": "2026-11-07T12:34:56.789012+00:00",
+  "format": "parsed"
+ },
+ "zstd_b64": "KLUv/SCylQQAMgohIGBnnANFbSwhVr5tE2OkFT2yAoBjiWg/BiUbVYMAANwF0d02q8MwDHj6WrnWoLF1MCDFYWSBkI0hkKUYU0db7fmoidu4z2Gg8vTe0+QZMu8TQGQULE/wxA4l8hrVPb17FeXp5/uJGvvpqln3oMDzy2iT8C4MC57utlkdFZ93A8nSGg8FAwDQU4k3ITjiMMs=",
+ "zstd_level": 6
+}

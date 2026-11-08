@@ -1,0 +1,12 @@
+{
+ "result": {
+  "task_id": "t-err",
+  "worker_name": "golden-worker",
+  "status": "error",
+  "data": null,
+  "error": "APIエラー (status=500)",
+  "completed_at": "2026-11-07T12:34:56.789012+00:00"
+ },
+ "zstd_b64": "KLUv/SCtdQQA4ogeIFClOAfIwihlNNsoGmnFVoMFFoKXb//aWxmrkwoxM2NCAVddVYJr6jRMYVHWkKxrC0ZZa2xx6r6f/LyeDSFShL4+UFUOggDUcLphTSpGQoH4Lgirac+TX5Syv6eqyZP6Opv6wej4viWeHtmRjJGvS9lsfv8eT0TxPEAGAF8NAYFTgr+ZHk27gsMsAw==",
+ "zstd_level": 6
+}

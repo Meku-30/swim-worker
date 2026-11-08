@@ -1,0 +1,325 @@
+{
+ "scene": "execute_api",
+ "curl_cffi": "0.16.3",
+ "impersonate": "chrome136",
+ "steps": [
+  {
+   "method": "POST",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2aspr/web/FLV850/dummy",
+   "headers": [
+    [
+     ":method",
+     "POST"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/plain, */*"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "origin",
+     "https://web.swim.mlit.go.jp"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2aspr/browse/flv850s001"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ],
+    [
+     "content-length",
+     "25"
+    ]
+   ],
+   "body": {
+    "ctrlInfo": {},
+    "dummy": 1
+   },
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "POST",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/f2dnrq/web/FUV201/dummy",
+   "headers": [
+    [
+     ":method",
+     "POST"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/plain, */*"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "origin",
+     "https://web.swim.mlit.go.jp"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/f2dnrq/browse/FUV201"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ],
+    [
+     "content-length",
+     "25"
+    ]
+   ],
+   "body": {
+    "ctrlInfo": {},
+    "dummy": 1
+   },
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  },
+  {
+   "method": "POST",
+   "host": "web.swim.mlit.go.jp",
+   "path": "/service/api/dummy",
+   "headers": [
+    [
+     ":method",
+     "POST"
+    ],
+    [
+     ":authority",
+     "<authority>"
+    ],
+    [
+     ":scheme",
+     "https"
+    ],
+    [
+     ":path",
+     "/api/all"
+    ],
+    [
+     "cookie",
+     "<cookie>"
+    ],
+    [
+     "sec-ch-ua",
+     "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+    ],
+    [
+     "sec-ch-ua-mobile",
+     "?0"
+    ],
+    [
+     "sec-ch-ua-platform",
+     "\"macOS\""
+    ],
+    [
+     "upgrade-insecure-requests",
+     "1"
+    ],
+    [
+     "user-agent",
+     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ],
+    [
+     "accept",
+     "application/json, text/plain, */*"
+    ],
+    [
+     "sec-fetch-site",
+     "same-origin"
+    ],
+    [
+     "sec-fetch-mode",
+     "cors"
+    ],
+    [
+     "sec-fetch-user",
+     "?1"
+    ],
+    [
+     "sec-fetch-dest",
+     "empty"
+    ],
+    [
+     "accept-encoding",
+     "gzip, deflate, br, zstd"
+    ],
+    [
+     "accept-language",
+     "ja,en-US;q=0.9,en;q=0.8"
+    ],
+    [
+     "priority",
+     "u=0, i"
+    ],
+    [
+     "origin",
+     "https://web.swim.mlit.go.jp"
+    ],
+    [
+     "referer",
+     "https://web.swim.mlit.go.jp/"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ],
+    [
+     "content-length",
+     "25"
+    ]
+   ],
+   "body": {
+    "ctrlInfo": {},
+    "dummy": 1
+   },
+   "tls": {
+    "ja4": "t13d1517h2_8daaf6152771_b6f405a00624",
+    "peetprint_hash": "d44d68f0fce54cd423d6792272a242b8"
+   },
+   "http2": {
+    "akamai_fingerprint": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+   }
+  }
+ ]
+}

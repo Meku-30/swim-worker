@@ -1,0 +1,2 @@
+# テストの見本は改行も中身のうち (署名・ハッシュ・1 バイトまでの比較)。Windows の取り出しで CRLF にしない
+rust/tests/golden/** -text
