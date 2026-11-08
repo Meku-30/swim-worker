@@ -17,3 +17,9 @@ pytest tests/test_golden_requests.py
 - `:authority` は `<authority>`、`cookie` は `<cookie>` に置き換えてある。`:path` は確認先のパスで、元の SWIM のパスは `path` にある。照合では `:authority`・`:path`・`cookie`・`content-length` の値は比べない (名前と順番は比べる)
 - TLS: 最初の接続は JA4 `t13d1516h2_…`、TLS のセッション再開のときは pre_shared_key が増えて `t13d1517h2_…`。どの要求が再開になるかも Python 版と同じであること
 - 待ち時間は 0 にして取っている (分布は別の見本)
+
+## delays.json — 待ち時間の分布
+
+`tools/golden/sample_delays.py` で作る。要求の前の待ち時間 (対数正規分布を 1.5〜25 秒に切り詰め、中央値 4 秒・p99 15 秒) と、応答のあとの待ち時間 (指数分布 rate 3.0 + 0.05 秒) を、種を固定して 100,000 回引いた分位点。auth.py の一様分布の待ち時間の上下と、応答が遅いときの追加の待ち時間の決まりも書いてある。Rust 版は同じ分位点に近いことを確かめる。
+
+- 応答のあとの待ち時間の中央値は約 0.28 秒 (auth.py のコメントの「約 0.38 秒」は平均に近い値)
