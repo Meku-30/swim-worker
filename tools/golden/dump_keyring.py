@@ -65,7 +65,7 @@ def main(out: Path):
             "read_back": [keyring.get_password(KEYRING_SERVICE, u) == VALUE for u in users],
         }
         out.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        print(json.dumps(data, ensure_ascii=False, indent=1))
+        print(json.dumps(data, ensure_ascii=True, indent=1))  # runner の標準出力は cp1252
     finally:
         for u in users:
             try:

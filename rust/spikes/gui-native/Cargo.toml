@@ -1,0 +1,17 @@
+[package]
+name = "gui-native"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+native-windows-gui = { version = "=1.0.13", default-features = false, features = ["textbox", "tray-notification", "menu", "frame", "image-decoder", "embed-resource", "timer", "message-window"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

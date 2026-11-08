@@ -1,0 +1,36 @@
+import { Button, LineEdit, CheckBox, GroupBox, TextEdit, VerticalBox, HorizontalBox, GridBox } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "SWIM Worker";
+    preferred-width: 520px;
+    preferred-height: 640px;
+    in property <string> log-text;
+    VerticalBox {
+        GroupBox {
+            title: "設定";
+            GridBox {
+                Row { Text { text: "Redis ホスト:"; } LineEdit { } }
+                Row { Text { text: "Redis ユーザー名:"; } LineEdit { } }
+                Row { Text { text: "Redis パスワード:"; } LineEdit { input-type: password; } }
+                Row { Text { text: "SWIM ID:"; } LineEdit { } }
+                Row { Text { text: "SWIM パスワード:"; } LineEdit { input-type: password; } }
+                Row { Text { text: "Worker 名:"; } LineEdit { } }
+            }
+        }
+        HorizontalBox {
+            Button { text: "▶ 起動"; }
+            Button { text: "■ 停止"; enabled: false; }
+            Button { text: "設定保存"; }
+            Button { text: "⬆ アップデート"; }
+        }
+        HorizontalBox {
+            CheckBox { text: "起動時に自動接続"; }
+            CheckBox { text: "Windows起動時に自動起動"; }
+        }
+        CheckBox { text: "アップデートを自動適用 (確認ダイアログなし、5秒カウントダウンのみ)"; }
+        GroupBox {
+            title: "ログ";
+            TextEdit { text: root.log-text; read-only: true; font-size: 12px; }
+        }
+    }
+}
