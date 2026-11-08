@@ -148,7 +148,7 @@ async fn main() -> ExitCode {
     results.push(("execute_api", take()));
 
     new_client("pub.json")
-        .fetch_public_get(&format!("{SWIM_TOP_URL}/swim/api/informations"), &[("lang".into(), "ja".into())])
+        .fetch_public_get(&format!("{SWIM_TOP_URL}/swim/api/informations"), &[("lang".into(), "ja".into())], &[])
         .await
         .unwrap();
     results.push(("fetch_public_get", take()));

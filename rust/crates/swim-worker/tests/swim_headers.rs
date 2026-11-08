@@ -132,7 +132,7 @@ async fn headers_match_golden_fetch_public_get() {
     let f = factory();
     let c = client(&f, d.path().join("c.json"));
     let v: Value = c
-        .fetch_public_get(&format!("{SWIM_TOP_URL}/swim/api/informations"), &[("lang".into(), "ja".into())])
+        .fetch_public_get(&format!("{SWIM_TOP_URL}/swim/api/informations"), &[("lang".into(), "ja".into())], &[])
         .await
         .unwrap();
     assert_eq!(v, json!({"datas": []}));

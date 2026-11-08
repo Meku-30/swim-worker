@@ -547,7 +547,13 @@ impl SwimClient {
     }
 
     /// 認証の要らない公開の GET (お知らせの API など)。毎回新しいセッション
-    pub async fn fetch_public_get(&self, url: &str, params: &[(String, String)]) -> Result<Value, SwimError> {
+    /// `extra_headers` はタスクが指定したヘッダー (Python の merged_headers.update(headers) と同じく、同じ名前は値だけ替える)
+    pub async fn fetch_public_get(
+        &self,
+        url: &str,
+        params: &[(String, String)],
+        extra_headers: &[(String, String)],
+    ) -> Result<Value, SwimError> {
         validate_swim_url(url)?;
         let mut full = url::Url::parse(url).map_err(|e| SwimError::Disallowed(e.to_string()))?;
         if !params.is_empty() {
@@ -562,8 +568,15 @@ impl SwimClient {
             ("Sec-Fetch-Mode", "cors"),
             ("Sec-Fetch-Site", "same-origin"),
         ];
+        let mut merged: Vec<(&str, &str)> = headers.to_vec();
+        for (k, v) in extra_headers {
+            match merged.iter_mut().find(|(n, _)| *n == k.as_str()) {
+                Some(slot) => slot.1 = v,
+                None => merged.push((k, v)),
+            }
+        }
         let mut s = self.factory.new_session();
-        let resp = Self::req(s.as_mut(), "GET", full.as_str(), &[], &headers, None)
+        let resp = Self::req(s.as_mut(), "GET", full.as_str(), &[], &merged, None)
             .await
             .map_err(|e| SwimError::Auth(format!("公開GET APIエラー: {e}")))?;
         check_response_url(&resp.final_url)?;

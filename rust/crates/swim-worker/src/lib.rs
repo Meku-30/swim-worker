@@ -1,5 +1,6 @@
 pub mod certs;
 pub mod config;
+pub mod consumer;
 pub mod delays;
 pub mod dotenv;
 pub mod kv;
