@@ -118,23 +118,25 @@ fn session_factory() -> Box<dyn crate::swim::transport::SessionFactory> {
     Box::new(WreqFactory)
 }
 
-/// 試運転用の偽の SWIM (ネットに出ない)。ログインは成功し、API は NOTAM 1 件を返す
+/// 試運転用の偽の SWIM (ネットに出ない)。`SWIM_TRIAL_RESPONSES` に応答の決まりの JSON があればそれを使い、
+/// 無ければログインは成功し API は NOTAM 1 件を返す
 #[cfg(feature = "trial")]
 fn session_factory() -> Box<dyn crate::swim::transport::SessionFactory> {
-    use crate::swim::fake::{ok_json, FakeFactory};
-    use serde_json::json;
+    use crate::swim::trial::{load_rules, TrialFactory};
     tracing::warn!(target: LOG, "試運転のビルド: SWIM の代わりに偽物で動きます");
     let _ = WreqFactory;
-    Box::new(FakeFactory::new(|_m, url, _b| {
-        if url == crate::swim::SWIM_LOGIN_URL {
-            let mut r = ok_json(url, json!({"statusCode": 0, "datas": {"redirectUrl": crate::swim::SWIM_DEFAULT_REDIRECT_URL}}));
-            r.set_cookies = 1;
-            return Ok(r);
-        }
-        Ok(ok_json(url, json!({"notamList": [{"number": "A0001/26", "location": "RJTT", "contents": "trial",
-            "startDate": "2026/03/01 00:00", "endDate": "2026/04/01 00:00", "notamCode": "QMRLC"}]})))
-    }))
+    let text = match std::env::var("SWIM_TRIAL_RESPONSES") {
+        Ok(p) => std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{p} を読めない: {e}")),
+        Err(_) => DEFAULT_TRIAL_RESPONSES.to_string(),
+    };
+    Box::new(TrialFactory::new(load_rules(&text).expect("試運転の応答")))
 }
+
+#[cfg(feature = "trial")]
+const DEFAULT_TRIAL_RESPONSES: &str = r#"{"defaults":[
+ {"url_contains":"/swim/api/login","json":{"statusCode":0,"datas":{"redirectUrl":"https://web.swim.mlit.go.jp/service/portal?lang=ja"}},"set_cookie":true},
+ {"url_contains":"swim.mlit.go.jp","json":{"notamList":[{"number":"A0001/26","location":"RJTT","contents":"trial",
+  "startDate":"2026/03/01 00:00","endDate":"2026/04/01 00:00","notamCode":"QMRLC"}]}}]}"#;
 
 /// 設定・Redis・SWIM のクライアントを用意して動かす (ロックは呼び出し側で取る)
 pub async fn main_async(paths: Paths) -> ExitCode {

@@ -2,6 +2,8 @@
 //! 送る要求 (順番・ヘッダー・待ち時間・新しいセッションを作る位置) は Python 版と同じにする。
 pub mod client;
 pub mod fake;
+#[cfg(feature = "trial")]
+pub mod trial;
 pub mod headers;
 pub mod transport;
 
