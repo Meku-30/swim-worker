@@ -7,7 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
-native-windows-gui = { version = "=1.0.13", default-features = false, features = ["textbox", "tray-notification", "menu", "frame", "image-decoder", "embed-resource", "timer", "message-window"] }
+native-windows-gui = { version = "=1.0.13", default-features = false, features = ["textbox", "tray-notification", "menu", "frame", "image-decoder", "embed-resource", "animation-timer", "message-window"] }
 
 [profile.release]
 opt-level = "s"

@@ -1,0 +1,29 @@
+{
+ "keyring_backend": "keyring.backends.Windows.WinVaultKeyring",
+ "service": "swim-worker",
+ "users": [
+  "0123456789abcdef0123456789abcdef:REDIS_PASSWORD",
+  "0123456789abcdef0123456789abcdef:SWIM_PASSWORD"
+ ],
+ "value": "dummy-value-日本",
+ "credentials": [
+  {
+   "target_name": "0123456789abcdef0123456789abcdef:REDIS_PASSWORD@swim-worker",
+   "user_name": "0123456789abcdef0123456789abcdef:REDIS_PASSWORD",
+   "type": 1,
+   "persist": 3,
+   "blob_encoding": "utf-16-le"
+  },
+  {
+   "target_name": "swim-worker",
+   "user_name": "0123456789abcdef0123456789abcdef:SWIM_PASSWORD",
+   "type": 1,
+   "persist": 3,
+   "blob_encoding": "utf-16-le"
+  }
+ ],
+ "read_back": [
+  true,
+  true
+ ]
+}

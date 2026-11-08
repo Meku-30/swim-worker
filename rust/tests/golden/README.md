@@ -31,3 +31,11 @@ pytest tests/test_golden_requests.py
 - `results/*.json`: `_make_result` が作る結果 (`result`) と、`_encode_result` で最小の JSON にして zstd level 6 で圧縮したバイト列 (`zstd_b64`)。`completed_at` は `2026-11-07T12:34:56.789012+00:00` に固定してある (Python の `datetime.isoformat()` の形: マイクロ秒 6 桁、`+00:00`)。Rust は展開した JSON が同じになること (圧縮のバイト列そのものは一致しなくてよい)
 - `dotenv_cases.json`: `.env` の 1 行 → python-dotenv (`dotenv_values`) が読んだ値。引用符・空・行末のコメント・`#` を含む値・`export`・`=` を含む値・前後の空白・エスケープ
 - 注意: Linux の CLI 版は systemd の `EnvironmentFile=` でも同じ `.env` を読む (systemd の読み方は python-dotenv と細部が違う)。Rust 版はどちらで渡されても同じ値になることを M2 で確かめる
+
+## keyring_windows.json — Windows の資格情報マネージャーの項目
+
+`tools/golden/dump_keyring.py` を GitHub Actions の Windows (`.github/workflows/rust-m1-windows.yml`) で走らせて取った (作った値だけ)。Python の keyring (WinVaultKeyring) の書き方:
+
+- 種類は Generic (`type: 1`)、`persist: 3` (Enterprise)、値は UTF-16LE
+- TargetName は、空いていればサービス名 `swim-worker` そのもの。すでに別のユーザー名で使われていれば `<ユーザー名>@swim-worker`。**どちらになるかは書いた順番で決まる** (この見本では SWIM_PASSWORD が `swim-worker`、REDIS_PASSWORD が `<id>:REDIS_PASSWORD@swim-worker`)
+- Rust 版は、UserName (`<store_id>:<ENV_KEY>`) で探す。TargetName だけで決め打ちしない

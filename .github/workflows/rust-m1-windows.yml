@@ -53,7 +53,9 @@ jobs:
       - name: Build spikes
         run: |
           cargo build --release --manifest-path rust/spikes/gui-native/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           cargo build --release --manifest-path rust/spikes/gui-slint/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Measure (3 rounds)
         run: |
           for ($r = 1; $r -le 3; $r++) {
