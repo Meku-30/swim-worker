@@ -1,0 +1,292 @@
+[
+ {
+  "name": "case_0",
+  "input": "{\"b\": 1, \"a\": 2}",
+  "expected": "{\"b\": 1, \"a\": 2}"
+ },
+ {
+  "name": "case_1",
+  "input": "{\"a\": 1, \"b\": 2, \"a\": 3}",
+  "expected": "{\"a\": 3, \"b\": 2}"
+ },
+ {
+  "name": "case_2",
+  "input": "\"\u65e5\u672c\"",
+  "expected": "\"\\u65e5\\u672c\""
+ },
+ {
+  "name": "case_3",
+  "input": "\"\ud83d\ude00\"",
+  "expected": "\"\\ud83d\\ude00\""
+ },
+ {
+  "name": "case_4",
+  "input": "\"\\ud83d\\ude00\"",
+  "expected": "\"\\ud83d\\ude00\""
+ },
+ {
+  "name": "case_5",
+  "input": "\"\\u0000\"",
+  "expected": "\"\\u0000\""
+ },
+ {
+  "name": "case_6",
+  "input": "\"\\u001f\"",
+  "expected": "\"\\u001f\""
+ },
+ {
+  "name": "case_7",
+  "input": "\"\\t\"",
+  "expected": "\"\\t\""
+ },
+ {
+  "name": "case_8",
+  "input": "\"\\n\\r\\b\\f\"",
+  "expected": "\"\\n\\r\\b\\f\""
+ },
+ {
+  "name": "case_9",
+  "input": "\"\\\"\"",
+  "expected": "\"\\\"\""
+ },
+ {
+  "name": "case_10",
+  "input": "\"\\\\\"",
+  "expected": "\"\\\\\""
+ },
+ {
+  "name": "case_11",
+  "input": "\"/\"",
+  "expected": "\"/\""
+ },
+ {
+  "name": "case_12",
+  "input": "\"\\/\"",
+  "expected": "\"/\""
+ },
+ {
+  "name": "case_13",
+  "input": "\"\u007f\"",
+  "expected": "\"\\u007f\""
+ },
+ {
+  "name": "case_14",
+  "input": "\"\\u00e9\\u2028\"",
+  "expected": "\"\\u00e9\\u2028\""
+ },
+ {
+  "name": "case_15",
+  "input": "\"plain ASCII ~\"",
+  "expected": "\"plain ASCII ~\""
+ },
+ {
+  "name": "case_16",
+  "input": "0",
+  "expected": "0"
+ },
+ {
+  "name": "case_17",
+  "input": "-0",
+  "expected": "0"
+ },
+ {
+  "name": "case_18",
+  "input": "42",
+  "expected": "42"
+ },
+ {
+  "name": "case_19",
+  "input": "-17",
+  "expected": "-17"
+ },
+ {
+  "name": "case_20",
+  "input": "123456789012345678901",
+  "expected": "123456789012345678901"
+ },
+ {
+  "name": "case_21",
+  "input": "9007199254740993",
+  "expected": "9007199254740993"
+ },
+ {
+  "name": "case_22",
+  "input": "0.1",
+  "expected": "0.1"
+ },
+ {
+  "name": "case_23",
+  "input": "1.5",
+  "expected": "1.5"
+ },
+ {
+  "name": "case_24",
+  "input": "1.50",
+  "expected": "1.5"
+ },
+ {
+  "name": "case_25",
+  "input": "1e-05",
+  "expected": "1e-05"
+ },
+ {
+  "name": "case_26",
+  "input": "1e16",
+  "expected": "1e+16"
+ },
+ {
+  "name": "case_27",
+  "input": "1e+16",
+  "expected": "1e+16"
+ },
+ {
+  "name": "case_28",
+  "input": "1E5",
+  "expected": "100000.0"
+ },
+ {
+  "name": "case_29",
+  "input": "1e15",
+  "expected": "1000000000000000.0"
+ },
+ {
+  "name": "case_30",
+  "input": "1.0e2",
+  "expected": "100.0"
+ },
+ {
+  "name": "case_31",
+  "input": "0.0001",
+  "expected": "0.0001"
+ },
+ {
+  "name": "case_32",
+  "input": "0.00001",
+  "expected": "1e-05"
+ },
+ {
+  "name": "case_33",
+  "input": "-0.0",
+  "expected": "-0.0"
+ },
+ {
+  "name": "case_34",
+  "input": "1.0",
+  "expected": "1.0"
+ },
+ {
+  "name": "case_35",
+  "input": "100.0",
+  "expected": "100.0"
+ },
+ {
+  "name": "case_36",
+  "input": "2.5e-7",
+  "expected": "2.5e-07"
+ },
+ {
+  "name": "case_37",
+  "input": "0.30000000000000004",
+  "expected": "0.30000000000000004"
+ },
+ {
+  "name": "case_38",
+  "input": "123456789.123",
+  "expected": "123456789.123"
+ },
+ {
+  "name": "case_39",
+  "input": "12345678901234567890.0",
+  "expected": "1.2345678901234567e+19"
+ },
+ {
+  "name": "case_40",
+  "input": "1e22",
+  "expected": "1e+22"
+ },
+ {
+  "name": "case_41",
+  "input": "-1.5e-300",
+  "expected": "-1.5e-300"
+ },
+ {
+  "name": "case_42",
+  "input": "5e-324",
+  "expected": "5e-324"
+ },
+ {
+  "name": "case_43",
+  "input": "1.7976931348623157e308",
+  "expected": "1.7976931348623157e+308"
+ },
+ {
+  "name": "case_44",
+  "input": "-1113178120592002.2",
+  "expected": "-1113178120592002.2"
+ },
+ {
+  "name": "case_45",
+  "input": "111659285584252.12",
+  "expected": "111659285584252.12"
+ },
+ {
+  "name": "case_46",
+  "input": "-233891771783429.62",
+  "expected": "-233891771783429.62"
+ },
+ {
+  "name": "case_47",
+  "input": "1e400",
+  "expected": "Infinity"
+ },
+ {
+  "name": "case_48",
+  "input": "-1e400",
+  "expected": "-Infinity"
+ },
+ {
+  "name": "case_49",
+  "input": "null",
+  "expected": "null"
+ },
+ {
+  "name": "case_50",
+  "input": "true",
+  "expected": "true"
+ },
+ {
+  "name": "case_51",
+  "input": "false",
+  "expected": "false"
+ },
+ {
+  "name": "case_52",
+  "input": "{}",
+  "expected": "{}"
+ },
+ {
+  "name": "case_53",
+  "input": "[]",
+  "expected": "[]"
+ },
+ {
+  "name": "case_54",
+  "input": "[{}, [], [[]], {\"x\": {}}]",
+  "expected": "[{}, [], [[]], {\"x\": {}}]"
+ },
+ {
+  "name": "case_55",
+  "input": "{\"a\": [1, 2.5, \"s\", null, true, {\"b\": false}], \"c\": {\"d\": [1e-7]}}",
+  "expected": "{\"a\": [1, 2.5, \"s\", null, true, {\"b\": false}], \"c\": {\"d\": [1e-07]}}"
+ },
+ {
+  "name": "case_56",
+  "input": "[1,2,{\"k\":\"v\"}]",
+  "expected": "[1, 2, {\"k\": \"v\"}]"
+ },
+ {
+  "name": "notam_raw_data",
+  "input": "{\"msgHeader\":null,\"ctrlInfo\":null,\"ctrlHeader\":null,\"xmlBody\":null,\"result\":\"0\",\"msgList\":[],\"userId\":null,\"sequenceNo\":137706,\"collectionNo\":0,\"location\":\"RORT\",\"number\":\"O0143/26\",\"notamCode\":\"QXXXX\",\"startDate\":\"2026/01/08 09:23\",\"endDate\":\"PERM\",\"schedule\":null,\"contents\":\"REF AIP PAGE RORT AD2-3 (CHANGE TO READ)\",\"uuid\":\"30d4aaac-e8bc-49ea-a16d-2fc62ddd1469\",\"list\":\"080923 RJAAYNYX\\n(O0143/26 NOTAMN\\nQ)RJJJ/QXXXX/I/NBO/A/000/999/2439N12441E005\\nA)RORT B)2601080923 C)PERM\\nE)REF AIP PAGE RORT AD2-3 (CHANGE TO READ)\\nRORT AD 2.8 APRONS, TAXIWAYS AND CHECK LOCATIONS DATA\\n5 INS CHECKPOINTS\\n\\nCOR TO READ\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 1244036.64E\\n\\nINSTEAD OF\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 12454036.64E)\\n\",\"commonTemplateId\":3134,\"coordinates\":\"2439N12441E\",\"requestLocations\":\"RORT\",\"scopes\":\"A\",\"digitalNotam\":\"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?><message:AIXMBasicMessage gml:id=\\\"uuid.2f49f3e2-c0f4-48da-95f6-3249f845b4ff\\\" xmlns:aixm=\\\"http://www.aixm.aero/schema/5.1.1\\\" xmlns:gml=\\\"http://www.opengis.net/gml/3.2\\\" xmlns:message=\\\"http://www.aixm.aero/schema/5.1.1/message\\\" xmlns:event=\\\"http://www.aixm.aero/schema/5.1/event\\\" xmlns:xlink=\\\"http://www.w3.org/1999/xlink\\\"><message:hasMember><aixm:AirportHeliport gml:id=\\\"uuid.47c40156-32ee-4109-8122-508caed99fe5\\\"><gml:identifier codeSpace=\\\"urn:uuid:\\\">47c40156-32ee-4109-8122-508caed99fe5</gml:identifier><aixm:timeSlice><aixm:AirportHeliportTimeSlice gml:id=\\\"id.000001.3ed5ff4f-bf35-4bb1-9a8c-26d39073adf7\\\"><gml:validTime><gml:TimePeriod gml:id=\\\"id.000002.15f61008-de9e-4773-99f1-6e9dc5397c76\\\"><gml:beginPosition>2026-01-08T09:23:00Z</gml:beginPosition><gml:endPosition>9999-12-31T23:59:00Z</gml:endPosition></gml:TimePeriod></gml:validTime><aixm:interpretation>TEMPDELTA</aixm:interpretation><aixm:sequenceNumber>137706</aixm:sequenceNumber><aixm:correctionNumber>0</aixm:correctionNumber><aixm:annotation><aixm:Note gml:id=\\\"id.000001.ff6614af-ec67-43ab-82fc-4498402aa7fe\\\"><aixm:propertyName>AirportHeliport</aixm:propertyName><aixm:purpose>REMARK</aixm:purpose><aixm:translatedNote><aixm:LinguisticNote gml:id=\\\"id.000001.8d062107-3b4b-47c4-88c2-90664025e2a0\\\"><aixm:note lang=\\\"eng\\\">REF AIP PAGE RORT AD2-3 (CHANGE TO READ)\\nRORT AD 2.8 APRONS, TAXIWAYS AND CHECK LOCATIONS DATA\\n5 INS CHECKPOINTS\\n\\nCOR TO READ\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 1244036.64E\\n\\nINSTEAD OF\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 12454036.64E</aixm:note></aixm:LinguisticNote></aixm:translatedNote></aixm:Note></aixm:annotation></aixm:AirportHeliportTimeSlice></aixm:timeSlice></aixm:AirportHeliport></message:hasMember><message:hasMember><event:Event gml:id=\\\"uuid.30d4aaac-e8bc-49ea-a16d-2fc62ddd1469\\\"><gml:identifier codeSpace=\\\"urn:uuid\\\">30d4aaac-e8bc-49ea-a16d-2fc62ddd1469</gml:identifier><event:timeSlice><event:EventTimeSlice gml:id=\\\"id.000001.df15e492-f397-4100-95f5-ad6a254f0f88\\\"><gml:validTime><gml:TimePeriod gml:id=\\\"id.000002.7afb4a15-9ccc-4766-9adc-e0012f31fd6c\\\"><gml:beginPosition>2026-01-08T09:23:00Z</gml:beginPosition><gml:endPosition>9999-12-31T23:59:00Z</gml:endPosition></gml:TimePeriod></gml:validTime><aixm:interpretation>BASELINE</aixm:interpretation><aixm:sequenceNumber>137706</aixm:sequenceNumber><aixm:correctionNumber>0</aixm:correctionNumber><aixm:featureLifetime><gml:TimePeriod gml:id=\\\"id.000003.7eb684d6-f639-41ad-9e82-5256db80fc96\\\"><gml:beginPosition>2026-01-08T09:23:00Z</gml:beginPosition><gml:endPosition>9999-12-31T23:59:00Z</gml:endPosition></gml:TimePeriod></aixm:featureLifetime><event:name>RORT_22_20260303</event:name><event:encoding>DIGITAL</event:encoding><event:scenario>22</event:scenario><event:version>1.0</event:version><event:revision>2026-01-08T09:24:02Z</event:revision><event:textNOTAM><event:NOTAM gml:id=\\\"id.000004.107df152-5395-47c5-991b-1ed5a98e65bf\\\"><event:series>O</event:series><event:number>0143</event:number><event:year>2026</event:year><event:type>N</event:type><event:issued>2026-01-08T09:24:02Z</event:issued><event:affectedFIR>RJJJ</event:affectedFIR><event:selectionCode>QXXXX</event:selectionCode><event:traffic>I </event:traffic><event:purpose>NBO</event:purpose><event:scope>A</event:scope><event:minimumFL>000</event:minimumFL><event:maximumFL>999</event:maximumFL><event:coordinates>2439N12441E</event:coordinates><event:radius>005</event:radius><event:location>RORT</event:location><event:effectiveStart>2601080923</event:effectiveStart><event:effectiveEnd>PERM</event:effectiveEnd><event:text>REF AIP PAGE RORT AD2-3 (CHANGE TO READ)\\nRORT AD 2.8 APRONS, TAXIWAYS AND CHECK LOCATIONS DATA\\n5 INS CHECKPOINTS\\n\\nCOR TO READ\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 1244036.64E\\n\\nINSTEAD OF\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 12454036.64E</event:text></event:NOTAM></event:textNOTAM></event:EventTimeSlice></event:timeSlice></event:Event></message:hasMember></message:AIXMBasicMessage>\",\"fir\":\"RJJJ\",\"traffic\":\"I \",\"purpose\":\"NBO\",\"lowerLimit\":\"000\",\"upperLimit\":\"999\",\"radius\":\"005\",\"lowerLimitF\":null,\"upperLimitG\":null,\"scenarioId\":22,\"invalidDate\":\"9999/12/31 23:59\",\"notamType\":\"N\",\"domesticNumber\":\"RORT 0001/26\",\"ok\":true}",
+  "expected": "{\"msgHeader\": null, \"ctrlInfo\": null, \"ctrlHeader\": null, \"xmlBody\": null, \"result\": \"0\", \"msgList\": [], \"userId\": null, \"sequenceNo\": 137706, \"collectionNo\": 0, \"location\": \"RORT\", \"number\": \"O0143/26\", \"notamCode\": \"QXXXX\", \"startDate\": \"2026/01/08 09:23\", \"endDate\": \"PERM\", \"schedule\": null, \"contents\": \"REF AIP PAGE RORT AD2-3 (CHANGE TO READ)\", \"uuid\": \"30d4aaac-e8bc-49ea-a16d-2fc62ddd1469\", \"list\": \"080923 RJAAYNYX\\n(O0143/26 NOTAMN\\nQ)RJJJ/QXXXX/I/NBO/A/000/999/2439N12441E005\\nA)RORT B)2601080923 C)PERM\\nE)REF AIP PAGE RORT AD2-3 (CHANGE TO READ)\\nRORT AD 2.8 APRONS, TAXIWAYS AND CHECK LOCATIONS DATA\\n5 INS CHECKPOINTS\\n\\nCOR TO READ\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 1244036.64E\\n\\nINSTEAD OF\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 12454036.64E)\\n\", \"commonTemplateId\": 3134, \"coordinates\": \"2439N12441E\", \"requestLocations\": \"RORT\", \"scopes\": \"A\", \"digitalNotam\": \"<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?><message:AIXMBasicMessage gml:id=\\\"uuid.2f49f3e2-c0f4-48da-95f6-3249f845b4ff\\\" xmlns:aixm=\\\"http://www.aixm.aero/schema/5.1.1\\\" xmlns:gml=\\\"http://www.opengis.net/gml/3.2\\\" xmlns:message=\\\"http://www.aixm.aero/schema/5.1.1/message\\\" xmlns:event=\\\"http://www.aixm.aero/schema/5.1/event\\\" xmlns:xlink=\\\"http://www.w3.org/1999/xlink\\\"><message:hasMember><aixm:AirportHeliport gml:id=\\\"uuid.47c40156-32ee-4109-8122-508caed99fe5\\\"><gml:identifier codeSpace=\\\"urn:uuid:\\\">47c40156-32ee-4109-8122-508caed99fe5</gml:identifier><aixm:timeSlice><aixm:AirportHeliportTimeSlice gml:id=\\\"id.000001.3ed5ff4f-bf35-4bb1-9a8c-26d39073adf7\\\"><gml:validTime><gml:TimePeriod gml:id=\\\"id.000002.15f61008-de9e-4773-99f1-6e9dc5397c76\\\"><gml:beginPosition>2026-01-08T09:23:00Z</gml:beginPosition><gml:endPosition>9999-12-31T23:59:00Z</gml:endPosition></gml:TimePeriod></gml:validTime><aixm:interpretation>TEMPDELTA</aixm:interpretation><aixm:sequenceNumber>137706</aixm:sequenceNumber><aixm:correctionNumber>0</aixm:correctionNumber><aixm:annotation><aixm:Note gml:id=\\\"id.000001.ff6614af-ec67-43ab-82fc-4498402aa7fe\\\"><aixm:propertyName>AirportHeliport</aixm:propertyName><aixm:purpose>REMARK</aixm:purpose><aixm:translatedNote><aixm:LinguisticNote gml:id=\\\"id.000001.8d062107-3b4b-47c4-88c2-90664025e2a0\\\"><aixm:note lang=\\\"eng\\\">REF AIP PAGE RORT AD2-3 (CHANGE TO READ)\\nRORT AD 2.8 APRONS, TAXIWAYS AND CHECK LOCATIONS DATA\\n5 INS CHECKPOINTS\\n\\nCOR TO READ\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 1244036.64E\\n\\nINSTEAD OF\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 12454036.64E</aixm:note></aixm:LinguisticNote></aixm:translatedNote></aixm:Note></aixm:annotation></aixm:AirportHeliportTimeSlice></aixm:timeSlice></aixm:AirportHeliport></message:hasMember><message:hasMember><event:Event gml:id=\\\"uuid.30d4aaac-e8bc-49ea-a16d-2fc62ddd1469\\\"><gml:identifier codeSpace=\\\"urn:uuid\\\">30d4aaac-e8bc-49ea-a16d-2fc62ddd1469</gml:identifier><event:timeSlice><event:EventTimeSlice gml:id=\\\"id.000001.df15e492-f397-4100-95f5-ad6a254f0f88\\\"><gml:validTime><gml:TimePeriod gml:id=\\\"id.000002.7afb4a15-9ccc-4766-9adc-e0012f31fd6c\\\"><gml:beginPosition>2026-01-08T09:23:00Z</gml:beginPosition><gml:endPosition>9999-12-31T23:59:00Z</gml:endPosition></gml:TimePeriod></gml:validTime><aixm:interpretation>BASELINE</aixm:interpretation><aixm:sequenceNumber>137706</aixm:sequenceNumber><aixm:correctionNumber>0</aixm:correctionNumber><aixm:featureLifetime><gml:TimePeriod gml:id=\\\"id.000003.7eb684d6-f639-41ad-9e82-5256db80fc96\\\"><gml:beginPosition>2026-01-08T09:23:00Z</gml:beginPosition><gml:endPosition>9999-12-31T23:59:00Z</gml:endPosition></gml:TimePeriod></aixm:featureLifetime><event:name>RORT_22_20260303</event:name><event:encoding>DIGITAL</event:encoding><event:scenario>22</event:scenario><event:version>1.0</event:version><event:revision>2026-01-08T09:24:02Z</event:revision><event:textNOTAM><event:NOTAM gml:id=\\\"id.000004.107df152-5395-47c5-991b-1ed5a98e65bf\\\"><event:series>O</event:series><event:number>0143</event:number><event:year>2026</event:year><event:type>N</event:type><event:issued>2026-01-08T09:24:02Z</event:issued><event:affectedFIR>RJJJ</event:affectedFIR><event:selectionCode>QXXXX</event:selectionCode><event:traffic>I </event:traffic><event:purpose>NBO</event:purpose><event:scope>A</event:scope><event:minimumFL>000</event:minimumFL><event:maximumFL>999</event:maximumFL><event:coordinates>2439N12441E</event:coordinates><event:radius>005</event:radius><event:location>RORT</event:location><event:effectiveStart>2601080923</event:effectiveStart><event:effectiveEnd>PERM</event:effectiveEnd><event:text>REF AIP PAGE RORT AD2-3 (CHANGE TO READ)\\nRORT AD 2.8 APRONS, TAXIWAYS AND CHECK LOCATIONS DATA\\n5 INS CHECKPOINTS\\n\\nCOR TO READ\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 1244036.64E\\n\\nINSTEAD OF\\nSPOT NR\\n1 : 243913.23N 1244036.86E\\n2 : 243914.85N 12454036.64E</event:text></event:NOTAM></event:textNOTAM></event:EventTimeSlice></event:timeSlice></event:Event></message:hasMember></message:AIXMBasicMessage>\", \"fir\": \"RJJJ\", \"traffic\": \"I \", \"purpose\": \"NBO\", \"lowerLimit\": \"000\", \"upperLimit\": \"999\", \"radius\": \"005\", \"lowerLimitF\": null, \"upperLimitG\": null, \"scenarioId\": 22, \"invalidDate\": \"9999/12/31 23:59\", \"notamType\": \"N\", \"domesticNumber\": \"RORT 0001/26\", \"ok\": true}"
+ }
+]
