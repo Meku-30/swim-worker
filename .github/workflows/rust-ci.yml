@@ -93,4 +93,6 @@ jobs:
       - name: Install Python dependencies (hash-locked)
         run: python -m pip install --require-hashes -r requirements-dev.lock
       - name: Update trial (Python → Rust, rollback)
+        env:
+          PYTHONIOENCODING: utf-8
         run: python tools/update_trial_windows.py rust/target/release/swim-worker-gui.exe
