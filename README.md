@@ -31,7 +31,7 @@ SWIMポータルのアカウントがあれば誰でも参加可能です。
 
 設定ファイル (`.env`) と SWIM ログインの Cookie は exe と同じフォルダに保存されます。ダウンロードフォルダや共有フォルダに置かず、`C:\Users\<name>\swim-worker\` のような自分専用のフォルダに置いて実行することをおすすめします。
 
-Windows では Redis と SWIM の**パスワードは資格情報マネージャー**に保存され、`.env` には書かれません。以前のバージョンで `.env` に保存したパスワードは、起動時に自動で資格情報マネージャーへ移ります (移せなかった場合は `.env` に残ります)。資格情報マネージャーが使えない環境と Mac では、従来どおり `.env` (本人だけが読める権限) に保存します (Mac のキーチェーンはアプリの更新のたびに確認が出て起動を止めてしまうため使いません)。
+Windows では Redis と SWIM の**パスワードは資格情報マネージャー**に保存され、`.env` には書かれません。以前のバージョンで `.env` に保存したパスワードは、起動時に自動で資格情報マネージャーへ移ります (移せなかった場合は `.env` に残ります)。資格情報マネージャーが使えない環境では、従来どおり `.env` (本人だけが読める権限) に保存します。
 
 ### ステップ 2: 起動して設定
 
@@ -81,40 +81,11 @@ Windows では Redis と SWIM の**パスワードは資格情報マネージャ
 
 ---
 
-## Mac の場合（GUI版）
-
-### ステップ 1: ダウンロード
-
-[Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から `swim-worker-macos` をダウンロードしてください。
-
-**Apple Silicon (arm64) のみ対応です。Intel Mac では動作しません。**
-
-### ステップ 2: 起動して設定
-
-```bash
-chmod +x ./swim-worker-macos
-./swim-worker-macos
-```
-
-初回起動時に「開発元が未確認」と表示された場合は、ファイルを右クリック →「開く」で起動できます。
-
-Windows版と同じ設定画面が開くので、各欄を記入して **「▶ 起動」** をクリックしてください。
-
-### ステップ 3: 承認を待つ
-
-Windows版と同様です。**管理者に「起動しました」と連絡**してください。
-
-### 自動起動
-
-画面下部の **「ログイン時に自動起動」** にチェックを入れると、Macログイン時に自動で立ち上がります。
-
----
-
 ## Linux / Raspberry Pi の場合（CLI版）
 
-amd64 (x86_64) と arm64 (aarch64) の両方に対応しています。
-Raspberry Pi 4/5 + 64bit OS (Pi OS Bookworm 等) での動作を想定していますが、
-実機での動作確認はまだ行っていません（CIではarm64バイナリのビルドのみ実施）。
+amd64 (x86_64)・arm64 (aarch64)・armv6 (32 ビットの ARM) に対応しています。
+Raspberry Pi は、初代 Pi Zero / Zero W 以降のすべての機種で、64 ビット OS なら arm64、32 ビット OS なら armv6 の版が自動で選ばれます。
+glibc 2.31 以上の Linux (Debian 11・Ubuntu 20.04・Pi OS Bullseye 以降) で動きます (ただし署名の確認に下の OpenSSL 3.0 以上が要ります)。
 
 ### 推奨: ワンライナーインストール
 
@@ -129,7 +100,7 @@ install.sh 自体の署名も確かめたい場合は、[「リリースの署�
 
 install.sh が以下を自動で行います:
 
-- 最新版のタグを調べ、お使いのアーキテクチャ (amd64 / arm64) に合うバイナリをそのタグから DL し、検証する: `SHA256SUMS` の署名 (`SHA256SUMS.sig`、Ed25519) を install.sh に埋め込んだ公開鍵で確かめ、`SHA256SUMS` の先頭行の版がそのタグと一致し、各ファイルのハッシュが一致すること。署名のないリリースは入れません (**OpenSSL 3.0 以上**が必要。Pi OS Bookworm・Debian 12・Ubuntu 22.04 以降は標準で入っています。Debian 11・Ubuntu 20.04 などの OpenSSL 1.1.1 では署名を確かめられないため、インストール・自動更新が止まります。`openssl version` で確認できます)
+- 最新版のタグを調べ、お使いのアーキテクチャ (amd64 / arm64 / armv6) に合うバイナリをそのタグから DL し、検証する: `SHA256SUMS` の署名 (`SHA256SUMS.sig`、Ed25519) を install.sh に埋め込んだ公開鍵で確かめ、`SHA256SUMS` の先頭行の版がそのタグと一致し、各ファイルのハッシュが一致すること。署名のないリリースは入れません (**OpenSSL 3.0 以上**が必要。Pi OS Bookworm・Debian 12・Ubuntu 22.04 以降は標準で入っています。Debian 11・Ubuntu 20.04 などの OpenSSL 1.1.1 では署名を確かめられないため、インストール・自動更新が止まります。`openssl version` で確認できます)
 - 専用ユーザー `swim-worker` (システムアカウント、ログイン不可) を作成
 - `/opt/swim-worker/` にバイナリ配置 (root の持ち物。Worker が書けるのは `data/` だけ)
 - `.env` を対話式に作成 (`root:swim-worker` の `640`。Worker は読むだけ、他のユーザーは読めない)
@@ -197,7 +168,7 @@ sudo systemctl disable --now swim-worker-update.timer  # timer 自体を無効�
 
 [Releases ページ](https://github.com/Meku-30/swim-worker/releases/latest) から以下を DL:
 
-- バイナリ: `swim-worker-linux-amd64` または `swim-worker-linux-arm64`
+- バイナリ: `swim-worker-linux-amd64`・`swim-worker-linux-arm64`・`swim-worker-linux-armv6` (32 ビットの Raspberry Pi) のどれか
 - `SHA256SUMS` と `SHA256SUMS.sig`
 
 [署名](#リリースの署名を自分で確かめる)と SHA256 を検証してから、`.env` を自前で作成して実行:

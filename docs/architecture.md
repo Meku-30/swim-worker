@@ -175,17 +175,16 @@ Worker 単体の挙動に加えて、Coordinator 側でもポータルへのア�
 | プラットフォーム | 配布形態 | アーキ | 自動更新 |
 |----------------|---------|-------|---------|
 | Windows | `swim-worker-windows.exe` (PyInstaller GUI) | amd64 | GUI からポップアップ経由で更新 (同 release の署名済み `SHA256SUMS` で検証) |
-| macOS | `swim-worker-macos` (PyInstaller GUI) | arm64 (Apple Silicon) のみ | Windows と同様 |
-| Linux / Raspberry Pi | `swim-worker-linux-{amd64,arm64}` + `install.sh` + systemd unit | amd64 / arm64 | systemd timer による自動更新 |
+| Linux / Raspberry Pi | `swim-worker-linux-{amd64,arm64,armv6}` (Rust) + `install.sh` + systemd unit | amd64 / arm64 / armv6 (Pi Zero 以降の 32 ビット) | systemd timer による自動更新 |
 
-Linux CLI バイナリは glibc 2.35+ 互換 (`ubuntu-22.04` runner でビルド) で、Pi OS Bookworm / Debian 12 / Ubuntu 22.04+ / Fedora / RHEL 系で動作します。
+Linux CLI バイナリは Rust 版で、`cargo zigbuild` で glibc 2.31 以上を対象に作ります (`rust/scripts/build-linux.sh`。要求する glibc の版と ARMv6 をビルド時に確かめる)。unit は `MALLOC_ARENA_MAX=2` (割り当て器の領域を減らしてメモリを抑える) と `MemoryDenyWriteExecute=true` (Rust 版は実行時にコードを書かない) を付ける。
 
 ### install.sh の処理フロー
 
 ```
 curl | bash install.sh
   ↓
-1. uname -m でアーキテクチャ自動判定 (amd64 / arm64)
+1. uname -m でアーキテクチャ自動判定 (amd64 / arm64 / armv6。armv7l の 32 ビット OS も armv6)
 2. GitHub Releases (タグに固定) から SHA256SUMS と SHA256SUMS.sig を DL し、
    埋め込みの公開鍵で署名を、先頭行で版を検証 (通らなければここで中止。下の「更新物の署名」)
 3. 以下を DL し、SHA256SUMS でハッシュを検証:
