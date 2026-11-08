@@ -50,3 +50,37 @@ jobs:
       - name: Test
         working-directory: rust
         run: cargo test --locked -p swim-worker
+      - name: Clippy (Windows だけのコード)
+        working-directory: rust
+        run: cargo clippy --locked -p swim-worker --all-targets -- -D warnings
+      - name: Build GUI (release)
+        working-directory: rust
+        run: cargo build --release --locked -p swim-worker --bin swim-worker-gui
+      # 起動して 2 秒で起動の印 (data/.startup_ok) を書くこと (更新の .bat がこれを待つ)・待機中のメモリ
+      - name: GUI smoke test
+        shell: pwsh
+        run: |
+          $base = Join-Path $env:RUNNER_TEMP "gui-smoke"
+          New-Item -ItemType Directory -Force $base | Out-Null
+          Copy-Item rust/target/release/swim-worker-gui.exe (Join-Path $base "swim-worker-gui.exe")
+          $env:SWIM_WORKER_BASE = $base
+          $p = Start-Process (Join-Path $base "swim-worker-gui.exe") -WorkingDirectory $base -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Milliseconds 500
+            if (Test-Path (Join-Path $base "data/.startup_ok")) { $ok = $true; break }
+          }
+          Start-Sleep -Seconds 10
+          $p.Refresh()
+          if ($p.HasExited) { Get-Content (Join-Path $base "swim-worker.log") -ErrorAction SilentlyContinue; throw "GUI が終わってしまった (exit $($p.ExitCode))" }
+          "Private メモリ (待機中): {0:N1} MB / WorkingSet: {1:N1} MB" -f ($p.PrivateMemorySize64 / 1MB), ($p.WorkingSet64 / 1MB)
+          (Get-Item rust/target/release/swim-worker-gui.exe).Length / 1MB | ForEach-Object { "exe の大きさ: {0:N1} MB" -f $_ }
+          # 2 つ目は重複起動で終了コード 2 (ダイアログは CI では閉じられないので、時間で切る)
+          $p2 = Start-Process (Join-Path $base "swim-worker-gui.exe") -WorkingDirectory $base -PassThru
+          Start-Sleep -Seconds 3
+          $p2.Refresh()
+          "2 つ目: HasExited=$($p2.HasExited)"
+          Stop-Process -Id $p2.Id -Force -ErrorAction SilentlyContinue
+          Stop-Process -Id $p.Id -Force
+          Get-Content (Join-Path $base "swim-worker.log")
+          if (-not $ok) { throw "10 秒以内に起動の印が出ない" }

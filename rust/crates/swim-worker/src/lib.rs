@@ -6,6 +6,9 @@ pub mod consumer;
 pub mod delays;
 pub mod dns_check;
 pub mod dotenv;
+#[cfg(windows)]
+pub mod gui;
+pub mod gui_log;
 pub mod gui_model;
 pub mod gui_store;
 pub mod kv;
