@@ -75,3 +75,29 @@ async fn real_redis_tls_acl() {
     assert_eq!(kv.blpop(&format!("tasks:{name}"), 1.0).await.unwrap(), None);
     assert_eq!(kv.sismember_many(&[("workers:approved".into(), name.clone())]).await.unwrap().len(), 1);
 }
+
+/// 本物の接続の道筋 (TLS の設定を組み立てる) が panic しないこと。
+/// 2026-11-08 の試運転で rustls の暗号の実装が選ばれておらず、起動直後に落ちた (単体テストは偽物の Kv だけだった)
+#[tokio::test]
+async fn real_connect_path_does_not_panic() {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        // つないできたらすぐ切る (TLS の握手は失敗する)
+        while let Ok((s, _)) = l.accept().await {
+            drop(s);
+        }
+    });
+    let cfg = swim_worker::kv::RedisConfig {
+        host: "127.0.0.1".into(),
+        port,
+        username: Some("worker-x".into()),
+        password: Some("x".into()),
+        ca_pem: swim_worker::certs::REDIS_CA_PEM.as_bytes().to_vec(),
+        client_name: "x".into(),
+        socket_timeout: std::time::Duration::from_secs(2),
+    };
+    let kv = swim_worker::kv::connect(cfg).unwrap();
+    let e = kv.ping().await.unwrap_err();
+    assert!(e.is_connection() || e.kind == KvErrorKind::Other, "{e:?}");
+}

@@ -113,6 +113,29 @@ pub async fn run_consumer(consumer: Arc<TaskConsumer>) -> ExitCode {
     }
 }
 
+#[cfg(not(feature = "trial"))]
+fn session_factory() -> Box<dyn crate::swim::transport::SessionFactory> {
+    Box::new(WreqFactory)
+}
+
+/// 試運転用の偽の SWIM (ネットに出ない)。ログインは成功し、API は NOTAM 1 件を返す
+#[cfg(feature = "trial")]
+fn session_factory() -> Box<dyn crate::swim::transport::SessionFactory> {
+    use crate::swim::fake::{ok_json, FakeFactory};
+    use serde_json::json;
+    tracing::warn!(target: LOG, "試運転のビルド: SWIM の代わりに偽物で動きます");
+    let _ = WreqFactory;
+    Box::new(FakeFactory::new(|_m, url, _b| {
+        if url == crate::swim::SWIM_LOGIN_URL {
+            let mut r = ok_json(url, json!({"statusCode": 0, "datas": {"redirectUrl": crate::swim::SWIM_DEFAULT_REDIRECT_URL}}));
+            r.set_cookies = 1;
+            return Ok(r);
+        }
+        Ok(ok_json(url, json!({"notamList": [{"number": "A0001/26", "location": "RJTT", "contents": "trial",
+            "startDate": "2026/03/01 00:00", "endDate": "2026/04/01 00:00", "notamCode": "QMRLC"}]})))
+    }))
+}
+
 /// 設定・Redis・SWIM のクライアントを用意して動かす (ロックは呼び出し側で取る)
 pub async fn main_async(paths: Paths) -> ExitCode {
     let settings = match Settings::load(std::path::Path::new(".env")) {
@@ -137,7 +160,7 @@ pub async fn main_async(paths: Paths) -> ExitCode {
         &settings.swim_username,
         &settings.swim_password,
         paths.cookie_file(&settings.cookie_file),
-        Box::new(WreqFactory),
+        session_factory(),
     ));
     let consumer = Arc::new(TaskConsumer::new(
         kv,

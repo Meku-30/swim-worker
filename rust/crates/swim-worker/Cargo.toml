@@ -30,8 +30,14 @@ zstd = "0.13"
 uuid = { version = "1", features = ["v4"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "env-filter"] }
 ipnet = "2"
+# Redis の TLS (rustls) の暗号の実装。1 つだけ有効にすると自動で選ばれる (無いと接続のときに panic する)
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 fs4 = { version = "0.13", features = ["sync"] }
 tokio = { version = "1", features = ["rt", "macros", "net", "time", "signal", "sync", "fs"] }
+
+[features]
+# 試運転用: SWIM の代わりに偽物 (ネットに出ない) で動く。配布物には入れない
+trial = []
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
