@@ -23,13 +23,12 @@ function Median($xs) { $s = $xs | Sort-Object; return $s[[int][math]::Floor($s.C
 
 $proc = Start-Process -FilePath $Exe -PassThru
 Start-Sleep -Seconds 60
-$ws = @(); $priv = @(); $cpu = @()
+$ws = @(); $priv = @()
 for ($i = 0; $i -lt 6; $i++) {
     $tree = Get-Tree $proc.Id
     $ps = Get-Process -Id $tree -ErrorAction SilentlyContinue
     $ws += ($ps | Measure-Object WorkingSet64 -Sum).Sum
     $priv += ($ps | Measure-Object PrivateMemorySize64 -Sum).Sum
-    $cpu += ($ps | Measure-Object TotalProcessorTime -Property TotalProcessorTime -Sum -ErrorAction SilentlyContinue).Sum
     if ($i -lt 5) { Start-Sleep -Seconds 10 }
 }
 $tree = Get-Tree $proc.Id
