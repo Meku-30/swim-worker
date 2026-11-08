@@ -243,6 +243,8 @@ docker compose up -d
 
 ## Python で動かす場合（上級者向け）
 
+配布物 (Releases) は 1.3.0 から Rust 版です。下の Python 版は 1.2.x までの実装で、Rust 版で問題が出たときに出し直せるよう残しています。
+
 Python **3.10 以上** がインストールされていれば動作します。
 (Raspberry Pi OS Bookworm / Ubuntu 24.04 はデフォルトの Python 3.11/3.12 でそのまま動きます)
 

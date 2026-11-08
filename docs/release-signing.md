@@ -103,6 +103,17 @@ Worker は今入っている版に埋め込まれた公開鍵でしか検証し�
    この版を **旧鍵** で署名して公開する。全 Worker がこの版に上がるのを待つ (管理画面の版の分布で確認)
 2. 新しい鍵 1 本だけを埋め込み、次の版から **新鍵** で署名する (`SWIM_RELEASE_KEY=<新しい秘密鍵> scripts/sign-release.sh <タグ>`)。旧鍵は破棄してよい
 
+## Python 版を出し直すとき (Rust 版で問題が出たとき)
+
+1.3.0 から配布物は Rust 版です。Python 版の最後は、ブランチ `python-legacy` と注釈つきのタグ `python-final` に残してあります (`python-legacy` の `build-release.yml` は Python 用のまま)。
+
+1. 一時停止で自動更新を止める (管理者の手順)
+2. `python-legacy` に、版を **今の Rust 版より上の番号** にするコミットを足す (`swim_worker/__init__.py` の `__version__`)。自動更新はダウングレードしないので、下の番号では入れ替わらない
+3. そのコミットにタグ `vX.Y.Z` を打って push → Python 用のワークフローが draft を作る → いつもどおり `scripts/sign-release.sh vX.Y.Z` で署名・公開 (`python-legacy` の写しのスクリプトを使う)
+4. 段階配布で問題の Worker だけに配ってから、全体に広げる
+
+全 Worker が Rust 版で 1 か月問題なく動いたら、`python-legacy` と Python のコードは消してよい。
+
 ## 鍵を失くしたとき・漏れたとき
 
 予備の鍵は持たない運用なので、署名鍵を失くした (パスフレーズを忘れた) ときは、既存の Worker が受け付けるリリースをもう作れません。
