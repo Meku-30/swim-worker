@@ -255,3 +255,32 @@ fn cleanup_removes_only_old_files() {
     left.sort();
     assert_eq!(left, vec!["data.json", "keep.exe"]);
 }
+
+/// 本物の取り先: 上限を超える応答は全部を読み込む前に断る (Content-Length が無くても)
+#[tokio::test]
+async fn real_fetcher_stops_reading_past_max() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let sent = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let s2 = sent.clone();
+    tokio::spawn(async move {
+        let (mut s, _) = l.accept().await.unwrap();
+        let mut buf = [0u8; 4096];
+        let _ = s.read(&mut buf).await;
+        // 長さを書かず、閉じるまで送り続ける (最大 64MB)
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n").await;
+        let chunk = vec![b'x'; 64 * 1024];
+        for _ in 0..1024 {
+            if s.write_all(&chunk).await.is_err() {
+                break;
+            }
+            s2.fetch_add(chunk.len(), std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+    let f = swim_worker::updater::WreqFetcher::new().unwrap();
+    let e = f.get(&format!("http://{addr}/SHA256SUMS"), 1024).await.unwrap_err();
+    assert!(e.contains("大きすぎます"), "{e}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(sent.load(std::sync::atomic::Ordering::SeqCst) < 32 * 1024 * 1024, "途中でやめる");
+}

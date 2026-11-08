@@ -6,6 +6,7 @@ pub mod consumer;
 pub mod delays;
 pub mod dns_check;
 pub mod dotenv;
+pub mod gui_model;
 pub mod gui_store;
 pub mod kv;
 pub mod logging;

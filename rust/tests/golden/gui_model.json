@@ -1,0 +1,152 @@
+{
+ "validate": [
+  {
+   "fields": {
+    "redis_host": "h",
+    "redis_username": "u",
+    "redis_password": "p",
+    "swim_username": "s",
+    "swim_password": "q",
+    "worker_name": "w1"
+   },
+   "message": null
+  },
+  {
+   "fields": {
+    "redis_host": "  ",
+    "redis_username": "u",
+    "redis_password": "p",
+    "swim_username": "s",
+    "swim_password": "q",
+    "worker_name": "w1"
+   },
+   "message": "Redis ホスト が空です。設定を記入してください。"
+  },
+  {
+   "fields": {
+    "redis_host": "h",
+    "redis_username": "",
+    "redis_password": "p",
+    "swim_username": "s",
+    "swim_password": "q",
+    "worker_name": "w1"
+   },
+   "message": "Redis ユーザー名 が空です。管理者から教えてもらったユーザー名を入力してください。"
+  },
+  {
+   "fields": {
+    "redis_host": "h",
+    "redis_username": "u",
+    "redis_password": "",
+    "swim_username": "s",
+    "swim_password": "q",
+    "worker_name": "w1"
+   },
+   "message": "Redis パスワード が空です。設定を記入してください。"
+  },
+  {
+   "fields": {
+    "redis_host": "h",
+    "redis_username": "u",
+    "redis_password": " ",
+    "swim_username": "s",
+    "swim_password": "q",
+    "worker_name": "w1"
+   },
+   "message": null
+  },
+  {
+   "fields": {
+    "redis_host": "h",
+    "redis_username": "u",
+    "redis_password": "p",
+    "swim_username": "s",
+    "swim_password": "",
+    "worker_name": "w1"
+   },
+   "message": "SWIM パスワード が空です。設定を記入してください。"
+  },
+  {
+   "fields": {
+    "redis_host": "h",
+    "redis_username": "u",
+    "redis_password": "p",
+    "swim_username": "s",
+    "swim_password": "q",
+    "worker_name": "山田"
+   },
+   "message": "Worker 名は半角英数字・ピリオド・アンダースコア・ハイフンのみ (1〜32 文字) です"
+  },
+  {
+   "fields": {
+    "redis_host": "h",
+    "redis_username": "u",
+    "redis_password": "p",
+    "swim_username": "s",
+    "swim_password": "q",
+    "worker_name": " w.1_-a "
+   },
+   "message": null
+  },
+  {
+   "fields": {
+    "redis_host": "h",
+    "redis_username": "u",
+    "redis_password": "p",
+    "swim_username": "s",
+    "swim_password": "q",
+    "worker_name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "message": "Worker 名は半角英数字・ピリオド・アンダースコア・ハイフンのみ (1〜32 文字) です"
+  },
+  {
+   "fields": {
+    "redis_host": "",
+    "redis_username": "",
+    "redis_password": "",
+    "swim_username": "",
+    "swim_password": "",
+    "worker_name": ""
+   },
+   "message": "Redis ホスト が空です。設定を記入してください。"
+  }
+ ],
+ "task_state": [
+  {
+   "args": [
+    "processing",
+    "collect_notams",
+    0,
+    0
+   ],
+   "text": "● 実行中: NOTAM収集"
+  },
+  {
+   "args": [
+    "processing",
+    "unknown_job",
+    3,
+    1
+   ],
+   "text": "● 実行中: unknown_job"
+  },
+  {
+   "args": [
+    "idle",
+    "",
+    5,
+    0
+   ],
+   "text": "● 接続中 (処理済 5 件)"
+  },
+  {
+   "args": [
+    "idle",
+    "",
+    7,
+    2
+   ],
+   "text": "● 接続中 (処理済 7 件, エラー 2)"
+  }
+ ]
+}

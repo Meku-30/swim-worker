@@ -370,15 +370,27 @@ impl ChunkStream for WreqStream {
 impl Fetcher for WreqFetcher {
     async fn get(&self, url: &str, max: usize) -> Result<Vec<u8>, String> {
         let name = url.rsplit('/').next().unwrap_or(url).to_string();
-        let r = self.client.get(url).send().await.map_err(|e| e.to_string())?;
-        if r.status().as_u16() != 200 {
-            return Err(format!("{name} 取得失敗: status={}", r.status().as_u16()));
-        }
-        let b = r.bytes().await.map_err(|e| e.to_string())?;
-        if b.len() > max {
-            return Err(format!("{name} が大きすぎます"));
-        }
-        Ok(b.to_vec())
+        let too_big = || format!("{name} が大きすぎます");
+        // 上限を超えたら読むのをやめる (全部を読み込んでから比べない)。全体を CONNECT_STALL_TIMEOUT で切る
+        let read = async {
+            let r = self.client.get(url).send().await.map_err(|e| e.to_string())?;
+            if r.status().as_u16() != 200 {
+                return Err(format!("{name} 取得失敗: status={}", r.status().as_u16()));
+            }
+            if r.content_length().is_some_and(|n| n > max as u64) {
+                return Err(too_big());
+            }
+            let mut s = WreqStream { status: 200, total: None, resp: r };
+            let mut out = Vec::new();
+            while let Some(c) = s.next_chunk().await? {
+                if out.len() + c.len() > max {
+                    return Err(too_big());
+                }
+                out.extend_from_slice(&c);
+            }
+            Ok(out)
+        };
+        tokio::time::timeout(CONNECT_STALL_TIMEOUT, read).await.map_err(|_| format!("{name} の取得が時間切れになりました"))?
     }
 
     async fn stream(&self, url: &str) -> Result<Box<dyn ChunkStream>, String> {
