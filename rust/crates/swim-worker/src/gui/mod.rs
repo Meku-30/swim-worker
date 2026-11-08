@@ -90,7 +90,7 @@ struct Ui {
     // 自動適用のカウントダウンの窓
     cd_win: nwg::Window,
     cd_title: nwg::Label,
-    cd_current: nwg::Label,
+    _cd_current: nwg::Label,
     cd_msg: nwg::Label,
     cd_now: nwg::Button,
     cd_skip: nwg::Button,
@@ -255,11 +255,11 @@ fn build_ui(prefs: &GuiPrefs, autostart_on: bool) -> Ui {
 
     let cd_win = sub_window(&window, "自動アップデート", (420, 170));
     let cd_title = label(&cd_win, "", Some(&bold));
-    let cd_current = label(&cd_win, &format!("現在: v{VERSION}"), None);
+    let _cd_current = label(&cd_win, &format!("現在: v{VERSION}"), None);
     let cd_msg = label(&cd_win, "", None);
     let cd_now = button(&cd_win, "今すぐ");
     let cd_skip = button(&cd_win, &format!("スキップ ({SNOOZE_HOURS}h)"));
-    for (c, y) in [(&cd_title, 12), (&cd_current, 42), (&cd_msg, 70)] {
+    for (c, y) in [(&cd_title, 12), (&_cd_current, 42), (&cd_msg, 70)] {
         c.set_position(20, y);
         c.set_size(380, 24);
     }
@@ -298,7 +298,7 @@ fn build_ui(prefs: &GuiPrefs, autostart_on: bool) -> Ui {
         prog_detail,
         cd_win,
         cd_title,
-        cd_current,
+        _cd_current,
         cd_msg,
         cd_now,
         cd_skip,
