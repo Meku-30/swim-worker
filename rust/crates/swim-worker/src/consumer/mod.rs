@@ -803,30 +803,63 @@ fn str_pairs(v: Option<&Value>) -> Vec<(String, String)> {
 
 /// "OS 種別 + 版 + アーキ" (ダッシュボードの表示用。例 "Linux 6.1.0-rpi7 arm64")。アーキの書き方は OS 間でそろえる
 pub fn platform_string() -> String {
-    let (os, release, machine) = uname();
-    let machine = match machine.as_str() {
-        "AMD64" | "x64" => "x86_64".to_string(),
-        "aarch64" | "ARM64" => "arm64".to_string(),
-        m => m.to_string(),
+    let (os, release, version, machine) = uname();
+    platform_from_parts(&os, &release, &version, &machine)
+}
+
+/// Python の platform.system()・release()・version()・machine() にあたる値から作る。
+/// Windows 11 は release が "10" のままなので、ビルド番号 (version の 3 つ目) が 22000 以上なら 11 にする
+pub fn platform_from_parts(os: &str, release: &str, version: &str, machine: &str) -> String {
+    let mut release = release.to_string();
+    if os == "Windows" {
+        if let Some(b) = version.split('.').nth(2).and_then(|b| b.parse::<u32>().ok()) {
+            if b >= 22000 {
+                release = "11".into();
+            }
+        }
+    }
+    let machine = match machine {
+        "AMD64" | "x64" => "x86_64",
+        "aarch64" | "ARM64" => "arm64",
+        m => m,
     };
     format!("{os} {release} {machine}").trim().to_string()
 }
 
 #[cfg(unix)]
-fn uname() -> (String, String, String) {
+fn uname() -> (String, String, String, String) {
     // SAFETY: utsname は uname が埋める。失敗したら空のまま
     unsafe {
         let mut u: libc::utsname = std::mem::zeroed();
         if libc::uname(&mut u) != 0 {
-            return (std::env::consts::OS.into(), String::new(), std::env::consts::ARCH.into());
+            return (std::env::consts::OS.into(), String::new(), String::new(), std::env::consts::ARCH.into());
         }
         let s = |a: &[libc::c_char]| std::ffi::CStr::from_ptr(a.as_ptr()).to_string_lossy().into_owned();
-        (s(&u.sysname), s(&u.release), s(&u.machine))
+        (s(&u.sysname), s(&u.release), s(&u.version), s(&u.machine))
     }
 }
 
-#[cfg(not(unix))]
-fn uname() -> (String, String, String) {
-    // Windows の版 (10/11) の判定は M2c (GUI) で入れる
-    ("Windows".into(), String::new(), std::env::consts::ARCH.into())
+#[cfg(windows)]
+fn uname() -> (String, String, String, String) {
+    use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
+    use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
+    // RtlGetVersion は互換の設定に左右されない本当の版を返す (GetVersionEx は 8 を返すことがある)
+    // SAFETY: OSVERSIONINFOW は 0 で埋めてよい構造体。大きさを入れてから渡す
+    let mut v: OSVERSIONINFOW = unsafe { std::mem::zeroed() };
+    v.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOW>() as u32;
+    let ok = unsafe { RtlGetVersion(&mut v) } == 0;
+    let machine = match std::env::consts::ARCH {
+        "x86_64" => "AMD64",
+        "aarch64" => "ARM64",
+        a => a,
+    };
+    if !ok {
+        return ("Windows".into(), String::new(), String::new(), machine.into());
+    }
+    (
+        "Windows".into(),
+        v.dwMajorVersion.to_string(),
+        format!("{}.{}.{}", v.dwMajorVersion, v.dwMinorVersion, v.dwBuildNumber),
+        machine.into(),
+    )
 }

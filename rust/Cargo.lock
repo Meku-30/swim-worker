@@ -1431,6 +1431,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "windows-sys 0.59.0",
  "wreq",
  "zstd 0.13.4",
 ]

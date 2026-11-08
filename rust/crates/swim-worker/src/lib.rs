@@ -8,5 +8,6 @@ pub mod dotenv;
 pub mod kv;
 pub mod logging;
 pub mod paths;
+pub mod runner;
 pub mod single_instance;
 pub mod swim;

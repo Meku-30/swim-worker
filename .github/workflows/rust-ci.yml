@@ -38,3 +38,15 @@ jobs:
           name: swim-worker-linux-${{ matrix.arch }}
           path: rust/target/dist/swim-worker-linux-${{ matrix.arch }}
           retention-days: 7
+
+  # Windows でテスト (資格情報マネージャー・版の取り方など Windows だけの部分も通す)
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Test
+        working-directory: rust
+        run: cargo test --locked -p swim-worker
