@@ -75,6 +75,25 @@ python3 /t/fake_coordinator.py w1 60 3 > /t/F-coord.json 2>&1; cat /t/F-coord.js
 journalctl -u swim-worker --no-pager -o cat --since "-70s" | grep -E "WARNING|ERROR" | sed -E 's/^[0-9-]+ [0-9:,]+ //' | sort | uniq -c | head -8
 admin restore_approved
 
+if [[ -x /t/bin/fingerprint_check ]]; then
+    echo "== G unit と同じ制限の下で本物の HTTPS (指紋の確認先に、見本と同じ要求)"
+    # unit の [Service] の制限をそのまま一時の unit に渡す (起動・再起動の設定は除く)
+    # install.sh が書いた追加の設定 (名前解決のサーバーへの IPAddressAllow など) も同じく渡す
+    echo "名前解決のサーバー: $(awk '/^nameserver/{print $2}' /etc/resolv.conf | tr '\n' ' ')"
+    mapfile -t props < <(cat /etc/systemd/system/swim-worker.service /etc/systemd/system/swim-worker.service.d/*.conf 2>/dev/null \
+        | sed -n '/^\[Service\]/,/^\[Install\]/p' \
+        | grep -E '^[A-Za-z]+=' | grep -vE '^(Type|WorkingDirectory|EnvironmentFile|ExecStart|Restart|RestartSec)=')
+    args=(); for p in "${props[@]}"; do args+=(-p "$p"); done
+    install -m 0755 /t/bin/fingerprint_check $W/fingerprint_check
+    if systemd-run --wait --pipe --quiet "${args[@]}" $W/fingerprint_check /t/golden-requests > /t/G.log 2>&1; then
+        ok "制限の下で指紋が見本と同じ ($(tail -1 /t/G.log))"
+    else
+        ng "制限の下の HTTPS"; tail -15 /t/G.log
+    fi
+    grep -q "8daaf6152771" /t/G.log && echo "JA4 の行: $(grep -m1 -o 't13d[0-9a-z_]*' /t/G.log)"
+    rm -f $W/fingerprint_check
+fi
+
 echo "== 終わり"
 journalctl -u swim-worker --no-pager -o cat > /t/worker.log
 exit $R

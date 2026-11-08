@@ -50,6 +50,11 @@ for f in scripts/install.sh scripts/swim-worker-update.sh; do
     bash ./patch_install.sh "$f" pki/release.pub https://127.0.0.1:8443
 done
 cp "$BIN" bin/swim-worker-trial
+# 場面 G (任意): 指紋の確かめの道具 (swim-http の fingerprint_check、amd64) と見本の要求
+if [[ -n "${FINGERPRINT_BIN:-}" ]]; then
+    cp "$FINGERPRINT_BIN" bin/fingerprint_check
+    rm -rf golden-requests && cp -r "$FINGERPRINT_GOLDEN" golden-requests && chmod -R a+rX golden-requests
+fi
 printf '#!/bin/sh\necho "壊れた版 (試運転)" >&2\nexit 1\n' > bin/broken; chmod 755 bin/*
 bash ./make_release.sh 1.3.2 bin/broken amd64 scripts www pki/release.key
 bash ./make_release.sh 1.3.1 bin/swim-worker-trial amd64 scripts www pki/release.key

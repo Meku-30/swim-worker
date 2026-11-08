@@ -1,0 +1,1026 @@
+{
+ "raw_job": "collect_pireps",
+ "defaults": [
+  {
+   "url_contains": "/swim/api/login",
+   "set_cookie": true,
+   "json": {
+    "statusCode": 0,
+    "datas": {
+     "redirectUrl": "https://web.swim.mlit.go.jp/service/portal?lang=ja"
+    }
+   }
+  },
+  {
+   "url_contains": "swim.mlit.go.jp",
+   "json": {}
+  }
+ ],
+ "cases": [
+  {
+   "name": "collect_aip-0",
+   "task": {
+    "job_type": "collect_aip",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_aip-0",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_aip-0",
+     "json": {}
+    }
+   ]
+  },
+  {
+   "name": "collect_aip-1",
+   "task": {
+    "job_type": "collect_aip",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_aip-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_aip-1",
+     "json": {
+      "html": ""
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_aip-2",
+   "task": {
+    "job_type": "collect_aip",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_aip-2",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_aip-2",
+     "json": {
+      "html": "<table><tr><td>RWY</td><td>34L</td></tr></table>"
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_airport_profiles-0",
+   "task": {
+    "job_type": "collect_airport_profiles",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_airport_profiles-0",
+     "_icao_code": "RJTT",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_airport_profiles-0",
+     "json": {
+      "serviceStartTime": "0600",
+      "serviceEndTime": "2300"
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_airport_profiles-1",
+   "task": {
+    "job_type": "collect_airport_profiles",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_airport_profiles-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_airport_profiles-1",
+     "json": {}
+    }
+   ]
+  },
+  {
+   "name": "collect_airports-0",
+   "task": {
+    "job_type": "collect_airports",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_airports-0",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_airports-0",
+     "json": {
+      "locationInfoList": [
+       {
+        "id": "RJTT",
+        "nameJp": "RJTT(東京国際)"
+       },
+       {
+        "id": "RJAA",
+        "nameEn": "RJAA(Narita)"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_airports-1",
+   "task": {
+    "job_type": "collect_airports",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_airports-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_airports-1",
+     "json": {}
+    }
+   ]
+  },
+  {
+   "name": "collect_airspace_data-0",
+   "task": {
+    "job_type": "collect_airspace_data",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_airspace_data-0",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_airspace_data-0",
+     "json": {}
+    }
+   ]
+  },
+  {
+   "name": "collect_airspace_data-1",
+   "task": {
+    "job_type": "collect_airspace_data",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_airspace_data-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_airspace_data-1",
+     "json": {
+      "ret": {}
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_flight_details-0",
+   "task": {
+    "job_type": "collect_flight_details",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_flight_details-0",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_flight_details-0",
+     "json": {
+      "flightDetailsSearchResultsDTO": {
+       "flightDetails": {
+        "foid": "f001",
+        "flt_INFOCODE": "JAL001",
+        "typ": "B789",
+        "reg": "JA001A",
+        "dep_AD": "RJTT",
+        "dest_AD": "RJAA",
+        "rte": "route",
+        "eobt": "202603011200",
+        "eta": "202603011300"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_flight_details-1",
+   "task": {
+    "job_type": "collect_flight_details",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_flight_details-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_flight_details-1",
+     "json": {}
+    }
+   ]
+  },
+  {
+   "name": "collect_flight_foids-0",
+   "task": {
+    "job_type": "collect_flight_foids",
+    "params": {
+     "body": {
+      "flightInformationSearchConditionsDTO": {
+       "airportCode": "RJTT"
+      }
+     },
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_flight_foids-0"
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_flight_foids-0",
+     "json": {
+      "flightInformationSearchResultsDTO": {
+       "arrivingFlights": [
+        {
+         "foid": "f001",
+         "flt_INFOCODE": "JAL001",
+         "typ": "B789",
+         "dep_AD": "RJAA",
+         "flt_RULES": "I",
+         "opr": "JAL",
+         "applicationeta": "202603011200",
+         "ata": "202603011210"
+        }
+       ],
+       "departingFlights": [
+        {
+         "foid": "f002",
+         "flt_INFOCODE": "ANA100",
+         "typ": "A320",
+         "dest_AD": "RJCC",
+         "flt_RULES": "V",
+         "opr": "ANA",
+         "eobt": "202603011300"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_flight_foids-1",
+   "task": {
+    "job_type": "collect_flight_foids",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_flight_foids-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_flight_foids-1",
+     "json": {
+      "flightInformationSearchResultsDTO": {
+       "arrivingFlights": [
+        {
+         "foid": "f001",
+         "dep_AD": "RJAA"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_flight_foids-2",
+   "task": {
+    "job_type": "collect_flight_foids",
+    "params": {
+     "body": {
+      "flightInformationSearchConditionsDTO": {
+       "airportCode": "RJTT"
+      }
+     },
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_flight_foids-2"
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_flight_foids-2",
+     "json": {
+      "ret": {
+       "flightInformationSearchResultsDTO": {
+        "arrivingFlights": [
+         {
+          "foid": "f001"
+         },
+         {
+          "foid": null
+         },
+         {
+          "dep_AD": "RJAA"
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_notams-0",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_notams-0",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_notams-0",
+     "json": {
+      "notamList": [
+       {
+        "number": "A0001/26",
+        "location": "RJTT",
+        "contents": "test body",
+        "startDate": "2026/03/01 00:00",
+        "endDate": "2026/04/01 00:00",
+        "notamCode": "QMRLC"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_notams-1",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_notams-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_notams-1",
+     "json": {
+      "locationInfoList": [
+       {
+        "notamList": [
+         {
+          "notamId": "B0002",
+          "icaoCode": "RJAA",
+          "body": "test"
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_notams-2",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_notams-2",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_notams-2",
+     "json": {
+      "notamList": [
+       {
+        "location": "RJTT",
+        "contents": "no id"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_notams-3",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_notams-3",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_notams-3",
+     "json": {
+      "ret": {
+       "notamList": []
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_notams-4",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_notams-4",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_notams-4",
+     "json": {}
+    }
+   ]
+  },
+  {
+   "name": "collect_notams-5",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_notams-5",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_notams-5",
+     "json": {
+      "notamList": "not a list"
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_notams-6",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "_icao_code": "OTHER",
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_notams-6",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_notams-6",
+     "json": {
+      "_icao_code": "KEEP"
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_pireps-0",
+   "task": {
+    "job_type": "collect_pireps",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pireps-0",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pireps-0",
+     "json": {
+      "turbulencePirepList": [
+       {
+        "imdbTurbulenceInformation": {
+         "pirepControlNumber": "TC001",
+         "bodyData": "PIREP body",
+         "turbulenceStrength": "MOD",
+         "timeOfObservation": "202603011200"
+        },
+        "imdbTurbulenceInformationPosition": [
+         {
+          "latitude": "35.0",
+          "longitude": "139.0"
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_pireps-1",
+   "task": {
+    "job_type": "collect_pireps",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pireps-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pireps-1",
+     "json": {
+      "airepSpecialList": [
+       {
+        "imdbAirepSpecial": {
+         "pirepControlNumber": "SP001",
+         "bodyDataInformation": "special",
+         "turbulenceType": "SEV"
+        },
+        "imdbAirepSpecialPosition": []
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_pireps-2",
+   "task": {
+    "job_type": "collect_pireps",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pireps-2",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pireps-2",
+     "json": {
+      "sigmetList": [
+       {
+        "imdbSigmet": {
+         "location": "RJJJ",
+         "bodyDataInformation": "SIGMET body",
+         "timeOfObservation": "202603011200"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_pireps-3",
+   "task": {
+    "job_type": "collect_pireps",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pireps-3",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pireps-3",
+     "json": {}
+    }
+   ]
+  },
+  {
+   "name": "collect_pkg_weather-0",
+   "task": {
+    "job_type": "collect_pkg_weather",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-0",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-0",
+     "json": {
+      "weatherDTO": {
+       "metarSpeciInfoList": [
+        {
+         "location": "RJTT",
+         "body_DATA": "METAR RJTT 010000Z...",
+         "observed_DATE": "202603010000"
+        }
+       ],
+       "tafInfoList": [],
+       "atisInfoList": [],
+       "useRunwayList": []
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_pkg_weather-1",
+   "task": {
+    "job_type": "collect_pkg_weather",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-1",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-1",
+     "json": {
+      "weatherDTO": {
+       "metarSpeciInfoList": [
+        {
+         "location": "RJTT",
+         "body_DATA": "SPECI RJTT...",
+         "observed_DATE": "202603010015"
+        }
+       ],
+       "tafInfoList": [],
+       "atisInfoList": [],
+       "useRunwayList": []
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_pkg_weather-2",
+   "task": {
+    "job_type": "collect_pkg_weather",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-2",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-2",
+     "json": {
+      "weatherDTO": {
+       "metarSpeciInfoList": [],
+       "tafInfoList": [],
+       "atisInfoList": [
+        {
+         "location": "RJTT",
+         "body_DATA": "ATIS RJTT\nA\ninfo...",
+         "observed_DATE": "202603010000"
+        }
+       ],
+       "useRunwayList": []
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_pkg_weather-3",
+   "task": {
+    "job_type": "collect_pkg_weather",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-3",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-3",
+     "json": {
+      "weatherDTO": {
+       "metarSpeciInfoList": [],
+       "tafInfoList": [],
+       "atisInfoList": [],
+       "useRunwayList": []
+      },
+      "notamDTOList": [
+       {
+        "number": "I1/26",
+        "coordinates": "3814N14055E"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "collect_pkg_weather-4",
+   "task": {
+    "job_type": "collect_pkg_weather",
+    "params": {
+     "body": {},
+     "url": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-4"
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/collect_pkg_weather-4",
+     "json": {
+      "weatherDTO": {}
+     }
+    }
+   ]
+  },
+  {
+   "name": "unknown-job",
+   "task": {
+    "job_type": "collect_unknown",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/unknown-job",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/unknown-job",
+     "json": {
+      "notamList": [
+       {
+        "number": "A0001/26",
+        "location": "RJTT",
+        "contents": "x",
+        "startDate": "2026/03/01 00:00",
+        "endDate": "2026/04/01 00:00",
+        "notamCode": "QMRLC"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "empty-list",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/empty-list",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/empty-list",
+     "json": {
+      "notamList": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "relogin-401",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/relogin-401",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/relogin-401",
+     "status": 401,
+     "text": "expired",
+     "times": 1
+    },
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/relogin-401",
+     "json": {
+      "notamList": [
+       {
+        "number": "A0001/26",
+        "location": "RJTT",
+        "contents": "x",
+        "startDate": "2026/03/01 00:00",
+        "endDate": "2026/04/01 00:00",
+        "notamCode": "QMRLC"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "status-500",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/status-500",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/status-500",
+     "status": 500,
+     "text": "oops"
+    }
+   ]
+  },
+  {
+   "name": "status-403-twice",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/status-403-twice",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/status-403-twice",
+     "status": 403,
+     "text": "forbidden"
+    }
+   ]
+  },
+  {
+   "name": "broken-json",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/broken-json",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/broken-json",
+     "text": "{not json"
+    }
+   ]
+  },
+  {
+   "name": "not-dict",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/not-dict",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/not-dict",
+     "json": [
+      1,
+      2.5,
+      null,
+      true
+     ]
+    }
+   ]
+  },
+  {
+   "name": "numbers",
+   "task": {
+    "job_type": "collect_unknown",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/numbers",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/numbers",
+     "json": {
+      "i": 1,
+      "f": 1.0,
+      "e": 1e-07,
+      "big": 12345678901234567890,
+      "s": "日本 ",
+      "n": null,
+      "b": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "redirect-outside",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/redirect-outside",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/redirect-outside",
+     "final_url": "https://example.com/maintenance",
+     "text": "<html>"
+    }
+   ]
+  },
+  {
+   "name": "timeout",
+   "task": {
+    "job_type": "collect_notams",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/timeout",
+     "body": {}
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/timeout",
+     "delay_secs": 60,
+     "json": {
+      "notamList": [
+       {
+        "number": "A0001/26",
+        "location": "RJTT",
+        "contents": "x",
+        "startDate": "2026/03/01 00:00",
+        "endDate": "2026/04/01 00:00",
+        "notamCode": "QMRLC"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "public-get",
+   "task": {
+    "job_type": "collect_unknown",
+    "params": {
+     "url": "https://web.swim.mlit.go.jp/cmp/public-get",
+     "method": "GET",
+     "params": {
+      "a": "1"
+     }
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/public-get",
+     "json": {
+      "informations": [
+       {
+        "id": 1
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "capability",
+   "task": {
+    "job_type": "capability_test",
+    "params": {
+     "tests": [
+      {
+       "job_type": "collect_notams",
+       "url": "https://web.swim.mlit.go.jp/cmp/cap-ok",
+       "body": {}
+      },
+      {
+       "job_type": "collect_pireps",
+       "url": "https://web.swim.mlit.go.jp/cmp/cap-403",
+       "body": {}
+      },
+      {
+       "job_type": "collect_aip",
+       "url": "https://web.swim.mlit.go.jp/cmp/cap-500",
+       "body": {}
+      },
+      {
+       "job_type": "collect_airports",
+       "url": "https://example.com/x",
+       "body": {}
+      }
+     ]
+    }
+   },
+   "responses": [
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/cap-ok",
+     "json": {
+      "notamList": [
+       {
+        "number": "A0001/26",
+        "location": "RJTT",
+        "contents": "x",
+        "startDate": "2026/03/01 00:00",
+        "endDate": "2026/04/01 00:00",
+        "notamCode": "QMRLC"
+       }
+      ]
+     }
+    },
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/cap-403",
+     "status": 403,
+     "text": "no permission"
+    },
+    {
+     "url_contains": "https://web.swim.mlit.go.jp/cmp/cap-500",
+     "status": 500,
+     "text": "oops"
+    }
+   ]
+  }
+ ]
+}
