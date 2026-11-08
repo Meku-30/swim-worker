@@ -16,6 +16,8 @@ User=swim-worker
 Group=swim-worker
 WorkingDirectory=/opt/swim-worker
 EnvironmentFile=/opt/swim-worker/.env
+# メモリの割り当ての領域を 2 つに抑え、使うメモリを減らす
+Environment=MALLOC_ARENA_MAX=2
 ExecStart=/opt/swim-worker/swim-worker
 Restart=always
 RestartSec=30
@@ -51,9 +53,8 @@ SystemCallErrorNumber=EPERM
 RestrictRealtime=true
 # setuid/setgid 禁止
 RestrictSUIDSGID=true
-# 書き込み+実行可能なメモリの禁止 (MemoryDenyWriteExecute) は無効のまま。
-# curl_cffi が使う cffi (libffi のクロージャ) が W+X のメモリを確保するため、true だと落ちうる
-MemoryDenyWriteExecute=false
+# 書き込み+実行可能なメモリの禁止。Rust 版は実行時にコードを書かないので有効にする
+MemoryDenyWriteExecute=true
 # Personality 変更禁止
 LockPersonality=true
 # 名前空間作成禁止

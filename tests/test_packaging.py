@@ -44,15 +44,6 @@ def test_worker_unit_hardening():
     assert not any(n.startswith("127.") or n == "::1/128" or n == "localhost" for n in deny)
 
 
-def test_worker_unit_memory_deny_write_execute_comment_is_accurate():
-    text = (ROOT / "scripts" / "swim-worker.service").read_text(encoding="utf-8")
-    idx = text.index("MemoryDenyWriteExecute=false")
-    comment = text[:idx].rsplit("\n\n", 1)[-1]
-    # 「禁止」と書いて false にしている矛盾をなくす
-    assert "禁止" not in comment.splitlines()[-1]
-    assert "無効" in comment
-
-
 # --- W3-1 CI / W3-2 依存のロック ---------------------------------------------
 
 import yaml  # noqa: E402
