@@ -37,6 +37,8 @@ fn second_lock_is_already_running() {
 fn lock_writes_pid() {
     let d = tempfile::tempdir().unwrap();
     let lock = d.path().join("data/swim-worker.lock");
-    let _l = acquire_at(&lock).unwrap();
+    let l = acquire_at(&lock).unwrap();
+    // Windows はロック中のファイルを別の取っ手から読めない (Python の msvcrt.locking も同じ) ので、放してから読む
+    drop(l);
     assert_eq!(std::fs::read_to_string(&lock).unwrap(), format!("{}\n", std::process::id()));
 }
