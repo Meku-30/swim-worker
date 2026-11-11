@@ -555,7 +555,9 @@ def test_update_service_passes_systemd_analyze(tmp_path):
         pytest.skip("systemd-analyze が無い")
     r = subprocess.run(["systemd-analyze", "verify", str(UPDATE_SERVICE)],
                        capture_output=True, text=True)
-    # このマシンには /usr/local/libexec/swim-worker/update.sh が無いので、その指摘だけは許す
+    # このマシンには /usr/local/libexec/swim-worker/update.sh が無いので、その指摘だけは許す。
+    # OS に入っているほかのユニットの警告 (例: "/usr/lib/systemd/system/xfs_scrub_all.service:26: ... CPUAccounting=") は見ない
     problems = [l for l in (r.stderr + r.stdout).splitlines()
-                if l.strip() and "is not executable" not in l]
+                if l.strip() and "is not executable" not in l
+                and not l.startswith(("/usr/lib/systemd/", "/lib/systemd/", "/etc/systemd/"))]
     assert problems == []
